@@ -15,9 +15,57 @@ use chimera::util::optimize::{NelderMeadOpts, nelder_mead};
 use chimera::voice::human_airway::HumanAirway;
 use chimera::voice::human_voice::{HumanVoice, SourcePatch};
 
-/// tbX tbY jaw lipAp lipProt lipWidth root larynx ttX ttY
+/// The articulators searched, in order: tbX tbY jaw lipAp lipProt lipWidth root larynx ttX ttY.
+/// LO/HI is the widest search (and normalises the home-posture penalty); a style narrows it.
 const LO: [f64; 10] = [1.2, 5.0, 0.05, 0.15, 0.0, 0.0, -0.9, -1.3, 3.5, 5.0];
 const HI: [f64; 10] = [4.6, 8.8, 1.6, 1.6, 1.4, 1.0, 0.9, 1.3, 8.0, 10.8];
+
+/// A technique: the mouth it is sung with, as bounds on the search. The acoustics alone accept
+/// postures no singer uses (sygyt solved freely at 155 Hz opened the jaw to 1.55 and the lips
+/// to 1.3); the bounds hold each style to the shape seen on singers.
+/// sygyt's weight on a dark treble (see `Style::dark`)
+const DARK: f64 = 0.5;
+
+pub struct Style {
+    pub name: &'static str,
+    pub lo: [f64; 10],
+    pub hi: [f64; 10],
+    /// weight on keeping the treble above the whistle (2.5-4 kHz) down: sygyt is sung dark
+    /// above the whistle (-30 dB in the video's singer), khöömei keeps a bright upper peak
+    pub dark: f64,
+}
+
+impl Style {
+    pub fn by_name(name: &str) -> Result<Style, String> {
+        match name {
+            // small rounded mouth, lips forward, jaw a little open; the tongue body does the work
+            "khoomei" => Ok(Style {
+                name: "khoomei",
+                lo: [1.2, 5.0, 0.05, 0.15, 0.4, 0.0, -0.9, -1.3, 3.5, 5.0],
+                hi: [4.6, 8.8, 1.0, 0.6, 1.4, 0.6, 0.9, 1.3, 8.0, 10.8],
+                dark: 0.0,
+            }),
+            // lips nearly closed and a little spread, not pushed forward, jaw almost shut, the
+            // tongue tip raised behind the alveolar ridge: a small, sharply tuned front cavity
+            "sygyt" => Ok(Style {
+                name: "sygyt",
+                lo: [1.2, 5.0, 0.05, 0.15, 0.0, 0.4, -0.9, -1.3, 6.0, 8.5],
+                hi: [4.6, 8.8, 0.6, 0.5, 0.5, 1.0, 0.9, 1.3, 8.0, 10.8],
+                dark: DARK,
+            }),
+            "free" => Ok(Style { name: "free", lo: LO, hi: HI, dark: 0.0 }),
+            _ => Err(format!("unknown style {name:?} (khoomei, sygyt, free)")),
+        }
+    }
+
+    /// Starting postures, clamped into the style's bounds.
+    fn starts(&self) -> Vec<Vec<f64>> {
+        starts()
+            .into_iter()
+            .map(|x| x.iter().enumerate().map(|(i, v)| v.clamp(self.lo[i], self.hi[i])).collect())
+            .collect()
+    }
+}
 
 pub fn to_artic(p: &[f64], epilarynx: f64) -> HumanArtic {
     HumanArtic {
@@ -96,6 +144,7 @@ fn cost(
     freqs: &[f64],
     epi: f64,
     home: Option<&[f64]>,
+    dark: f64,
 ) -> f64 {
     let a = to_artic(p, epi);
     let (h, min_area) = harmonic_response(air, &a, freqs);
@@ -121,7 +170,20 @@ fn cost(
             other = other.max(x);
         }
     }
-    let lead = (t - near) + 0.5 * (t - next) + 1.5 * (t - other).min(15.0);
+    let mut lead = (t - near) + 0.5 * (t - next) + 1.5 * (t - other).min(15.0);
+    if dark > 0.0 {
+        // power mean of the harmonics from 2.5 kHz (and above n+2) to the band top
+        let (mut e, mut c) = (0.0, 0);
+        for (i, &x) in o.iter().enumerate() {
+            if freqs[i] >= 2500.0_f64.max((n + 3) as f64 * freqs[0]) {
+                e += 10f64.powf(x / 10.0);
+                c += 1;
+            }
+        }
+        if c > 0 {
+            lead += dark * (t - 10.0 * (e / c as f64).log10()).min(35.0);
+        }
+    }
     let mut pen = 400.0 * js_max(0.0, 0.3 - min_area).powi(2);
     if let Some(h0) = home {
         for i in 0..p.len() {
@@ -142,6 +204,7 @@ pub fn solve_one(
     f0: f64,
     n: usize,
     epi: f64,
+    style: &Style,
     starts: &[Vec<f64>],
     home: Option<&[f64]>,
 ) -> (Vec<f64>, f64) {
@@ -149,11 +212,11 @@ pub fn solve_one(
     let mut best: (Vec<f64>, f64) = (starts[0].clone(), f64::INFINITY);
     for x0 in starts {
         let r = nelder_mead(
-            |p| cost(air, p, n, &freqs, epi, home),
+            |p| cost(air, p, n, &freqs, epi, home, style.dark),
             x0,
             NelderMeadOpts {
-                lo: Some(LO.to_vec()),
-                hi: Some(HI.to_vec()),
+                lo: Some(style.lo.to_vec()),
+                hi: Some(style.hi.to_vec()),
                 step: Some(vec![0.4, 0.4, 0.2, 0.15, 0.3, 0.2, 0.3, 0.3, 0.4, 0.4]),
                 max_iter: Some(1500),
                 ..Default::default()
@@ -175,14 +238,15 @@ pub fn solve_set(
     f0: f64,
     ns: &[usize],
     epi: f64,
+    style: &Style,
 ) -> Vec<(usize, Vec<f64>, f64)> {
     let mut sorted: Vec<usize> = ns.to_vec();
     sorted.sort();
     sorted.dedup();
-    let st = starts();
+    let st = style.starts();
     let free: Vec<Vec<f64>> = sorted
         .iter()
-        .map(|&n| solve_one(air, f0, n, epi, &st, None).0)
+        .map(|&n| solve_one(air, f0, n, epi, style, &st, None).0)
         .collect();
     let mut best: (f64, Vec<(usize, Vec<f64>, f64)>) = (f64::INFINITY, Vec::new());
     for home in &free {
@@ -191,7 +255,7 @@ pub fn solve_set(
         let set: Vec<(usize, Vec<f64>, f64)> = sorted
             .iter()
             .map(|&n| {
-                let (x, fx) = solve_one(air, f0, n, epi, &starts_h, Some(home));
+                let (x, fx) = solve_one(air, f0, n, epi, style, &starts_h, Some(home));
                 (n, x, fx)
             })
             .collect();
@@ -226,6 +290,7 @@ fn parse_f(s: &str, what: &str) -> Result<f64, String> {
 /// contrast it reaches, as rows for `throat render`.
 pub fn solve(a: &[String]) -> Result<(), String> {
     let (rest, epi) = take_opt(a, "--epi", 0.9)?;
+    let (rest, style) = take_style(&rest)?;
     let f0 = parse_f(arg(&rest, 0, "140"), "f0")?;
     let ns: Vec<usize> = if rest.len() > 1 {
         rest[1..]
@@ -236,7 +301,7 @@ pub fn solve(a: &[String]) -> Result<(), String> {
         vec![6, 7, 8, 9, 10, 12]
     };
     let mut air = HumanAirway::new(96000.0, body("male")?);
-    let set = solve_set(&mut air, f0, &ns, epi);
+    let set = solve_set(&mut air, f0, &ns, epi, &style);
     for (n, x, fx) in &set {
         let (n, fx) = (*n, *fx);
         let freqs = cost_freqs(f0, n);
@@ -279,6 +344,21 @@ pub fn solve(a: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// `--style khoomei|sygyt|free` (default khoomei).
+fn take_style(a: &[String]) -> Result<(Vec<String>, Style), String> {
+    let mut rest = Vec::new();
+    let mut name = "khoomei".to_string();
+    let mut it = a.iter();
+    while let Some(x) = it.next() {
+        if x == "--style" {
+            name = it.next().ok_or("--style needs a name")?.clone();
+        } else {
+            rest.push(x.clone());
+        }
+    }
+    Ok((rest, Style::by_name(&name)?))
+}
+
 fn take_opt(a: &[String], name: &str, default: f64) -> Result<(Vec<String>, f64), String> {
     let mut rest = Vec::new();
     let mut val = default;
@@ -297,6 +377,7 @@ fn take_opt(a: &[String], name: &str, default: f64) -> Result<(Vec<String>, f64)
 /// solve each melody harmonic once, then sing the drone and step through the melody.
 pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let (a, epi) = take_opt(a, "--epi", 0.9)?;
+    let (a, style) = take_style(&a)?;
     let (a, tension) = take_opt(&a, "--tension", 1.0)?;
     let (a, pressure) = take_opt(&a, "--pressure", 12.0)?;
     let (a, bright) = take_opt(&a, "--bright", 0.6)?;
@@ -328,11 +409,12 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let b = body("male")?;
     let mut air = HumanAirway::new(96000.0, b);
     let ns: Vec<usize> = melody.iter().map(|m| m.0).collect();
-    let shapes: Vec<(usize, HumanArtic)> = solve_set(&mut air, f0, &ns, epi)
+    let shapes: Vec<(usize, HumanArtic)> = solve_set(&mut air, f0, &ns, epi, &style)
         .into_iter()
         .map(|(n, x, fx)| {
             println!(
-                "solved n={n} ({} Hz) cost {}",
+                "{} n={n} ({} Hz) cost {}",
+                style.name,
                 fixed(n as f64 * f0, 0),
                 fixed(fx, 1)
             );

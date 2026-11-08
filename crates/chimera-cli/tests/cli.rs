@@ -442,34 +442,45 @@ fn level_db(x: &[f64], fs: f64, f: f64) -> f64 {
     10.0 * (re * re + im * im).log10()
 }
 
-#[test]
-fn throat_render_lifts_the_melody_harmonic_over_its_neighbours() {
-    // khöömei on a low (82 Hz) drone: the melody is harmonics 16 then 20, made by tract shape alone
-    let stem = tmp("khoomei");
-    let stdout = chimera(&["throat", "render", &stem, "82", "16:0.9", "20:0.9"]);
+/// Render a throat melody of two 0.9 s notes on `f0` and check that each note's harmonic leads
+/// both neighbours by more than 6 dB in the sound itself.
+fn assert_throat_melody(name: &str, f0: f64, notes: [f64; 2], extra: &[&str]) {
+    let stem = tmp(name);
+    let (f0s, a, b) = (f0.to_string(), format!("{}:0.9", notes[0]), format!("{}:0.9", notes[1]));
+    let mut args = vec!["throat", "render", &stem, &f0s, &a, &b];
+    args.extend_from_slice(extra);
+    let stdout = chimera(&args);
     assert!(stdout.contains(&format!("wrote {stem}.wav")), "{stdout}");
-    let b = std::fs::read(format!("{stem}.wav")).unwrap();
-    let x: Vec<f64> = b[44..]
+    let bytes = std::fs::read(format!("{stem}.wav")).unwrap();
+    let x: Vec<f64> = bytes[44..]
         .chunks_exact(2)
         .map(|c| i16::from_le_bytes([c[0], c[1]]) as f64)
         .collect();
     let fs = 48000.0;
     // each note starts at 0.4 s + 0.9 s·k; measure 0.5 s from 0.3 s into it (articulators settled)
-    for (k, n) in [(0usize, 16.0), (1, 20.0)] {
-        let a = ((0.4 + 0.9 * k as f64 + 0.3) * fs) as usize;
-        let seg = &x[a..a + (0.5 * fs) as usize];
+    for (k, n) in notes.iter().enumerate() {
+        let start = ((0.4 + 0.9 * k as f64 + 0.3) * fs) as usize;
+        let seg = &x[start..start + (0.5 * fs) as usize];
         let peak = |h: f64| {
             // the drone wobbles a few cents: take the max over ±1 % around the harmonic
             (-2..=2)
-                .map(|d| level_db(seg, fs, h * 82.0 * (1.0 + 0.005 * d as f64)))
+                .map(|d| level_db(seg, fs, h * f0 * (1.0 + 0.005 * d as f64)))
                 .fold(f64::NEG_INFINITY, f64::max)
         };
-        let (t, lo, hi) = (peak(n), peak(n - 1.0), peak(n + 1.0));
+        let (t, lo, hi) = (peak(*n), peak(n - 1.0), peak(n + 1.0));
         assert!(
             t - lo.max(hi) > 6.0,
-            "harmonic {n}: {t:.1} dB vs neighbours {lo:.1} / {hi:.1}"
+            "{name} harmonic {n}: {t:.1} dB vs neighbours {lo:.1} / {hi:.1}"
         );
     }
+}
+
+#[test]
+fn throat_render_lifts_the_melody_harmonic_over_its_neighbours() {
+    // khöömei on a low (82 Hz) drone: the melody is harmonics 16 then 20, made by tract shape alone
+    assert_throat_melody("khoomei", 82.0, [16.0, 20.0], &[]);
+    // sygyt: nearly closed lips, tongue tip raised, on a higher drone
+    assert_throat_melody("sygyt", 155.0, [9.0, 12.0], &["--style", "sygyt"]);
 }
 
 #[test]

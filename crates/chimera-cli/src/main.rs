@@ -30,9 +30,9 @@ usage: chimera <command> [args] [--float]
                  [--against earlier/score.json]  (score.json: distance to the singer, and the verdict)
   compare tsp    [tsp-dir] [outdir] [--speakers FA,MA,…] [--jobs n] [--dump]
                  [--against earlier/score.json]  (distance to 23 real speakers, phone by phone)
-  throat solve   [f0] [harmonic …] [--epi 0.9]
+  throat solve   [f0] [harmonic …] [--style khoomei|sygyt|free] [--epi 0.9]
                  (tract postures that lift one drone harmonic: khöömei, by tract shape alone)
-  throat render  <out> [f0] [harmonic:secs …] [--epi 0.9] [--tension 1.0] [--pressure 12]
+  throat render  <out> [f0] [harmonic:secs …] [--style …] [--epi 0.9] [--tension 1.0] [--pressure 12]
                  [--bright 0.6] [--vib 8] [--vib-rate 6.5]  (a drone singing a harmonic melody)
   calibrate vowels     [male|female|child|all] [--out file]
   calibrate consonants [--out file]
