@@ -57,6 +57,16 @@ fn the_disjoint_letters_are_read_as_their_names() {
 }
 
 #[test]
+fn surat_al_qiyama_1_to_3() {
+    // munfaṣil on لَآ, the sun lām and doubled wāw of ٱللَّوَّامَةِ, ikhfāʾ in ٱلْإِنسَٰنُ, nūn into nūn
+    // with ghunna in أَلَّن نَّجْمَعَ, the ṣila of عِظَامَهُۥ dropped in pause
+    assert_eq!(
+        read("لَآ أُقْسِمُ بِيَوْمِ ٱلْقِيَٰمَةِ ۝ وَلَآ أُقْسِمُ بِٱلنَّفْسِ ٱللَّوَّامَةِ ۝ أَيَحْسَبُ ٱلْإِنسَٰنُ أَلَّن نَّجْمَعَ عِظَامَهُۥ"),
+        "laːː ʔuqsimu bijawmi lqiˤjaːmah | walaːː ʔuqsimu binːafsi lːawːaːmah | ʔajaħsabu lʔinːsaːnu ʔalːa nːadʒmaʕa ʕiðˤaˤːmah"
+    );
+}
+
+#[test]
 fn like_and_near_letters_merge() {
     assert_eq!(read("قَد تَّبَيَّنَ"), "qaˤ tːabajːan");
     assert_eq!(read("بَل رَّفَعَهُ"), "ba rˤːaˤfaʕah");
