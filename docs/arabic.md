@@ -29,39 +29,44 @@ judge, what it measures today, and the plan for the next step: tajweed and Qurʾ
   makhraj with their ṣifāt.
 - **The CLI**: `chimera render arabic <out> "نص" [male|female|child] [--count s] [--no-waqf]`.
 
-## Built for tajweed
+## Tajweed
 
-Tajweed is a set of changes to lengths (counted in ḥarakāt) and to segments (merged, nasalized,
-echoed), decided by the letters around them. The reader keeps exactly that:
+**Annotations.** The reader annotates the tajweed of the written text, each rule on a span of it,
+with the rule names of [cpfair/quran-tajweed](https://github.com/cpfair/quran-tajweed) (riwāyat
+Ḥafṣ, CC BY 4.0, built from ReciteQuran.com and the Dar al-Maarifah tajweed muṣḥaf): the madds,
+ghunna, qalqala, nūn and mīm sākin and tanwīn, idghām of like and near letters, hamzat al-waṣl,
+the sun lām, silent letters. `chimera tajweed score` reads every āya of the Qurʾān alone and scores
+them against that reference (`tools/fetch-tajweed.sh` fetches it to `~/datasets`; it isn't in
+git): **F1 99.8 %** over 60,057 reference spans (recall 100.0 %, precision 99.7 %; twelve rules at
+100 %, the lowest ghunnah 99.4 % and silent 99.2 %). Getting there fixed the reader too: Uthmani
+script leaves the sukūn off a letter that merges or hides (يُنفِقُونَ was "yunafiqūn").
 
-- **Durations are counts.** A short vowel is one count, a long vowel two, a doubled nasal two (its
-  ghunna); a count is a tempo (`ArabicOptions::count`, 0.1 s). Recitation speeds (taḥqīq, tadwīr,
-  ḥadr) are counts of different lengths, and madd of 4 or 6 is a count change.
-- **Every segment knows where it came from**: its span of the text (`sources`, code points), so a
-  rule can be shown on the letters it applies to, as a muṣḥaf colours them.
-- **The contexts are tagged already** (`arabic::rules`): madd muttaṣil, munfaṣil, lāzim and ʿāriḍ,
-  the text's own madd sign, ghunna, nūn and mīm sākin (with the consonant after them), iqlāb marks,
-  qalqala letters, tafkhīm and tarqīq, waqf, the article's assimilation, hamzat al-waṣl.
+The colouring follows the muṣḥaf: a written madd letter of two counts isn't coloured (only the
+dagger alif and the ṣila), the lengthened madds are those written with the maddah, a hamzat
+al-waṣl that starts a phrase is said and not coloured.
 
-The next step, in order of what a teacher corrects first:
+**Recitation** (`ArabicOptions::recite`, `render arabic --recite`, the page's Recite toggle):
+Ḥafṣ by way of al-Shāṭibiyya, from the annotations: madd muttaṣil and munfaṣil 4 counts, lāzim 6,
+ʿāriḍ 4 (2/4/6 a setting), natural 2; ghunna 2 counts; idghām with ghunna (into a nasalized ي or
+و, the velum lowered: `Segment::nasalized`), iqlāb (n → m), ikhfāʾ (a nasal at the next letter's
+place, held), ikhfāʾ and idghām shafawī; like and near letters merged; the disjoint letters read
+as names (ʔalif lāːːːm mīːːːm); no word accents, the āya drifting down to a fall at its end.
+`tests/tajweed.rs` checks the readings and counts, and in a render the velum open through a
+ghunna and the lips shut through iqlāb. Whisper hears the recited Qurʾān lines at CER 0.0 %, as
+it hears them spoken.
 
-1. **Madd lengths** (Ḥafṣ ʿan ʿĀṣim by way of al-Shāṭibiyya): muttaṣil and munfaṣil 4–5,
-   lāzim 6, ʿāriḍ lil-sukūn 2/4/6 (a setting), līn in pause. A count change on tagged segments.
-2. **Nūn sākin and tanwīn**: iẓhār before the throat letters; idghām into ي ن م و (with ghunna, 2
-   counts) and ل ر (without); iqlāb before ب (n → m, with ghunna); ikhfāʾ before the other fifteen
-   (the tongue approaches the next letter's place with the velum open: a nasalized segment, which
-   the velum articulator can already make). Mīm sākin: ikhfāʾ shafawī before ب, idghām before م.
-3. **Qalqala**: ق ط ب ج د without a vowel are released with an echo (a brief voiced release, a
-   small vowel-less burst); stronger at a pause.
-4. **Waqf signs** (ۘ ۗ ۖ ۚ ۛ ۙ): where to stop, where to continue. The reader breaks phrases at ۝ and
-   at the compulsory and preferred stops already.
-5. **Tafkhīm degrees** (fatḥa with alif > fatḥa > ḍamma > sākin > kasra) as graded backing.
-6. **The voice of recitation**: tartīl's tempo and a melody (maqām) instead of speech intonation;
-   `plan_song`'s machinery (pitched segments) can carry it.
-
-Judges for that step: a Qurʾān-trained ASR (Whisper fine-tunes on recitation exist) with forced
-alignment to check lengths in counts, the rule tags against a tajweed-annotated muṣḥaf, and a
-reciter's ear.
+Not yet, and why:
+- **Qalqala's echo.** The stop is released, but a bounce added as a short vowel, even 15 ms in
+  pause, made Whisper hear another syllable (أَحَدْ → "أحوال"). It needs a bounce in the release
+  itself: the stop releasing into a brief voiced burst without an oral vowel target.
+- **Ikhfāʾ** is a full nasal closure at the next letter's place; in ikhfāʾ the tongue only
+  approaches it. A partial closure with the velum open is the better model.
+- **The recitation's melody**: a maqām instead of a falling line. `plan_song`'s pitched segments
+  can carry it.
+- **Tartīl's pace**: a 0.12 s count lost words to Whisper (Qurʾān CER 7.0 %); recitation keeps
+  0.1 s. Slower recitation needs crisper transitions, not just longer segments.
+- **Settings a reciter chooses**: madd munfaṣil 4 or 5, ʿāriḍ 2/4/6 per verse end, waqf signs as
+  choices (ۖ ۗ ۚ ۛ), tafkhīm by degrees.
 
 ## The judge, and where it stands
 
