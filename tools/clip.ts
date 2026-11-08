@@ -5,7 +5,7 @@
  * ffmpeg puts the frames and the audio together (H.264 + AAC, for social video).
  *
  * Usage: bun tools/clip.ts <out.mp4> "<vowelled Arabic>" [--body male|female|child] [--speak]
- *        [--size 1080] [--fps 30] [--url http://127.0.0.1:5317/] [--id clip]
+ *        [--size 1080] [--fps 30] [--url http://127.0.0.1:5317/] [--id clip] [--cpu]
  * Needs the dev server (bun run dev) or a preview of a build, ffmpeg, and the release CLI
  * (cargo build --release -p chimera-cli). The work files go in public/shows/<id>/ (gitignored).
  */
@@ -28,6 +28,8 @@ const fps = Number(opt("fps", "30"));
 const url = opt("url", "http://127.0.0.1:5317/");
 const id = opt("id", "clip");
 const speak = flag("speak");
+// the GPU when there is one (--cpu: SwiftShader, for a machine without)
+const cpu = flag("cpu");
 const [out, text] = argv;
 if (!out || !text) throw new Error('usage: bun tools/clip.ts <out.mp4> "<vowelled Arabic>" [--body …] [--speak]');
 
@@ -35,11 +37,11 @@ const dir = `public/shows/${id}`;
 rmSync(dir, { recursive: true, force: true });
 mkdirSync(`${dir}/frames`, { recursive: true });
 // 1. the sound and every state of the voice, from one render
-execFileSync("target/release/chimera", ["render", "arabic", `${dir}/voice`, text, body, "--tele", `${dir}/voice.tele`, ...(speak ? [] : ["--recite"])], { stdio: "inherit" });
-writeFileSync(`${dir}/clip.json`, JSON.stringify({ tele: "voice.tele", turn: 14, sweep: 0.85 }));
+execFileSync("target/release/chimera", ["render", "arabic", `${dir}/voice`, text, body, "--tele", `${dir}/voice.tele`, "--words", `${dir}/words.json`, ...(speak ? [] : ["--recite"])], { stdio: "inherit" });
+writeFileSync(`${dir}/clip.json`, JSON.stringify({ tele: "voice.tele", words: "words.json", turn: 16, centre: 0.7, sweep: 0.55 }));
 
 // 2. the head at each frame's time
-const browser = await chromium.launch({ headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await chromium.launch({ headless: true, args: cpu ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: size, height: size }, deviceScaleFactor: 1 });
 page.on("pageerror", (e) => console.error("page:", e.message));
 await page.goto(new URL(`?clip=${id}`, url).href, { waitUntil: "networkidle" });

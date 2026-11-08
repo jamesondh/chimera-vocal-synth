@@ -41,6 +41,11 @@ export interface HeadFeed {
    * sets it (a rendered clip turns the head on its own clock); null leaves the pointer in charge.
    */
   yaw?: () => number | null;
+  /**
+   * The feed's own clock (s): the head's motion (its springs, blinks, the airflow) steps by this
+   * clock instead of the screen's, for a clip captured frame by frame far slower than it plays.
+   */
+  clock?: () => number;
 }
 
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -172,11 +177,20 @@ export function AnatomyView3D(props: { slots?: SlotsFn; info?: InfoFn; showForma
     let fTick = 0;
     let formants: number[] = [];
     let epoch = -1;
+    let lastClock: number | null = null;
     const loop = (now: number) => {
-      const dt = Math.min(0.05, (now - last) / 1000);
+      let dt = Math.min(0.05, (now - last) / 1000);
       // the face's expression keeps real time (a held note lasts as long at a low frame rate)
-      const elapsed = Math.min(0.5, (now - last) / 1000);
+      let elapsed = Math.min(0.5, (now - last) / 1000);
       last = now;
+      const clock = feedRef.current?.clock?.();
+      if (clock !== undefined) {
+        // a clip's own time: a frame drawn twice moves nothing the second time
+        const d = lastClock === null ? 0 : Math.max(0, clock - lastClock);
+        lastClock = clock;
+        dt = Math.min(0.05, d);
+        elapsed = Math.min(0.5, d);
+      }
       if (maxDpr() !== dpr) fit();
       const st = useStore.getState();
       const feed = feedRef.current;

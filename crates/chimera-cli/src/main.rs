@@ -20,7 +20,7 @@ usage: chimera <command> [args] [--float]
   render speech  <out> [\"ipa / ipa\"] [male|female|child]
   render text    <out> [\"English text.\"] [male|female|child]
   render arabic  <out> [\"نص عربي مشكول\"] [male|female|child] [--count s] [--no-waqf]
-                 [--recite] [--arid 2|4|6] [--tele voice.tele]
+                 [--recite] [--arid 2|4|6] [--tele voice.tele] [--words words.json]
                  (vowelled Arabic; --count is the seconds per haraka, 0.1; --recite applies
                  the tajweed, --arid sets the madd at a pause)
   render song    [outdir] [male|female|child]

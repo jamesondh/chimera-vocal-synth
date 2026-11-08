@@ -39,8 +39,9 @@ export function advanceTrail(t: Trail, word: MouthWord | null, clock: number): v
  * An overlay writing `now()`'s word at the mouth in `color`; each call keeps its own trail.
  * `side` is where the face looks on screen: 1 writes to the right of the lips, −1 to the left (a
  * head turned to face left), so the word is always in the open space in front of the mouth.
+ * `scale` enlarges the words (a video watched on a phone).
  */
-export function mouthWords(now: () => MouthWord | null, color: string, side: 1 | -1 = 1, family?: string): OverlayFn {
+export function mouthWords(now: () => MouthWord | null, color: string, side: 1 | -1 = 1, family?: string, scale = 1): OverlayFn {
   const t: Trail = { entries: [] };
   const trail = t.entries;
   let clock = 0;
@@ -59,7 +60,7 @@ export function mouthWords(now: () => MouthWord | null, color: string, side: 1 |
     const room = below ? w - 16 : ahead;
     // Arabic letters with their marks stand much taller than a Hershey capital of the same size:
     // set them at 0.7 of it, about a capital's visual height
-    const base = Math.max(26, Math.min(64, r.pxPerCm * 1.7)) * (family ? 0.7 : 1);
+    const base = Math.max(26, Math.min(64, r.pxPerCm * 1.7)) * (family ? 0.7 : 1) * scale;
     const by = Math.min(h - 14, ly + r.pxPerCm * 18);
     for (const { word: wd, left } of trail) {
       const age = left === null ? 0 : clock - left;

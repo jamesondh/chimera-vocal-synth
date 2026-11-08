@@ -193,6 +193,7 @@ pub fn arabic(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     use chimera::phonetics::arabic::{ArabicOptions, to_phrases};
     let mut o = ArabicOptions::default();
     let mut tele_out: Option<String> = None;
+    let mut words_out: Option<String> = None;
     let mut pos: Vec<String> = Vec::new();
     let mut k = 0;
     while k < a.len() {
@@ -205,6 +206,10 @@ pub fn arabic(ctx: &Ctx, a: &[String]) -> Result<(), String> {
             "--recite" => o.recite = true,
             "--tele" => {
                 tele_out = Some(a.get(k + 1).ok_or("--tele needs a file")?.clone());
+                k += 1;
+            }
+            "--words" => {
+                words_out = Some(a.get(k + 1).ok_or("--words needs a file")?.clone());
                 k += 1;
             }
             "--arid" => {
@@ -264,6 +269,26 @@ pub fn arabic(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     if let (Some(path), Some(r)) = (&tele_out, rec) {
         std::fs::write(path, r.bytes(body_mix(body_name)?)).map_err(|e| format!("{path}: {e}"))?;
         println!("{path}: {} telemetry frames every {TELE_HOP} samples", r.frames);
+    }
+    if let Some(path) = &words_out {
+        // each written word from its first planned segment to its last (Arabic segments plan one
+        // to one), on the render's clock
+        let mut words = vec![];
+        let mut k = 0;
+        for p in &phrases {
+            let (mut wi, mut t0) = (0, None);
+            for s in &p.segments {
+                let ps = &plan.segments[k];
+                k += 1;
+                t0 = t0.or(Some(ps.t0));
+                if s.word_end == Some(true) {
+                    words.push(serde_json::json!({"text": p.words.get(wi).cloned().unwrap_or_default(), "t0": t0.unwrap(), "t1": ps.t1}));
+                    wi += 1;
+                    t0 = None;
+                }
+            }
+        }
+        std::fs::write(path, serde_json::Value::Array(words).to_string()).map_err(|e| format!("{path}: {e}"))?;
     }
     Ok(())
 }
