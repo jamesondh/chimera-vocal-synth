@@ -20,9 +20,10 @@ and the CLI) under a React UI. See the README.
   `crates/chimera-cli/`: `chimera render | compare csd | diagnose | calibrate`.
 - `src/wasm/`: the UI's facade over the engine. `src/worklet/`: the AudioWorklet. `src/ui/`: React
   and the canvas renderers.
-- `tests/`: bun tests on the wasm build. `tools/`: e2e, layout lint, spectrogram, speech judge.
+- `tests/`: bun tests on the wasm build. `tools/`: e2e, layout lint, spectrogram, speech judges
+  (English, and Arabic in `tools/asr/arabic_judge.py`).
 - `docs/`: architecture, the engine contract (`rust-engine.md`), the UI look, the singer judge,
-  and the hill-climb rules.
+  the hill-climb rules, and Arabic with the tajweed plan (`arabic.md`).
 
 ## Rules
 
@@ -54,3 +55,4 @@ and the CLI) under a React UI. See the README.
 | `crates/chimera/` sound | re-bless goldens (above); `cargo run --release -q -p chimera --example bench` against the previous commit |
 | `crates/chimera-wasm/`, `src/wasm/`, `src/worklet/`, `src/main.tsx` | `bun run build && bun run preview`, then `bun tools/e2e.ts` |
 | `src/ui/`, `src/show/`, CSS | `bun run lint:layout` |
+| Arabic sound (`phonetics/arabic.rs`, the inventory's Arabic sounds) | `tools/asr/arabic_judge.py <out> --against <last>/arabic.json` (docs/arabic.md) |

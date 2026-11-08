@@ -13,6 +13,9 @@ for tests and the `chimera` CLI.
   gestures and prosody, with the gestural score and a consonant chart on screen.
 - **Sing**: piano roll with lyrics per note; consonants land before the beat.
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
+- **Arabic** (`/arabic`): vowelled Arabic read by the rules of correct reading (waṣl and waqf,
+  sun letters, shadda, madd, tafkhīm), the emphatics as a pulled-back tongue, the letters by
+  where tajweed places them, presets from greetings to al-Fātiḥa. Groundwork for tajweed.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.
 - **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.
 
@@ -35,7 +38,7 @@ The AudioWorklet needs a secure context, so open it on localhost or over HTTPS (
 Offline renders and measurement:
 
 ```sh
-cargo run --release -p chimera-cli -- render speech|text|song|notes|beatbox|creature|vowels …
+cargo run --release -p chimera-cli -- render speech|text|arabic|song|notes|beatbox|creature|vowels …
 cargo run --release -p chimera-cli -- diagnose       # nasal leakage, formants, bandwidths, pitch
 cargo run --release -p chimera-cli -- compare csd    # against a real singer (docs/csd-comparison.md)
 bun tools/spectrogram.ts in.wav out.png
@@ -53,6 +56,8 @@ bun tools/spectrogram.ts in.wav out.png
   Song Dataset.
 - [docs/hill-climb/](docs/hill-climb/): the rules and log for tuning the voice one measured
   step at a time.
+- [docs/arabic.md](docs/arabic.md): Arabic, its Whisper judge and results, and the plan for
+  tajweed and Qurʾān recitation.
 
 Agents: see [AGENTS.md](AGENTS.md).
 
@@ -60,4 +65,4 @@ Agents: see [AGENTS.md](AGENTS.md).
 
 [MIT](LICENSE). Bundled third-party files keep their own licenses: the CMU Pronouncing
 Dictionary ([public/data/CMUDICT-LICENSE.txt](public/data/CMUDICT-LICENSE.txt)) and the fonts
-([public/fonts/](public/fonts/)).
+([public/fonts/](public/fonts/), Amiri Quran in [AMIRI-OFL.txt](public/fonts/AMIRI-OFL.txt)).
