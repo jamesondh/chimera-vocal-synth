@@ -301,16 +301,7 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             Manner::Stop if pre_placed_behind_closure(&segs, i) => add_oral(&def.targets, t0 + js_min(PLACED_CLOSURE_DELAY, js_max(0.0, dur - 0.03)), t1, 1.55, def.ipa),
             Manner::Stop | Manner::Nasal => add_oral(&def.targets, t0, t1, 1.55, def.ipa),
             Manner::Tap => add_oral(&def.targets, t0, t1, 2.8, def.ipa),
-            Manner::Trill => {
-                // driven trill: rapid alternation of near-closure and release at ~26 Hz
-                let n = js_max(2.0, js_round(dur * 26.0));
-                let mut k = 0.0;
-                while k < n {
-                    let a = t0 + (k / n) * dur;
-                    add_oral(&def.targets, a, a + 0.35 / 26.0, 3.2, def.ipa);
-                    k += 1.0;
-                }
-            }
+            Manner::Trill => trill_gestures_into(def, t0, t1, &mut gestures),
             Manner::Affricate => {
                 let split = t0 + dur * 0.55;
                 add_oral(&def.targets, t0, split, 2.0, def.ipa);
@@ -426,6 +417,43 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         }
     }
     Plan { gestures, segments: planned, end }
+}
+
+/// A trill's vibrating articulator, the value it is held at (a narrow gap) and the value its
+/// strikes aim at (past contact). Measured in the /ɑ/ context the consonants are calibrated in:
+/// the tip at ttY 9.05 leaves about 0.2 cm² and meets the ridge from 9.3; the dorsum at tbY 7.1
+/// leaves 0.14 cm² under the uvula and meets it from 7.25.
+fn trill_motion(def: &PhonemeDef) -> Option<(ArticKey, f64, f64)> {
+    let k = [ArticKey::TtY, ArticKey::TbY, ArticKey::LipAp].into_iter().find(|k| def.dominant.contains(k))?;
+    let x = def.targets.get(k)?;
+    Some(match k {
+        ArticKey::TtY => (k, x - 0.4, x + 0.25),
+        ArticKey::TbY => (k, x - 0.75, x + 0.2),
+        _ => (k, x + 0.12, x - 0.2),
+    })
+}
+
+/// Contacts per second of a trill (alveolar trills run at 25–30 Hz; Ladefoged & Maddieson 1996).
+const TRILL_RATE: f64 = 26.0;
+
+/// A trill from `t0` to `t1`: the articulator held just short of contact (its other targets, such
+/// as a pharyngealized trill's tongue body, held with it), and struck into contact by brief pulses
+/// at [`TRILL_RATE`], so the passage opens between the contacts and the voice runs on through them.
+/// (Built from full oral gestures, whose ramps last ~70 ms, the strikes at 38 ms spacing merged
+/// into one closure: a stop.)
+fn trill_gestures_into(def: &PhonemeDef, t0: f64, t1: f64, out: &mut Vec<Gesture>) {
+    let Some((key, gap, contact)) = trill_motion(def) else { return };
+    let mut hold = def.targets;
+    hold.set(key, gap);
+    out.push(Gesture::new(t0 - 0.02, t1, 0.03, 0.02, 40.0, artic_targets(&hold)).speed(2.5).label(def.ipa));
+    let dur = t1 - t0;
+    let n = js_max(2.0, js_round(dur * TRILL_RATE));
+    let mut k = 0.0;
+    while k < n {
+        let a = t0 + ((k + 0.25) / n) * dur;
+        out.push(Gesture::new(a, a + 0.006, 0.005, 0.005, 400.0, one(key, contact)).speed(3.2).label(def.ipa));
+        k += 1.0;
+    }
 }
 
 /// Front-to-back order of the oral places of articulation.
