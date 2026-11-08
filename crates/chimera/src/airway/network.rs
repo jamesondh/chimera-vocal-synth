@@ -225,6 +225,11 @@ pub struct AirwayNetwork {
     pub amin: Vec<f64>,
     amin_target: Vec<f64>,
     amin_step: Vec<f64>,
+    /// per-sample cap on a node's minimum area (cm², +∞ = none): a valve inside a tube, such as
+    /// the ventricular folds, narrowing the jet without being part of the geometry's ramp
+    amin_cap: Vec<f64>,
+    /// the minimum area the branches see this sample: `amin` under its cap
+    amin_eff: Vec<f64>,
     /// nodes with ≥3 connections get a compliance floor for leapfrog stability
     is_junction: Vec<bool>,
     inv_lsum: Vec<f64>,
@@ -347,6 +352,8 @@ impl AirwayNetwork {
             area_step: Vec::new(),
             amin: Vec::new(),
             amin_target: Vec::new(),
+            amin_cap: Vec::new(),
+            amin_eff: Vec::new(),
             amin_step: Vec::new(),
             is_junction: Vec::new(),
             inv_lsum: Vec::new(),
@@ -492,6 +499,8 @@ impl AirwayNetwork {
         self.area_step = zf(n);
         self.amin = zf(n);
         self.amin_target = zf(n);
+        self.amin_cap = vec![f64::INFINITY; n];
+        self.amin_eff = zf(n);
         self.amin_step = zf(n);
         self.is_junction = vec![false; n];
         self.inv_lsum = zf(n);
@@ -665,6 +674,13 @@ impl AirwayNetwork {
         self.port_area_step[branch] = 0.0;
     }
 
+    /// Cap a node's minimum area from the next sample on (a valve inside a tube; per-sample sources
+    /// call this every sample). `f64::INFINITY` removes the cap.
+    #[inline]
+    pub fn set_min_area_cap(&mut self, node: usize, cap: f64) {
+        self.amin_cap[node] = if cap < 0.0 { 0.0 } else { cap };
+    }
+
     #[inline]
     pub fn set_fixed_pressure(&mut self, node: usize, p: f64) {
         self.p[node] = p;
@@ -801,6 +817,10 @@ impl AirwayNetwork {
                 }
                 let amk = if am > a { a } else { am };
                 amin[k] = amk;
+                // a valve's cap narrows the jet; uncapped (+∞) this is amk unchanged
+                let cap = self.amin_cap[k];
+                let amk = if amk > cap { cap } else { amk };
+                self.amin_eff[k] = amk;
                 dx[k] += self.dx_step[k];
                 let d = dx[k];
                 let ia = 1.0 / (if a > 1e-6 { a } else { 1e-6 });
@@ -872,7 +892,7 @@ impl AirwayNetwork {
             // the arrays the branch loop reads, borrowed once (checked indexing costs nothing
             // measurable here, against get_unchecked)
             let area = &self.area[..n];
-            let amin = &self.amin[..n];
+            let amin = &self.amin_eff[..n];
             let inv_a = &self.inv_a[..n];
             let inv_amin = &self.inv_amin[..n];
             let half_l = &self.half_l[..n];

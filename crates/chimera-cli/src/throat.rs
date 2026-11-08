@@ -33,6 +33,10 @@ pub struct Style {
     /// weight on keeping the treble above the whistle (2.5-4 kHz) down: sygyt is sung dark
     /// above the whistle (-30 dB in the video's singer), khöömei keeps a bright upper peak
     pub dark: f64,
+    /// the vocal folds vibrate this many times per period of the pitch heard (2 in kargyraa,
+    /// where the ventricular folds choke every other pulse), and the valve's depth (0 = none)
+    pub fold_ratio: f64,
+    pub kargyraa: f64,
 }
 
 impl Style {
@@ -44,6 +48,8 @@ impl Style {
                 lo: [1.2, 5.0, 0.05, 0.15, 0.4, 0.0, -0.9, -1.3, 3.5, 5.0],
                 hi: [4.6, 8.8, 1.0, 0.6, 1.4, 0.6, 0.9, 1.3, 8.0, 10.8],
                 dark: 0.0,
+                fold_ratio: 1.0,
+                kargyraa: 0.0,
             }),
             // lips nearly closed and a little spread, not pushed forward, jaw almost shut, the
             // tongue tip raised behind the alveolar ridge: a small, sharply tuned front cavity
@@ -52,9 +58,22 @@ impl Style {
                 lo: [1.2, 5.0, 0.05, 0.15, 0.0, 0.4, -0.9, -1.3, 6.0, 8.5],
                 hi: [4.6, 8.8, 0.6, 0.5, 0.5, 1.0, 0.9, 1.3, 8.0, 10.8],
                 dark: DARK,
+                fold_ratio: 1.0,
+                kargyraa: 0.0,
             }),
-            "free" => Ok(Style { name: "free", lo: LO, hi: HI, dark: 0.0 }),
-            _ => Err(format!("unknown style {name:?} (khoomei, sygyt, free)")),
+            // the ventricular folds close on every other glottal cycle: the drone sounds an
+            // octave below the folds. The melody is vowel-like (the first resonance tuned onto
+            // harmonics ~9-12 of the drone heard), sung with an open, rounded mouth and a low larynx
+            "kargyraa" => Ok(Style {
+                name: "kargyraa",
+                lo: [1.2, 5.0, 0.4, 0.4, 0.2, 0.0, -0.9, -1.3, 3.5, 5.0],
+                hi: [4.6, 8.8, 1.6, 1.4, 1.2, 0.6, 0.9, 0.3, 8.0, 10.8],
+                dark: 0.0,
+                fold_ratio: 2.0,
+                kargyraa: 1.0,
+            }),
+            "free" => Ok(Style { name: "free", lo: LO, hi: HI, dark: 0.0, fold_ratio: 1.0, kargyraa: 0.0 }),
+            _ => Err(format!("unknown style {name:?} (khoomei, sygyt, kargyraa, free)")),
         }
     }
 
@@ -344,7 +363,7 @@ pub fn solve(a: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// `--style khoomei|sygyt|free` (default khoomei).
+/// `--style khoomei|sygyt|kargyraa|free` (default khoomei).
 fn take_style(a: &[String]) -> Result<(Vec<String>, Style), String> {
     let mut rest = Vec::new();
     let mut name = "khoomei".to_string();
@@ -422,8 +441,9 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         })
         .collect();
     let mut voice = HumanVoice::new(FS, b, 2);
+    voice.set_kargyraa(style.kargyraa);
     voice.set_source(&SourcePatch {
-        f0: Some(f0),
+        f0: Some(f0 * style.fold_ratio),
         pressure: Some(pressure),
         tension: Some(tension),
         breathiness: Some(0.0),

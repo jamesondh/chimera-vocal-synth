@@ -515,3 +515,25 @@ fn throat_song_phrases_last_as_long_as_the_simulated_air() {
     assert!((3.0..7.0).contains(&sang), "half a litre lasted {sang} s:\n{stdout}");
     assert!(stdout.contains(&format!("wrote {stem}.wav")), "{stdout}");
 }
+
+#[test]
+fn throat_kargyraa_drops_the_drone_an_octave_through_the_ventricular_folds() {
+    // the folds run at 115 Hz; the ventricular folds choke every other pulse, so the half-way
+    // partials ((k - ½)·115 Hz) come up to about the level of the folds' own harmonics. Without
+    // the valve (khöömei on the same 115 Hz folds) they are absent.
+    let level_of = |stem: &str| {
+        let b = std::fs::read(format!("{stem}.wav")).unwrap();
+        let x: Vec<f64> = b[44..].chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f64).collect();
+        let fs = 48000.0;
+        let seg = &x[(1.0 * fs) as usize..(1.5 * fs) as usize];
+        let mean = |f: &dyn Fn(f64) -> f64| (1..=15).map(|k| level_db(seg, fs, f(k as f64))).sum::<f64>() / 15.0;
+        mean(&|k| (k - 0.5) * 115.0) - mean(&|k| k * 115.0)
+    };
+    let kar = tmp("kargyraa");
+    chimera(&["throat", "render", &kar, "57.5", "10:1.2", "--style", "kargyraa"]);
+    let plain = tmp("plain115");
+    chimera(&["throat", "render", &plain, "115", "5:1.2"]);
+    let (k, p) = (level_of(&kar), level_of(&plain));
+    assert!(k > -6.0, "kargyraa half-way partials {k:.1} dB under the harmonics");
+    assert!(p < -15.0, "without the valve the half-way partials sit at {p:.1} dB");
+}

@@ -226,6 +226,12 @@ impl ParametricGlottis {
     pub fn cycle_phase(&self) -> f64 {
         self.phase
     }
+
+    /// Whether the current glottal cycle is an odd one (alternates every cycle; the ventricular
+    /// folds of kargyraa lock to it).
+    pub fn odd_cycle(&self) -> bool {
+        self.cycle_index & 1 == 1
+    }
 }
 
 /// Normalised area pulse (0..1) at cycle phase ph.

@@ -316,14 +316,18 @@ pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         run.run_for(t_in - 2.0 * RAMP_IN)?;
         run.ramp_gate(1.0, 0.0, RAMP_IN)?;
         air = p.lungs;
-        // onset: the drone scoops up into its pitch on the first note's posture
+        // onset: the drone scoops up into its pitch on the first note's posture. `f0` is the pitch
+        // heard; in kargyraa the folds run at twice it and the ventricular folds engage
+        let style = Style::by_name(&p.style)?;
+        let folds = p.f0 * style.fold_ratio;
         let first = shape(p, p.notes[0].0);
         run.run_for(0.03)?;
+        run.voice.set_kargyraa(style.kargyraa);
         run.voice.set_source(&SourcePatch {
             voiced: Some(true),
             breathiness: Some(0.0),
             pressure: Some(p.pressure),
-            f0: Some(p.f0 * SCOOP_FROM),
+            f0: Some(folds * SCOOP_FROM),
             glide: Some(0.01),
             ..Default::default()
         });
@@ -331,7 +335,7 @@ pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         run.voice.set_gate(1.0);
         run.run_for(0.03)?;
         run.voice.set_source(&SourcePatch {
-            f0: Some(p.f0),
+            f0: Some(folds),
             glide: Some(SCOOP_GLIDE),
             ..Default::default()
         });
@@ -390,8 +394,9 @@ pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         // the inhale meanwhile (moving it after, in silence, the displaced air ticked audibly)
         run.voice
             .set_articulation(&inhale_posture(inhale_lips), Some(false));
+        run.voice.set_kargyraa(0.0);
         run.voice.set_source(&SourcePatch {
-            f0: Some(p.f0 * RELEASE_TO),
+            f0: Some(folds * RELEASE_TO),
             glide: Some(RELEASE / 2.0),
             ..Default::default()
         });

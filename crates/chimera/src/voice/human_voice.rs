@@ -196,7 +196,17 @@ pub struct HumanVoice {
     lim_release: f64,
     /// tissue may compress this far (cm) before the palate stops the articulator
     pub max_penetration: f64,
+    /// ventricular folds phase-locked to the glottis (kargyraa); see `set_kargyraa`
+    pub ventricular: crate::sources::ventricular::VentricularFolds,
+    /// the pharynx node at the ventricular folds while the valve acts (usize::MAX: none)
+    vent_node: usize,
+    /// that node's open minimum area (cm²), from the geometry at control rate
+    vent_open: f64,
 }
+
+/// Where the ventricular folds sit along the epilarynx (fraction from the glottis): the middle of
+/// the ventricular band of `HumanVocalTract::epilarynx_area` (0.3..0.5).
+const VENT_AT: f64 = 0.4;
 
 impl HumanVoice {
     /// A voice rendering at `fs_out`, simulating at `fs_out · oversample`.
@@ -250,6 +260,9 @@ impl HumanVoice {
             lim_hold_n: crate::math::js_round(0.025 * fs_out) as i64,
             lim_release: exp(-1.0 / (0.2 * fs_out)),
             max_penetration: 0.1,
+            ventricular: crate::sources::ventricular::VentricularFolds::new(fs),
+            vent_node: usize::MAX,
+            vent_open: 0.0,
         };
         let x = v.artic.x;
         v.airway.apply(&x, 0.0);
@@ -278,6 +291,12 @@ impl HumanVoice {
             self.artic.tip_free = t;
         }
         self.artic.set_target(values);
+    }
+
+    /// Kargyraa: the ventricular folds close on every other glottal cycle, `depth` 0..1 of the
+    /// way (0 lets them rest open). The sound drops an octave below the folds' pitch.
+    pub fn set_kargyraa(&mut self, depth: f64) {
+        self.ventricular.depth = clamp(depth, 0.0, 1.0);
     }
 
     pub fn set_source(&mut self, values: &SourcePatch) {
@@ -362,6 +381,10 @@ impl HumanVoice {
                 net.set_fixed_pressure(lungs, self.p_lung_now);
                 let a = self.glottis.next(net.p[sub_node] - net.p[supra]);
                 net.set_port_area(gp, a);
+                if self.vent_node != usize::MAX {
+                    let sc = self.ventricular.next(self.glottis.cycle_phase(), self.glottis.odd_cycle());
+                    net.set_min_area_cap(self.vent_node, if sc < 1.0 { self.vent_open * sc } else { f64::INFINITY });
+                }
                 let y = net.step();
                 if self.dec.push(y) {
                     // output sample
@@ -472,6 +495,7 @@ impl HumanVoice {
             let x = self.artic.x;
             self.airway.reapply(&x);
         }
+        self.place_ventricular();
         self.airway.net.begin_block(self.ctrl_every);
         self.ctrl_counter = self.ctrl_every as i64;
         // breath: fast attack, slower release; a speaking score breathes on its own
@@ -505,6 +529,31 @@ impl HumanVoice {
         for k in 0..n_ph + self.airway.n_or {
             let br = if k < n_ph { self.airway.branch_of(self.airway.pharynx, k as isize) } else { self.airway.branch_of(self.airway.oral, (k - n_ph) as isize) };
             self.flow_sm[k] += a * (self.airway.net.u[br] - self.flow_sm[k]);
+        }
+    }
+
+    /// Control rate: find the pharynx node at the ventricular folds (the larynx moves, so the
+    /// tube's sections slide) while the valve acts, and lift the cap from a node it has left.
+    fn place_ventricular(&mut self) {
+        let net_cap_off = |net: &mut crate::airway::network::AirwayNetwork, node: usize| {
+            if node != usize::MAX {
+                net.set_min_area_cap(node, f64::INFINITY);
+            }
+        };
+        if !self.ventricular.active() {
+            net_cap_off(&mut self.airway.net, self.vent_node);
+            self.vent_node = usize::MAX;
+            return;
+        }
+        let air = &self.airway;
+        let epi_len = 2.4 * air.body.scale * air.body.pharynx;
+        let dx = air.ph_len / air.n_ph as f64;
+        let i = ((VENT_AT * epi_len / dx) as usize).min(air.n_ph - 1);
+        let node = air.pharynx.node(i);
+        self.vent_open = air.ph_min[i];
+        if node != self.vent_node {
+            net_cap_off(&mut self.airway.net, self.vent_node);
+            self.vent_node = node;
         }
     }
 
