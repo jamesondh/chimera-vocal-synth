@@ -17,11 +17,11 @@ and the CLI) under a React UI. See the README.
 ## Map
 
 - `crates/chimera/`: the engine (no I/O). `crates/chimera-wasm/`: the browser's C ABI.
-  `crates/chimera-cli/`: `chimera render | compare csd | diagnose | calibrate`.
+  `crates/chimera-cli/`: `chimera render | compare csd | diagnose | calibrate | tajweed score`.
 - `src/wasm/`: the UI's facade over the engine. `src/worklet/`: the AudioWorklet. `src/ui/`: React
   and the canvas renderers.
 - `tests/`: bun tests on the wasm build. `tools/`: e2e, layout lint, spectrogram, speech judges
-  (English, and Arabic in `tools/asr/arabic_judge.py`).
+  (English, and Arabic in `tools/asr/arabic_judge.py`), `clip.ts` (a video of the 3D head).
 - `docs/`: architecture, the engine contract (`rust-engine.md`), the UI look, the singer judge,
   the hill-climb rules, and Arabic with the tajweed plan (`arabic.md`).
 
@@ -44,7 +44,8 @@ and the CLI) under a React UI. See the README.
   from `src/main.tsx`'s static imports. Check: `bun tools/e2e.ts` against `bun run preview`.
 - **DOM content flows in `.screen-body`, never absolutely positioned.** Check: `bun run lint:layout`.
 - **Nothing copyrighted goes in git.** `public/shows/` is gitignored; never ship CSD audio or
-  anything derived from it.
+  anything derived from it. The Tanzil Qurʾān text and the tajweed annotations live in
+  `~/datasets/quran-tajweed`, not in the repo (Tanzil's terms).
 - **Voice tuning follows `docs/hill-climb/README.md`** and never edits its judges.
 
 ## Checks
@@ -55,4 +56,5 @@ and the CLI) under a React UI. See the README.
 | `crates/chimera/` sound | re-bless goldens (above); `cargo run --release -q -p chimera --example bench` against the previous commit |
 | `crates/chimera-wasm/`, `src/wasm/`, `src/worklet/`, `src/main.tsx` | `bun run build && bun run preview`, then `bun tools/e2e.ts` |
 | `src/ui/`, `src/show/`, CSS | `bun run lint:layout` |
-| Arabic sound (`phonetics/arabic.rs`, the inventory's Arabic sounds) | `tools/asr/arabic_judge.py <out> --against <last>/arabic.json` (docs/arabic.md) |
+| Arabic sound (`phonetics/arabic.rs`, the inventory's Arabic sounds) | `tools/asr/arabic_judge.py <out> --against <last>/arabic.json` (`--recite` for recitation; docs/arabic.md) |
+| the Arabic reader's tajweed (`annotate_words`, `recite`) | `chimera tajweed score` (data: `tools/fetch-tajweed.sh`); it is at F1 99.8 % and must not fall |
