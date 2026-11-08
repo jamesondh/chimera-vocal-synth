@@ -6,7 +6,7 @@
 //! sequencer) builds into a caller's `Vec` and allocates nothing once it has capacity.
 
 use super::durations::{SegInfo, klatt_durations};
-use super::inventory::{Glottal, Manner, PhonemeDef, Voicing, phoneme};
+use super::inventory::{Glottal, Manner, PhonemeDef, Voicing, pharyngealized_base, phoneme};
 use super::{Intonation, Plan, PlannedSegment, Segment};
 use crate::anatomy::human::{ArticKey, ArticPatch, BodyMix, BodyName};
 use crate::control::score::{ControlKey, Gesture, Targets};
@@ -66,7 +66,23 @@ pub fn diphthong_parts(ipa: &str) -> Option<(&'static str, &'static str)> {
 
 pub fn is_vowel(ipa: &str, body: BodyMix) -> bool {
     let t = vowel_table();
+    let ipa = pharyngealized_base(ipa).unwrap_or(ipa);
     body.weights().iter().any(|(b, w)| *w > 0.0 && t.get(b.as_str()).is_some_and(|t| t.contains_key(ipa))) || expand(ipa).is_some()
+}
+
+/// How far a pharyngealized vowel's tongue body moves (tbX, tbY, cm) from the plain vowel's, and
+/// the tongue root it takes. Measured on the male tract's transfer function, these lower F2 by
+/// about 280 Hz for /i/ and 300 Hz for /a/, and 60 Hz for /u/, which is already back (emphatic
+/// vowels in Arabic: F2 down by a few hundred Hz in front and open vowels, little in /u/, F1 a
+/// little up; Jongman, Herd & Al-Masri 2011, Card 1983). Pulled further back, /u/'s dorsum narrows
+/// the velar passage.
+fn pharyngeal_shift(base: &str) -> (f64, f64, f64) {
+    match base {
+        "i" | "ɪ" | "e" | "ɛ" | "y" => (-0.6, -0.2, -0.8),
+        "a" | "æ" | "ɑ" | "ɐ" | "ʌ" | "ə" => (-0.7, 0.0, -0.85),
+        "u" | "ʊ" | "o" | "ɔ" | "ɒ" => (-0.3, -0.15, -0.8),
+        _ => (-0.5, -0.1, -0.8),
+    }
 }
 
 /// The calibrated articulation of a vowel for a body: between presets, the presets' calibrated
@@ -86,6 +102,19 @@ pub fn vowel_artic(ipa: &str, body: BodyMix) -> Option<ArticPatch> {
 }
 
 fn preset_vowel_artic(ipa: &str, body: BodyName) -> Option<ArticPatch> {
+    // a pharyngealized vowel (Arabic tafkhīm, "aˤ"): the plain vowel with the tongue body and root
+    // pulled back toward the upper pharynx
+    if let Some(base) = pharyngealized_base(ipa) {
+        let mut out = preset_vowel_artic(base, body)?;
+        let (dx, dy, root) = pharyngeal_shift(base);
+        for (k, d) in [(ArticKey::TbX, dx), (ArticKey::TbY, dy)] {
+            if let Some(x) = out.get(k) {
+                out.set(k, x + d);
+            }
+        }
+        out.set(ArticKey::Root, js_min(root, out.get(ArticKey::Root).unwrap_or(0.0)));
+        return Some(out);
+    }
     let t = vowel_table();
     let v = t.get(body.as_str()).and_then(|b| b.get(ipa)).or_else(|| t.get("male").and_then(|m| m.get(ipa)))?;
     let mut out = ArticPatch::default();
@@ -308,8 +337,9 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             gestures.push(Gesture::new(t0, t1, 0.012, 0.015, 8.0, one(ControlKey::CLOSURE, 1.0)).label("ʔ"));
         } else if def.voicing == Voicing::Voiceless {
             if def.manner == Manner::Stop || def.manner == Manner::Affricate {
-                // aspirated when syllable-initial before a vowel and not after /s/ (English-like)
-                let aspirated = next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s");
+                // aspirated when syllable-initial before a vowel and not after /s/ (English-like),
+                // unless the stop is one that is never aspirated (Arabic /q/, /tˤ/)
+                let aspirated = next_vowel && !def.unaspirated && !prev_seg.is_some_and(|p| p.ipa == "s");
                 let vot = if aspirated { 0.05 / rate } else { 0.012 };
                 gestures.push(Gesture::new(t0 + 0.25 * dur, t1 + vot * 0.4, 0.035, if aspirated { 0.045 } else { 0.02 }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration"));
             } else {

@@ -86,6 +86,10 @@ pub struct PhonemeDef {
     /// glottal-only segments
     #[serde(skip_serializing_if = "Option::is_none")]
     pub glottal: Option<Glottal>,
+    /// a voiceless stop released without aspiration wherever it stands (Arabic /q/ and the
+    /// emphatic /tˤ/: tajweed counts them among the letters without breath, hams)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unaspirated: bool,
 }
 
 use ArticKey::*;
@@ -109,7 +113,7 @@ fn tg(a: Tg, b: Tg) -> ArticPatch {
 
 #[allow(clippy::too_many_arguments)]
 fn c(ipa: &'static str, name: &'static str, manner: Manner, voicing: Voicing, place: &'static str, targets: ArticPatch, dominant: &'static [ArticKey], dur: f64) -> PhonemeDef {
-    PhonemeDef { ipa, name, manner, voicing, place, targets, dominant, nasal: None, dur, area: None, cal_key: None, release: None, glottal: None }
+    PhonemeDef { ipa, name, manner, voicing, place, targets, dominant, nasal: None, dur, area: None, cal_key: None, release: None, glottal: None, unaspirated: false }
 }
 
 impl PhonemeDef {
@@ -130,6 +134,45 @@ impl PhonemeDef {
         self.glottal = Some(g);
         self
     }
+    fn unasp(mut self) -> Self {
+        self.unaspirated = true;
+        self
+    }
+}
+
+/// Pharyngealization (IPA ˤ, the Arabic emphatics): while the primary constriction is made, the
+/// tongue dorsum and root pull back toward the upper pharynx. This is the secondary articulation
+/// that lowers F2 in the neighbouring vowels; measured on the model, it takes /a/ from 1450 to about
+/// 1100 Hz, the size of the drop reported for Arabic emphatics (Jongman, Herd & Al-Masri 2011).
+pub const PHARYNGEALIZATION: Tg = &[(TbX, 1.6), (TbY, 6.4), (Root, -0.85)];
+
+/// The pharyngealized consonants, each made from its plain counterpart.
+const PHARYNGEALIZED: [(&str, &str, &str); 8] = [
+    ("tˤ", "t", "pharyngealized voiceless alveolar stop"),
+    ("dˤ", "d", "pharyngealized voiced alveolar stop"),
+    ("sˤ", "s", "pharyngealized voiceless alveolar fricative"),
+    ("zˤ", "z", "pharyngealized voiced alveolar fricative"),
+    ("ðˤ", "ð", "pharyngealized voiced dental fricative"),
+    ("lˤ", "l", "pharyngealized alveolar lateral"),
+    ("ɾˤ", "ɾ", "pharyngealized alveolar tap"),
+    ("rˤ", "r", "pharyngealized alveolar trill"),
+];
+
+/// A plain consonant's definition with the tongue body pulled back (unaspirated if a stop).
+fn pharyngealized(base: &PhonemeDef, ipa: &'static str, name: &'static str) -> PhonemeDef {
+    let mut d = *base;
+    d.ipa = ipa;
+    d.name = name;
+    for (k, x) in PHARYNGEALIZATION {
+        d.targets.set(*k, *x);
+    }
+    d.unaspirated = d.manner == Manner::Stop;
+    d
+}
+
+/// The base vowel of a pharyngealized vowel symbol ("aˤ" → "a"), or None.
+pub fn pharyngealized_base(ipa: &str) -> Option<&str> {
+    ipa.strip_suffix('ˤ').filter(|b| !b.is_empty())
 }
 
 // place templates
@@ -162,7 +205,7 @@ fn base() -> Vec<PhonemeDef> {
         c("ɟ", "voiced palatal stop", M::Stop, Voiced, "palatal", t(PAL_STOP), &BODY, 0.07),
         c("k", "voiceless velar stop", M::Stop, Voiceless, "velar", t(VEL_STOP), &[TbY], 0.08),
         c("g", "voiced velar stop", M::Stop, Voiced, "velar", t(VEL_STOP), &[TbY], 0.07),
-        c("q", "voiceless uvular stop", M::Stop, Voiceless, "uvular", t(UVU_STOP), &BODY, 0.085),
+        c("q", "voiceless uvular stop", M::Stop, Voiceless, "uvular", t(UVU_STOP), &BODY, 0.085).unasp(),
         c("ɢ", "voiced uvular stop", M::Stop, Voiced, "uvular", t(UVU_STOP), &BODY, 0.075),
         c("ʔ", "glottal stop", M::Glottal, Voiceless, "glottal", t(NONE), &[], 0.06).glot(Glottal::Stop),
         // nasals
@@ -223,9 +266,19 @@ fn base() -> Vec<PhonemeDef> {
     ]
 }
 
+/// The inventory: the base consonants, then the pharyngealized ones made from them.
+fn all() -> Vec<PhonemeDef> {
+    let mut v = base();
+    for (ipa, plain, name) in PHARYNGEALIZED {
+        let b = *v.iter().find(|p| p.ipa == plain).expect("pharyngealized base");
+        v.push(pharyngealized(&b, ipa, name));
+    }
+    v
+}
+
 type CalTable = BTreeMap<String, BTreeMap<String, ArticPatch>>;
 
-static BASE: LazyLock<Vec<PhonemeDef>> = LazyLock::new(base);
+static BASE: LazyLock<Vec<PhonemeDef>> = LazyLock::new(all);
 static CAL: LazyLock<CalTable> = LazyLock::new(|| serde_json::from_str(include_str!("consonantTargets.generated.json")).expect("consonantTargets.generated.json"));
 static SYMBOLS: LazyLock<Vec<&'static str>> = LazyLock::new(|| BASE.iter().map(|p| p.ipa).collect());
 

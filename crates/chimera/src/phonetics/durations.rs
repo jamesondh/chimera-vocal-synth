@@ -114,7 +114,8 @@ pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> 
                 return d;
             }
             let fallback = inf[i].dur.unwrap_or(0.08);
-            let (inh0, min0) = table(&s.ipa).unwrap_or((1000.0 * fallback, 600.0 * fallback));
+            // a pharyngealized segment ("sˤ", "aˤ") lasts as its plain counterpart
+            let (inh0, min0) = table(super::inventory::pharyngealized_base(&s.ipa).unwrap_or(&s.ipa)).unwrap_or((1000.0 * fallback, 600.0 * fallback));
             let (inh, mut min, mut p) = (inh0, min0, 1.0f64);
             if inf[i].vowel {
                 let stress = s.stress.unwrap_or(0);

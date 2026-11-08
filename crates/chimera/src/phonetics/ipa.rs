@@ -7,7 +7,10 @@ use std::sync::OnceLock;
 
 const VOWEL_CHARS: &str = "iyɨʉɯuɪʏʊeøɘɵɤoəɛœɜɞʌɔæɐaɶɑɒɝɚ";
 const MULTI: [&str; 10] = ["tʃ", "dʒ", "ts", "dz", "pf", "aɪ", "aʊ", "ɔɪ", "eɪ", "oʊ"];
-const ALIASES: [(&str, &str); 9] = [("t͡ʃ", "tʃ"), ("d͡ʒ", "dʒ"), ("t͡s", "ts"), ("d͡z", "dz"), ("ɡ", "g"), ("ʧ", "tʃ"), ("ʤ", "dʒ"), ("r̥", "r"), ("ɐ̯", "ɐ")];
+const ALIASES: [(&str, &str); 10] = [("t͡ʃ", "tʃ"), ("d͡ʒ", "dʒ"), ("t͡s", "ts"), ("d͡z", "dz"), ("ɡ", "g"), ("ʧ", "tʃ"), ("ʤ", "dʒ"), ("r̥", "r"), ("ɐ̯", "ɐ"), ("ˠ", "ˤ")];
+
+/// pharyngealization (the Arabic emphatics, "sˤ"; velarization ˠ is read as the same)
+const PHARYNGEALIZED: char = 'ˤ';
 
 
 fn known() -> &'static HashSet<&'static str> {
@@ -83,7 +86,20 @@ pub fn tokenize_ipa(input: &str) -> Vec<Segment> {
         while i < s.len() && ('\u{300}'..='\u{36F}').contains(&s[i]) {
             i += 1;
         }
-        if !known.contains(tok.as_str()) {
+        // a pharyngealized vowel ("aˤ") is its vowel with the tongue pulled back; consonants have
+        // their own pharyngealized definitions ("sˤ"), and other ones drop the mark
+        if i < s.len() && s[i] == PHARYNGEALIZED {
+            i += 1;
+            let p = format!("{tok}{PHARYNGEALIZED}");
+            let vowel = tok.chars().count() == 1 && VOWEL_CHARS.contains(tok.as_str());
+            if vowel || known.contains(p.as_str()) {
+                tok = p;
+            }
+            while i < s.len() && ('\u{300}'..='\u{36F}').contains(&s[i]) {
+                i += 1;
+            }
+        }
+        if !known.contains(super::inventory::pharyngealized_base(&tok).unwrap_or(&tok)) {
             continue;
         }
         let is_v = tok.chars().next().is_some_and(|c| VOWEL_CHARS.contains(c)) && !super::inventory::consonant_symbols().contains(&tok.as_str());
