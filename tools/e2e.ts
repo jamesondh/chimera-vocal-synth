@@ -195,9 +195,9 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.close();
 }
 
-// the Arabic page, opened by its address: the basmala is read by the rules (the article's lām
-// assimilated, the doubled rāʾ, waqf at the end), voiced, then silent; a letter plays; the address
-// follows the mode
+// the Arabic page, opened by its address: the basmala is recited by the rules (the article's lām
+// assimilated, the doubled rāʾ, waqf and its madd at the end), voiced, then silent; a letter plays;
+// the address follows the mode
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on("console", (m) => m.type() === "error" && errors.push(`[arabic] ${m.type()}: ${m.text()}`));
@@ -208,7 +208,8 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.waitForTimeout(1200);
   const reading = (await page.locator(".s-read .transcription").textContent())?.replace(/ˈ/g, "") ?? "";
   logs.push(`[arabic] transcription: ${reading}`);
-  if (reading !== "/bismi lːaːhi rˤːaˤħmaːni rˤːaˤħiːm/") errors.push(`[arabic] the basmala read as ${reading}`);
+  // recited: the madd before the pause (ʿāriḍ) held four counts
+  if (reading !== "/bismi lːaːhi rˤːaˤħmaːni rˤːaˤħiːːm/") errors.push(`[arabic] the basmala recited as ${reading}`);
   const rms: number[] = [];
   for (let i = 0; i < 14; i++) {
     await page.waitForTimeout(250);

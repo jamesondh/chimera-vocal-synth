@@ -2138,7 +2138,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .ar-say {
-  grid-template-rows: auto auto auto auto;
+  grid-template-rows: auto auto auto auto auto;
 }
 
 .ar-say textarea {
@@ -2160,9 +2160,32 @@ input[type="range"]::-moz-range-thumb {
   overflow-wrap: anywhere;
 }
 
+/* the letters being said: boxed (green is ghunna's colour in the tajweed text) */
 .ar-now {
-  color: var(--green);
-  text-shadow: 0 0 6px rgba(91, 227, 129, 0.8);
+  outline: 1px solid var(--white);
+  outline-offset: 2px;
+  text-shadow: 0 0 8px rgba(238, 246, 248, 0.9);
+}
+
+.ar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--blue-mid);
+}
+
+.ar-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ar-swatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
 }
 
 .ar-why {

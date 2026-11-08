@@ -200,6 +200,10 @@ export interface ArabicOptions {
   count?: number;
   /** read each phrase's last word in pause (waqf); on by default */
   waqf?: boolean;
+  /** recite: apply the tajweed (Ḥafṣ), on a reciting tone */
+  recite?: boolean;
+  /** counts of a madd ʿāriḍ in pause: 2, 4 or 6 (4 by default) */
+  arid?: number;
 }
 
 export interface Syllable {

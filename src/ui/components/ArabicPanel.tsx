@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store.ts";
 import { stopSpeaking, spokenWordNow } from "../speech.ts";
-import { currentReading, letterAt, onReading, readArabic, soundingNow, speakArabic, type ArabicReading } from "../arabic.ts";
+import { currentReading, letterAt, onReading, readArabic, soundingNow, speakArabic, TAJWEED, type ArabicReading } from "../arabic.ts";
 import { LETTER_FORMS, MAKHARIJ, PRESET_GROUPS, SIFAT, letterOf, letterText, type Letter, type LetterForm } from "../arabicData.ts";
 import { mouthWords } from "../mouthWords.ts";
 import { ARABIC } from "../render/vector.ts";
@@ -54,22 +54,52 @@ function useSounding(): ReturnType<typeof soundingNow> {
   return now;
 }
 
-/** Arabic text with the letters being said lit. */
-function ArabicText(props: { text: string; span: [number, number] | null }) {
+type Annot = { rule: string; start: number; end: number };
+
+/**
+ * Arabic text coloured by its tajweed (each character takes the colour of the rule over it), with
+ * the letters being said boxed.
+ */
+function ArabicText(props: { text: string; span: [number, number] | null; annotations: Annot[] }) {
   const chars = useMemo(() => Array.from(props.text), [props.text]);
-  const [a, b] = props.span ?? [0, 0];
+  // runs of characters with the same colour and the same lit state
+  const runs = useMemo(() => {
+    const color: (string | null)[] = chars.map(() => null);
+    for (const a of props.annotations) for (let i = a.start; i < a.end && i < chars.length; i++) color[i] = TAJWEED[a.rule]?.color ?? null;
+    const [a, b] = props.span ?? [-1, -1];
+    const out: { text: string; color: string | null; now: boolean }[] = [];
+    chars.forEach((c, i) => {
+      const now = i >= a && i < b;
+      const last = out[out.length - 1];
+      if (last && last.color === color[i] && last.now === now) last.text += c;
+      else out.push({ text: c, color: color[i], now });
+    });
+    return out;
+  }, [chars, props.annotations, props.span]);
   return (
     <p className="ar-text" dir="rtl" lang="ar">
-      {props.span ? (
-        <>
-          {chars.slice(0, a).join("")}
-          <span className="ar-now">{chars.slice(a, b).join("")}</span>
-          {chars.slice(b).join("")}
-        </>
-      ) : (
-        props.text
-      )}
+      {runs.map((r, i) => (
+        <span key={i} className={r.now ? "ar-now" : undefined} style={r.color ? { color: r.color } : undefined}>
+          {r.text}
+        </span>
+      ))}
     </p>
+  );
+}
+
+/** The tajweed rules in a text, with their colours. */
+function TajweedLegend(props: { annotations: Annot[] }) {
+  const rules = [...new Set(props.annotations.map((a) => a.rule))].filter((r) => TAJWEED[r]);
+  if (!rules.length) return null;
+  return (
+    <div className="ar-legend" aria-label="Tajweed in this text">
+      {rules.map((r) => (
+        <span key={r} className="ar-legend-item">
+          <span className="ar-swatch" style={{ background: TAJWEED[r].color }} />
+          {TAJWEED[r].name}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -109,6 +139,7 @@ export function ArabicRight() {
   const start = useStore((s) => s.start);
   const [text, setText] = useState(PRESET_GROUPS[4].presets[0].text);
   const [waqf, setWaqf] = useState(true);
+  const [recite, setRecite] = useState(true);
   const [rate, setRate] = useState(1);
   const [group, setGroup] = useState(PRESET_GROUPS[0].id);
   const [form, setForm] = useState<LetterForm>("fatha");
@@ -120,21 +151,21 @@ export function ArabicRight() {
   // the reading of what is typed, as it is typed
   const preview = useMemo(() => {
     try {
-      const ps = readArabic(text, { waqf });
-      return { ipa: ps.map((p) => p.ipa).join(" | "), guessed: ps.reduce((n, p) => n + p.guessed, 0) };
+      const ps = readArabic(text, { waqf, recite });
+      return { ipa: ps.map((p) => p.ipa).join(" | "), guessed: ps.reduce((n, p) => n + p.guessed, 0), annotations: ps.flatMap((p) => p.annotations) };
     } catch {
-      return { ipa: "", guessed: 0 };
+      return { ipa: "", guessed: 0, annotations: [] as Annot[] };
     }
-  }, [text, waqf]);
+  }, [text, waqf, recite]);
 
-  const say = async (t: string, w = waqf) => {
+  const say = async (t: string, w = waqf, r = recite) => {
     await start();
-    speakArabic(t, { body, rate, f0, waqf: w });
+    speakArabic(t, { body, rate, f0, waqf: w, recite: r });
   };
   const playLetter = (l: Letter) => {
     setPicked(l);
     const { text: t, waqf: w } = letterText(l, form);
-    void say(t, w);
+    void say(t, w, false);
   };
 
   const live = reading && now ? reading : null;
@@ -144,7 +175,17 @@ export function ArabicRight() {
 
   return (
     <div className="right right-arabic">
-      <Screen className="s-read" title="Read" sub="Vowelled Arabic" tools={<Toggle label="Pause forms" checked={waqf} onChange={setWaqf} />}>
+      <Screen
+        className="s-read"
+        title="Read"
+        sub={recite ? "Recited with tajweed" : "Vowelled Arabic"}
+        tools={
+          <>
+            <Toggle label="Recite" checked={recite} onChange={setRecite} />
+            <Toggle label="Pause forms" checked={waqf} onChange={setWaqf} />
+          </>
+        }
+      >
         <div className="say ar-say">
           <div className="say-row">
             <textarea
@@ -170,7 +211,8 @@ export function ArabicRight() {
               </button>
             </div>
           </div>
-          <ArabicText text={text} span={span} />
+          <ArabicText text={text} span={span} annotations={preview.annotations} />
+          <TajweedLegend annotations={preview.annotations} />
           <div className="say-row">
             <p className="transcription" aria-live="polite" title={preview.ipa}>
               {preview.ipa ? `/${preview.ipa}/` : "The reading appears here."}
@@ -209,8 +251,11 @@ export function ArabicRight() {
               className="ar-preset"
               title={p.en}
               onClick={() => {
+                // the Qurʾān is recited; everything else is spoken
+                const r = group === "quran";
                 setText(p.text);
-                void say(p.text);
+                setRecite(r);
+                void say(p.text, waqf, r);
               }}
             >
               <span className="ar-glyphs" dir="rtl" lang="ar">

@@ -613,8 +613,68 @@ struct Reader<'a> {
 }
 
 impl Reader<'_> {
+    /// The disjoint letters (الٓمٓ, كٓهيعٓصٓ, يسٓ, …) read as their names: alif, lām, mīm, … A name's
+    /// long vowel takes the madd lāzim when the letter carries the maddah (the recitation sets six
+    /// counts from its annotation), and a name ending in m or n merges into a next one starting
+    /// with m (لَامْ مِيمْ → lāmmīm, with ghunna).
+    fn read_letter_names(&mut self, wi: usize) {
+        let w = &self.words[wi];
+        for (li, x) in w.letters.iter().enumerate() {
+            // (consonants, vowel, final consonant): ʔ-a-lif is spelled out
+            let (onset, v, coda): (&[&'static str], V, &[&'static str]) = match x.ch {
+                'ا' => (&["ʔ"], V::A, &["l", "i", "f"]),
+                'ل' => (&["l"], V::A, &["m"]),
+                'م' => (&["m"], V::I, &["m"]),
+                'ر' => (&["ɾ"], V::A, &[]),
+                'ص' => (&["sˤ"], V::A, &["d"]),
+                'ك' => (&["k"], V::A, &["f"]),
+                'ه' => (&["h"], V::A, &[]),
+                'ي' => (&["j"], V::A, &[]),
+                'ع' => (&["ʕ"], V::A, &["j", "n"]),
+                'ط' => (&["tˤ"], V::A, &[]),
+                'س' => (&["s"], V::I, &["n"]),
+                'ح' => (&["ħ"], V::A, &[]),
+                'ق' => (&["q"], V::A, &["f"]),
+                'ن' => (&["n"], V::U, &["n"]),
+                _ => continue,
+            };
+            // a name's nasal end merges into the next name's m
+            let merges = matches!(coda.last(), Some(&"m") | Some(&"n")) && w.letters.get(li + 1).is_some_and(|n| n.ch == 'م');
+            for (k, c) in onset.iter().enumerate() {
+                if k == 0 && self.phones.last().is_some_and(|p| p.gem && p.ipa == "m" && p.word == wi) && *c == "m" {
+                    continue; // the merged m already sounds
+                }
+                self.phones.push(Phone::cons(c, x.ch, x.src, wi));
+            }
+            let mut p = Phone::vowel(v, x.src, wi);
+            // alif's name has a short a; the others a long vowel
+            p.long = x.ch != 'ا';
+            if p.long {
+                p.rules.push(MADD);
+            }
+            self.phones.push(p);
+            for (k, c) in coda.iter().enumerate() {
+                if *c == "i" {
+                    self.phones.push(Phone::vowel(V::I, x.src, wi));
+                    continue;
+                }
+                let mut p = Phone::cons(c, x.ch, x.src, wi);
+                if merges && k + 1 == coda.len() {
+                    p.ipa = "m";
+                    p.gem = true;
+                    p.rules.push(GHUNNA);
+                }
+                self.phones.push(p);
+            }
+        }
+    }
+
     fn read_word(&mut self, wi: usize, pause: bool) {
         let w = &self.words[wi];
+        if w.muqattaat() {
+            self.read_letter_names(wi);
+            return;
+        }
         let l = &w.letters;
         let n = l.len();
         let start = self.phones.len();

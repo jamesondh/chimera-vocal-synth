@@ -41,8 +41,8 @@ export function readArabic(text: string, options?: ArabicOptions): ArabicPhrase[
 }
 
 /** Say vowelled Arabic. Returns null when there is nothing to say. */
-export function speakArabic(text: string, o: { body: BodyMix; rate: number; f0: number; waqf?: boolean; count?: number }): ArabicReading | null {
-  const phrases = readArabic(text, { waqf: o.waqf ?? true, count: o.count });
+export function speakArabic(text: string, o: { body: BodyMix; rate: number; f0: number; waqf?: boolean; count?: number; recite?: boolean }): ArabicReading | null {
+  const phrases = readArabic(text, { waqf: o.waqf ?? true, count: o.count, recite: o.recite ?? false });
   if (!phrases.length) return null;
   const sp: SpokenPlan = speakPhrases(phrases, { body: o.body, rate: o.rate, f0: o.f0 });
   reading = {
@@ -74,6 +74,31 @@ export function soundingNow(): { index: number; ipa: string; source: [number, nu
   const ipa = sp.plan.segments[index].ipa + (r.counts[index] >= 2 ? "ː" : "");
   return { index, ipa, source: r.sources[index], rules: r.rules[index] };
 }
+
+/**
+ * The tajweed colours, after the Dar al-Maarifah muṣḥaf's scheme on this black screen: greens
+ * for ghunna, reds to yellows for the madds by length, blue for qalqala, grey for what isn't said.
+ */
+export const TAJWEED: Record<string, { color: string; name: string }> = {
+  madd_6: { color: "#ff4b5c", name: "Madd lāzim, 6" },
+  madd_muttasil: { color: "#ff7a6b", name: "Madd muttaṣil, 4" },
+  madd_munfasil: { color: "#ff9d4d", name: "Madd munfaṣil, 4" },
+  madd_246: { color: "#ffc04d", name: "Madd ʿāriḍ, 2·4·6" },
+  madd_2: { color: "#f2dc6b", name: "Madd, 2" },
+  ghunnah: { color: "#5be381", name: "Ghunna" },
+  idghaam_ghunnah: { color: "#3fbf6a", name: "Idghām with ghunna" },
+  iqlab: { color: "#7cf0b0", name: "Iqlāb" },
+  ikhfa: { color: "#9be27a", name: "Ikhfāʾ" },
+  ikhfa_shafawi: { color: "#9be27a", name: "Ikhfāʾ shafawī" },
+  idghaam_shafawi: { color: "#3fbf6a", name: "Idghām shafawī" },
+  qalqalah: { color: "#4fb6f2", name: "Qalqala" },
+  idghaam_no_ghunnah: { color: "#7d8f99", name: "Idghām without ghunna" },
+  idghaam_mutajanisayn: { color: "#7d8f99", name: "Idghām, like letters" },
+  idghaam_mutaqaribayn: { color: "#7d8f99", name: "Idghām, near letters" },
+  hamzat_wasl: { color: "#5f6f78", name: "Hamzat al-waṣl" },
+  lam_shamsiyyah: { color: "#5f6f78", name: "Sun lām" },
+  silent: { color: "#5f6f78", name: "Silent" },
+};
 
 /** The base letter at the start of a source span (its first character that is a letter). */
 export function letterAt(text: string, span: [number, number]): string | null {

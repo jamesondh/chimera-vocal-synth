@@ -57,7 +57,9 @@ export function mouthWords(now: () => MouthWord | null, color: string, side: 1 |
     // below the neck, and fall away downwards
     const below = ahead < 60;
     const room = below ? w - 16 : ahead;
-    const base = Math.max(26, Math.min(64, r.pxPerCm * 1.7));
+    // Arabic letters with their marks stand much taller than a Hershey capital of the same size:
+    // set them at 0.7 of it, about a capital's visual height
+    const base = Math.max(26, Math.min(64, r.pxPerCm * 1.7)) * (family ? 0.7 : 1);
     const by = Math.min(h - 14, ly + r.pxPerCm * 18);
     for (const { word: wd, left } of trail) {
       const age = left === null ? 0 : clock - left;

@@ -38,6 +38,17 @@ describe("the Arabic reader through the facade", () => {
     expect(phrases[1].intonation).toBe("question");
   });
 
+  test("recited, the tajweed sets the lengths and the text carries its annotations", () => {
+    const text = "وَلَا ٱلضَّآلِّينَ";
+    const [p] = arabicPhrases(text, { recite: true });
+    expect(p.counts).toContain(6); // madd lāzim
+    expect(p.counts).toContain(4); // madd ʿāriḍ
+    const chars = Array.from(text);
+    const lazim = p.annotations.find((a) => a.rule === "madd_6")!;
+    expect(chars.slice(lazim.start, lazim.end).join("")).toBe("آ");
+    expect(p.annotations.map((a) => a.rule)).toContain("hamzat_wasl");
+  });
+
   test("pause forms can be turned off", () => {
     expect(arabicPhrases("كِتَابٌ")[0].ipa.replace(/ˈ/g, "")).toBe("kitaːb");
     expect(arabicPhrases("كِتَابٌ", { waqf: false })[0].ipa.replace(/ˈ/g, "")).toBe("kitaːbun");

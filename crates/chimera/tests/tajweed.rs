@@ -47,6 +47,16 @@ fn nun_sakin_and_tanwin() {
 }
 
 #[test]
+fn the_disjoint_letters_are_read_as_their_names() {
+    // al-Baqara 2:1: alif lām mīm, the lām's and mīm's madd lāzim six counts, lām's m merged into mīm
+    // (one written word: no spaces in its IPA)
+    assert_eq!(read("الٓمٓ"), "ʔaliflaːːːmːiːːːm");
+    let p = &to_phrases("الٓمٓ", &ArabicOptions::default())[0];
+    assert_eq!(p.ipa.replace('ˈ', ""), "ʔaliflaːmːiːm");
+    assert_eq!(read("يسٓ"), "jaːsiːːːn");
+}
+
+#[test]
 fn like_and_near_letters_merge() {
     assert_eq!(read("قَد تَّبَيَّنَ"), "qaˤ tːabajːan");
     assert_eq!(read("بَل رَّفَعَهُ"), "ba rˤːaˤfaʕah");

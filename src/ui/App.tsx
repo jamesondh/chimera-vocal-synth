@@ -158,7 +158,7 @@ function StartPrompt() {
           await start();
           if (mode === "arabic") {
             const s = useStore.getState();
-            speakArabic(PRESET_GROUPS[4].presets[0].text, { body: s.body, rate: 1, f0: s.source.f0 });
+            speakArabic(PRESET_GROUPS[4].presets[0].text, { body: s.body, rate: 1, f0: s.source.f0, recite: true });
           }
           const first = creatureById(creature)?.calls[0];
           if (mode === "bestiary" && first) playCall(first.id);
