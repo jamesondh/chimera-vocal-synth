@@ -192,6 +192,7 @@ pub fn text(ctx: &Ctx, a: &[String]) -> Result<(), String> {
 pub fn arabic(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     use chimera::phonetics::arabic::{ArabicOptions, to_phrases};
     let mut o = ArabicOptions::default();
+    let mut tele_out: Option<String> = None;
     let mut pos: Vec<String> = Vec::new();
     let mut k = 0;
     while k < a.len() {
@@ -202,6 +203,10 @@ pub fn arabic(ctx: &Ctx, a: &[String]) -> Result<(), String> {
             }
             "--no-waqf" => o.waqf = false,
             "--recite" => o.recite = true,
+            "--tele" => {
+                tele_out = Some(a.get(k + 1).ok_or("--tele needs a file")?.clone());
+                k += 1;
+            }
             "--arid" => {
                 o.arid = a.get(k + 1).and_then(|x| x.parse().ok()).ok_or("--arid needs 2, 4 or 6")?;
                 k += 1;
@@ -247,10 +252,19 @@ pub fn arabic(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     voice.schedule(&plan.gestures);
     let total = js_round(FS * (plan.end + 0.3)) as usize;
     let mut out = vec![0f32; total];
-    render_blocks(&mut voice, &mut out);
+    let rec = if tele_out.is_some() {
+        render_tracked(&mut voice, &mut out, false, true)?.1
+    } else {
+        render_blocks(&mut voice, &mut out);
+        None
+    };
     let file = wav_name(name);
     ctx.write_wav(&file, &out)?;
     println!("wrote {file}  {} s", fixed(total as f64 / FS, 2));
+    if let (Some(path), Some(r)) = (&tele_out, rec) {
+        std::fs::write(path, r.bytes(body_mix(body_name)?)).map_err(|e| format!("{path}: {e}"))?;
+        println!("{path}: {} telemetry frames every {TELE_HOP} samples", r.frames);
+    }
     Ok(())
 }
 

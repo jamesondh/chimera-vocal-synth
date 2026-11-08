@@ -30,6 +30,8 @@ import { bodyLabel, presetOf, PRESETS } from "./body.ts";
 const AnatomyView3D = lazy(() => import("./components/AnatomyView3D.tsx").then((m) => ({ default: m.AnatomyView3D })));
 // the duet page (`?show=<id>`): two 3D heads replaying a pre-rendered song
 const DuetPage = lazy(() => import("./components/DuetPage.tsx").then((m) => ({ default: m.DuetPage })));
+// the clip page (`?clip=<id>`): one 3D head for a rendered video (tools/clip.ts)
+const ClipPage = lazy(() => import("./components/ClipPage.tsx").then((m) => ({ default: m.ClipPage })));
 
 /** the show to play, from `?show=<id>` (a plain folder name under public/shows) */
 function showId(): string | null {
@@ -225,6 +227,13 @@ function PlayRight() {
 }
 
 export function App() {
+  const clip = new URLSearchParams(window.location.search).get("clip");
+  if (clip && /^[\w-]+$/.test(clip))
+    return (
+      <Suspense fallback={null}>
+        <ClipPage id={clip} />
+      </Suspense>
+    );
   const show = showId();
   if (show)
     return (

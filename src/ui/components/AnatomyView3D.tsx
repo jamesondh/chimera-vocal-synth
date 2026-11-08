@@ -36,6 +36,11 @@ export interface HeadFeed {
   maxDpr?: number;
   /** which way the head turns to show its face (see Anatomy3D.facing) */
   facing?: 1 | -1;
+  /**
+   * The camera's turn round the head (radians from the opening three-quarter view), when the feed
+   * sets it (a rendered clip turns the head on its own clock); null leaves the pointer in charge.
+   */
+  yaw?: () => number | null;
 }
 
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -215,6 +220,16 @@ export function AnatomyView3D(props: { slots?: SlotsFn; info?: InfoFn; showForma
         refit = false;
         stepTween(dt);
         controls.update(dt);
+        const yaw = feed?.yaw?.();
+        if (yaw !== undefined && yaw !== null) {
+          const p = r.poses(m);
+          s0.setFromVector3(off.copy(p.home).sub(p.target));
+          s0.theta += yaw;
+          tween.on = false;
+          controls.target.copy(p.target);
+          camera.position.copy(p.target).add(off.setFromSpherical(s0));
+          camera.lookAt(p.target);
+        }
         const f = m.frame(a);
         const readouts = readoutsRef.current;
         if (readouts && (++fTick % 4 === 0 || formants.length === 0)) formants = m.transfer(a).formants;
