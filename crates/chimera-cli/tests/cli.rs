@@ -428,3 +428,46 @@ fn render_notes_tele_records_the_live_telemetry_without_changing_the_sound() {
     let a_lip = artic["frames"][96][lip].as_f64().unwrap(); // 0.96 s = 60 tele hops
     assert!((at(60, 11 + lip) as f64 - a_lip).abs() < 1e-3, "lipAp {} vs {a_lip}", at(60, 11 + lip));
 }
+
+/// Level (dB) of frequency `f` in `x` (Hann-windowed single-bin DFT).
+fn level_db(x: &[f64], fs: f64, f: f64) -> f64 {
+    let n = x.len() as f64;
+    let (mut re, mut im) = (0.0, 0.0);
+    for (i, &v) in x.iter().enumerate() {
+        let w = 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / n).cos();
+        let ph = std::f64::consts::TAU * f * i as f64 / fs;
+        re += w * v * ph.cos();
+        im -= w * v * ph.sin();
+    }
+    10.0 * (re * re + im * im).log10()
+}
+
+#[test]
+fn throat_render_lifts_the_melody_harmonic_over_its_neighbours() {
+    // khöömei on a low (82 Hz) drone: the melody is harmonics 16 then 20, made by tract shape alone
+    let stem = tmp("khoomei");
+    let stdout = chimera(&["throat", "render", &stem, "82", "16:0.9", "20:0.9"]);
+    assert!(stdout.contains(&format!("wrote {stem}.wav")), "{stdout}");
+    let b = std::fs::read(format!("{stem}.wav")).unwrap();
+    let x: Vec<f64> = b[44..]
+        .chunks_exact(2)
+        .map(|c| i16::from_le_bytes([c[0], c[1]]) as f64)
+        .collect();
+    let fs = 48000.0;
+    // each note starts at 0.4 s + 0.9 s·k; measure 0.5 s from 0.3 s into it (articulators settled)
+    for (k, n) in [(0usize, 16.0), (1, 20.0)] {
+        let a = ((0.4 + 0.9 * k as f64 + 0.3) * fs) as usize;
+        let seg = &x[a..a + (0.5 * fs) as usize];
+        let peak = |h: f64| {
+            // the drone wobbles a few cents: take the max over ±1 % around the harmonic
+            (-2..=2)
+                .map(|d| level_db(seg, fs, h * 82.0 * (1.0 + 0.005 * d as f64)))
+                .fold(f64::NEG_INFINITY, f64::max)
+        };
+        let (t, lo, hi) = (peak(n), peak(n - 1.0), peak(n + 1.0));
+        assert!(
+            t - lo.max(hi) > 6.0,
+            "harmonic {n}: {t:.1} dB vs neighbours {lo:.1} / {hi:.1}"
+        );
+    }
+}
