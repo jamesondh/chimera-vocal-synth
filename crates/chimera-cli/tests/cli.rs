@@ -499,3 +499,19 @@ fn throat_solve_scores_the_whole_band_on_a_low_drone() {
     let row = stdout.lines().find(|l| l.contains("from h1:")).unwrap();
     assert!(row.split(':').nth(1).unwrap().split_whitespace().count() >= 82, "{row}");
 }
+
+#[test]
+fn throat_song_phrases_last_as_long_as_the_simulated_air() {
+    // the first breath ends with its score; the second holds its last note on half a litre of
+    // air, which the pressed drone (~110 mL/s through the simulated glottis) spends in ~4-5 s
+    let song = tmp("breaths.txt");
+    std::fs::write(&song, "khoomei 110 8:0.6 9:0.6\nkhoomei 110 8:0.5 9:*  lungs=0.5\n").unwrap();
+    let stem = tmp("breaths");
+    let stdout = chimera(&["throat", "song", &song, &stem]);
+    let breath = |k: usize| stdout.lines().find(|l| l.starts_with(&format!("breath {k} "))).unwrap_or_else(|| panic!("no breath {k} in {stdout}"));
+    assert!(breath(1).ends_with("ended by the score"), "{stdout}");
+    assert!(breath(2).ends_with("ended by the air"), "{stdout}");
+    let sang: f64 = breath(2).split("sang ").nth(1).unwrap().split(' ').next().unwrap().parse().unwrap();
+    assert!((3.0..7.0).contains(&sang), "half a litre lasted {sang} s:\n{stdout}");
+    assert!(stdout.contains(&format!("wrote {stem}.wav")), "{stdout}");
+}

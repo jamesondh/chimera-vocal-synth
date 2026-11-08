@@ -84,7 +84,7 @@ pub fn to_artic(p: &[f64], epilarynx: f64) -> HumanArtic {
     }
 }
 
-fn to_patch(a: &HumanArtic) -> ArticPatch {
+pub fn to_patch(a: &HumanArtic) -> ArticPatch {
     let mut p = ArticPatch::default();
     for k in ArticKey::ALL {
         p.set(k, a.get(k));

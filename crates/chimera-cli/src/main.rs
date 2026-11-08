@@ -9,6 +9,7 @@ mod diagnose;
 mod js;
 mod render;
 mod throat;
+mod throat_song;
 mod wav;
 
 use chimera::anatomy::human::{BODY_CHILD, BODY_FEMALE, BODY_MALE, BodyMix, HumanBody};
@@ -34,6 +35,9 @@ usage: chimera <command> [args] [--float]
                  (tract postures that lift one drone harmonic: khöömei, by tract shape alone)
   throat render  <out> [f0] [harmonic:secs …] [--style …] [--epi 0.9] [--tension 1.0] [--pressure 12]
                  [--bright 0.6] [--vib 8] [--vib-rate 6.5]  (a drone singing a harmonic melody)
+  throat song    <song.txt> <out> [--tele voice.tele] [--epi 0.9]
+                 (one line per breath: style drone harmonic:secs … [harmonic:*] [lungs=3.5]
+                 [pressure=12]; a phrase lasts until the score or the simulated air runs out)
   calibrate vowels     [male|female|child|all] [--out file]
   calibrate consonants [--out file]
 
@@ -119,6 +123,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["diagnose", ..] => diagnose::run(&ctx, &args[1..]),
         ["throat", "solve", ..] => throat::solve(&args[2..]),
         ["throat", "render", ..] => throat::render(&ctx, &args[2..]),
+        ["throat", "song", ..] => throat_song::song(&ctx, &args[2..]),
         ["calibrate", "vowels", ..] => calibrate::vowels(&args[2..]),
         ["calibrate", "consonants", ..] => calibrate::consonants(&args[2..]),
         ["help" | "--help" | "-h", ..] => {
