@@ -2126,13 +2126,19 @@ input[type="range"]::-moz-range-thumb {
   height: 100%;
 }
 
-.demo-songs {
+.demo-songs,
+.lyrics-lang {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
 }
 
-.demo-songs .chip {
+.lyrics-lang {
+  margin-right: 8px;
+}
+
+.demo-songs .chip,
+.lyrics-lang .chip {
   padding: 2px 8px;
   font-size: 9px;
 }
@@ -2140,8 +2146,47 @@ input[type="range"]::-moz-range-thumb {
 .lyrics {
   padding: 6px 14px 10px;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 8px;
+}
+
+.melody {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.lyrics .melody textarea {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.melody-tempo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.melody-tempo input {
+  width: 56px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.melody .chip {
+  padding: 2px 8px;
+  font-size: 9px;
+}
+
+.melody-error {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--amber);
 }
 
 .lyrics textarea {

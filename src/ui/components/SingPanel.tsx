@@ -1,5 +1,6 @@
 import { useStore } from "../store.ts";
-import { useSing, playDemo, stopSinging, soundingSyllable, sungNow, DEMO_SONGS } from "../singing.ts";
+import { useState } from "react";
+import { useSing, playDemo, playMelody, stopSinging, soundingSyllable, sungNow, DEMO_SONGS, MELODY } from "../singing.ts";
 import { mouthWords } from "../mouthWords.ts";
 import { V } from "../colors.ts";
 import { Keys } from "./Keys.tsx";
@@ -77,6 +78,58 @@ function Lyrics() {
           From the start
         </Chip>
       </div>
+      <Melody />
+    </div>
+  );
+}
+
+/** A melody typed in solfège (see melody.ts), sung to the lyrics one syllable per note. */
+function Melody() {
+  const melody = useSing((s) => s.melody);
+  const bpm = useSing((s) => s.bpm);
+  const playing = useSing((s) => s.demo === MELODY);
+  const setMelody = useSing((s) => s.setMelody);
+  const setBpm = useSing((s) => s.setBpm);
+  const body = useStore((s) => s.body);
+  const start = useStore((s) => s.start);
+  const [bad, setBad] = useState<string | null>(null);
+  return (
+    <div className="melody">
+      <textarea
+        value={melody}
+        onChange={(e) => {
+          setMelody(e.target.value);
+          setBad(null);
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+        rows={1}
+        aria-label="Melody in solfège"
+        aria-invalid={bad ? true : undefined}
+        placeholder="Melody: do re mi_ | sol(i) sib la___ -"
+        title="Solfège, one note per syllable: do re mi fa sol la si. “b” flat, “#” sharp (sib, fa#). “(i)” an octave up, “(k)” down. Each “_” holds a step longer; “-” is a rest. “|” bar lines are ignored."
+      />
+      <label className="melody-tempo">
+        Tempo
+        <input type="number" min={30} max={400} step={5} value={bpm} onChange={(e) => setBpm(Number(e.target.value) || 160)} onKeyDown={(e) => e.stopPropagation()} aria-label="Melody tempo, steps per minute" />
+      </label>
+      <Chip
+        toggle={false}
+        disabled={!melody.trim()}
+        onClick={async () => {
+          if (playing) {
+            stopSinging();
+            return;
+          }
+          setBad(await playMelody(body, start));
+        }}
+      >
+        {playing ? "Stop melody" : "Sing melody"}
+      </Chip>
+      {bad && (
+        <span className="melody-error" role="alert">
+          Can't read “{bad}”
+        </span>
+      )}
     </div>
   );
 }
@@ -108,6 +161,22 @@ function SongControls() {
         },
       ]}
     />
+  );
+}
+
+/** The language the lyrics are read in: English by the dictionary, Turkish by its spelling. */
+function LyricsLang() {
+  const lang = useSing((s) => s.lang);
+  const setLang = useSing((s) => s.setLang);
+  return (
+    <div className="lyrics-lang" role="group" aria-label="Lyrics language">
+      <Chip on={lang === "en"} onClick={() => setLang("en")} title="Read the lyrics as English">
+        English
+      </Chip>
+      <Chip on={lang === "tr"} onClick={() => setLang("tr")} title="Read the lyrics as Turkish (Türkçe), by its spelling">
+        Türkçe
+      </Chip>
+    </div>
   );
 }
 
@@ -145,7 +214,17 @@ export function SingRight() {
       <Screen className="s-roll" title="Piano roll" sub="Notes and the pitch sung">
         <PianoRoll />
       </Screen>
-      <Screen className="s-lyrics" title="Lyrics" sub="Each note sings the next syllable" tools={<DemoSongs />}>
+      <Screen
+        className="s-lyrics"
+        title="Lyrics"
+        sub="Each note sings the next syllable"
+        tools={
+          <>
+            <LyricsLang />
+            <DemoSongs />
+          </>
+        }
+      >
         <Lyrics />
       </Screen>
       <Screen className="s-spec" title="Spectrum" sub={ring ? "Ring on" : ""}>

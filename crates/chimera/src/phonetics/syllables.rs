@@ -144,7 +144,7 @@ impl<F: Fn(&str, bool) -> Vec<Segment>> WordSource for F {
     }
 }
 
-fn is_lyric_punct(c: char) -> bool {
+pub(crate) fn is_lyric_punct(c: char) -> bool {
     matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '\n')
 }
 fn is_word_start(c: char) -> bool {

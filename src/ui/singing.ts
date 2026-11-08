@@ -4,16 +4,17 @@
  * (the previous syllable's coda runs straight into the next onset); a "-" in the lyrics holds
  * the vowel onto a new pitch (melisma). Releasing the sounding key while another is still down
  * glides back to that key on the same vowel. Key velocity sets the breath.
- * Demo songs are planned whole (planSong) and sent as one score.
+ * Demo songs and a typed melody (see melody.ts) are planned whole (planSong) and sent as one score.
  */
 import { create } from "zustand";
 import { engine } from "../audio/AudioEngine.ts";
 import { g2p } from "./speech.ts";
-import { lyricsToSyllables, type Syllable } from "../wasm/engine.ts";
+import { lyricsToSyllables, type LyricsLang, type Syllable } from "../wasm/engine.ts";
 import { planSong, planNoteOn, planNoteOff, planMelisma } from "../wasm/engine.ts";
 import { EXHALE_LABEL } from "../wasm/engine.ts";
 import { DEMO_SONGS } from "../wasm/engine.ts";
-import type { Gesture } from "../wasm/types.ts";
+import type { Gesture, Plan } from "../wasm/types.ts";
+import { parseMelody } from "./melody.ts";
 import { nearestBody, type BodyMix } from "./body.ts";
 
 /** A note on the piano roll, on the voice clock (s); t1 is null while it is held. */
@@ -35,6 +36,8 @@ const AH: Syllable = { text: "ah", onset: [], nucleus: { ipa: "ɑ", stress: 1 },
 
 interface SingState {
   lyrics: string;
+  /** English (dictionary) or Turkish (spelling rules) */
+  lang: LyricsLang;
   syllables: Syllable[];
   /** the syllable the next key sings */
   cursor: number;
@@ -44,24 +47,39 @@ interface SingState {
   demo: string | null;
   /** index of the demo syllable being sung (−1: none yet) */
   demoAt: number;
+  /** a melody in solfège for the lyrics (melody.ts), and its tempo in steps per minute */
+  melody: string;
+  bpm: number;
   setLyrics: (text: string) => void;
+  setLang: (lang: LyricsLang) => void;
   setCursor: (i: number) => void;
   setVibrato: (cents: number) => void;
+  setMelody: (text: string) => void;
+  setBpm: (bpm: number) => void;
 }
 
 export const useSing = create<SingState>((set, get) => ({
   lyrics: DEFAULT_LYRICS,
+  lang: "en",
   syllables: lyricsToSyllables(DEFAULT_LYRICS),
   cursor: 0,
   vibrato: 35,
   demo: null,
   demoAt: -1,
+  melody: "",
+  bpm: 160,
   setLyrics: (text) => {
     stopDemo();
-    set({ lyrics: text, syllables: lyricsToSyllables(text), cursor: 0 });
+    set({ lyrics: text, syllables: lyricsToSyllables(text, get().lang), cursor: 0 });
+  },
+  setLang: (lang) => {
+    stopDemo();
+    set({ lang, syllables: lyricsToSyllables(get().lyrics, lang), cursor: 0 });
   },
   setCursor: (i) => set({ cursor: Math.max(0, Math.min(i, Math.max(0, get().syllables.length - 1))) }),
   setVibrato: (cents) => set({ vibrato: cents }),
+  setMelody: (text) => set({ melody: text }),
+  setBpm: (bpm) => set({ bpm: Math.max(30, Math.min(400, bpm)) }),
 }));
 
 /** Load the pronouncing dictionary, then re-read the lyrics with it (the cursor stays). */
@@ -71,7 +89,7 @@ export function ensureDictionary(): void {
     .load()
     .then(() => {
       const s = useSing.getState();
-      const syllables = lyricsToSyllables(s.lyrics);
+      const syllables = lyricsToSyllables(s.lyrics, s.lang);
       useSing.setState({ syllables, cursor: Math.min(s.cursor, Math.max(0, syllables.length - 1)) });
     })
     .catch(() => {
@@ -255,22 +273,81 @@ export async function playDemo(name: string, body: BodyMix, ready?: () => Promis
   const syl = lyricsToSyllables(song.lyrics);
   if (!syl.length) return;
   const shift = song.octave[nearestBody(body)] * 12;
-  const notes = song.notes.map((n, i) => ({ midi: n[0] + shift, beats: n[1], syl: syl[i % syl.length] }));
-  const t0 = 0.35;
-  const plan = planSong(notes, { body, bpm: song.bpm, t0, vibrato: useSing.getState().vibrato });
-  const beat = 60 / song.bpm;
-  let t = t0;
-  const times = notes.map((n): [number, number] => {
-    const a = t;
-    t += n.beats * beat;
-    return [a, t];
+  let at = 0;
+  const notes = song.notes.map((n, i): TimedNote => {
+    const note = { midi: n[0] + shift, beats: n[1], syl: syl[i % syl.length], at };
+    at += n[1];
+    return note;
   });
-  const id = engine.schedule({ gestures: plan.gestures, segments: plan.segments, end: plan.end });
+  runScore(song.name, notes, song.bpm, body);
+  useSing.setState({ lyrics: song.lyrics, lang: "en", syllables: syl });
+}
+
+/** A sung note on the score: `at` is its start, in beats from the first note. */
+interface TimedNote {
+  midi: number;
+  beats: number;
+  syl: Syllable;
+  at: number;
+}
+
+/**
+ * Plan and play notes as one score, shown like a demo song. A gap between notes is a rest: each
+ * stretch between rests is planned on its own, so the phrase before a rest ends with a breath.
+ */
+function runScore(name: string, notes: TimedNote[], bpm: number, body: BodyMix): void {
+  const t0 = 0.35;
+  const beat = 60 / bpm;
+  const vibrato = useSing.getState().vibrato;
+  const gestures: Gesture[] = [];
+  const segments: Plan["segments"] = [];
+  let end = 0;
+  for (let i = 0; i < notes.length; ) {
+    let j = i;
+    while (j + 1 < notes.length && notes[j + 1].at <= notes[j].at + notes[j].beats + 1e-9) j++;
+    const stretch = notes.slice(i, j + 1).map((n) => ({ midi: n.midi, beats: n.beats, syl: n.syl }));
+    const plan = planSong(stretch, { body, bpm, t0: t0 + notes[i].at * beat, vibrato });
+    gestures.push(...plan.gestures);
+    segments.push(...plan.segments);
+    end = Math.max(end, plan.end);
+    i = j + 1;
+  }
+  const times = notes.map((n): [number, number] => [t0 + n.at * beat, t0 + (n.at + n.beats) * beat]);
+  const id = engine.schedule({ gestures, segments, end });
   const parent: number[] = [];
   notes.forEach((n, i) => parent.push(n.syl.melisma && i > 0 ? parent[i - 1] : i));
   const shown = parent.map((p) => written(notes[p].syl));
-  demoRun = { id, times, midi: notes.map((n) => n.midi), text: notes.map((n) => n.syl.text), shown, parent, end: plan.end, offset: null };
-  useSing.setState({ lyrics: song.lyrics, syllables: syl, cursor: 0, demo: song.name, demoAt: -1 });
+  demoRun = { id, times, midi: notes.map((n) => n.midi), text: notes.map((n) => n.syl.text), shown, parent, end, offset: null };
+  useSing.setState({ cursor: 0, demo: name, demoAt: -1 });
+}
+
+/** What Sing mode calls a typed melody while it plays. */
+export const MELODY = "Melody";
+
+/**
+ * Sing the typed melody to the current lyrics, one syllable per note (rests sing nothing).
+ * Returns the token it couldn't read, or null.
+ */
+export async function playMelody(body: BodyMix, ready?: () => Promise<void>): Promise<string | null> {
+  const { notes: parsed, error } = parseMelody(useSing.getState().melody);
+  if (error) return error;
+  if (!parsed.some((n) => n.midi !== null)) return null;
+  stopSinging();
+  const token = demoToken;
+  await ready?.();
+  if (token !== demoToken) return null;
+  const st = useSing.getState();
+  const syls = st.syllables.length ? st.syllables : [AH];
+  const shift = nearestBody(body) === "male" ? -12 : 0;
+  const notes: TimedNote[] = [];
+  let at = 0;
+  for (const n of parsed) {
+    // a rest only moves time on: runScore breathes in the gap
+    if (n.midi !== null) notes.push({ midi: n.midi + shift, beats: n.steps, syl: syls[notes.length % syls.length], at });
+    at += n.steps;
+  }
+  runScore(MELODY, notes, st.bpm, body);
+  return null;
 }
 
 function stopDemo(): void {

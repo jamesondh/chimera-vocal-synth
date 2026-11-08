@@ -112,9 +112,12 @@ export class EnglishG2P {
   }
 }
 
-/** Lyrics → sung syllables, through the page's dictionary (see EnglishG2P). */
-export function lyricsToSyllables(text: string): Syllable[] {
-  return call("lyricsToSyllables", { text });
+/** The language lyrics are read in. */
+export type LyricsLang = "en" | "tr";
+
+/** Lyrics → sung syllables: English through the page's dictionary (see EnglishG2P), Turkish by its spelling rules. */
+export function lyricsToSyllables(text: string, lang: LyricsLang = "en"): Syllable[] {
+  return call("lyricsToSyllables", { text, lang });
 }
 
 // ------------------------------------------------------------------ planning
