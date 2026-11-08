@@ -187,6 +187,68 @@ pub fn text(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Vowelled Arabic through the Arabic reader and the phrase planner.
+/// `render arabic <out> ["نص"] [body] [--count s] [--no-waqf]`
+pub fn arabic(ctx: &Ctx, a: &[String]) -> Result<(), String> {
+    use chimera::phonetics::arabic::{ArabicOptions, to_phrases};
+    let mut o = ArabicOptions::default();
+    let mut pos: Vec<String> = Vec::new();
+    let mut k = 0;
+    while k < a.len() {
+        match a[k].as_str() {
+            "--count" => {
+                o.count = a.get(k + 1).and_then(|x| x.parse().ok()).ok_or("--count needs seconds")?;
+                k += 1;
+            }
+            "--no-waqf" => o.waqf = false,
+            x => pos.push(x.to_string()),
+        }
+        k += 1;
+    }
+    let name = arg(&pos, 0, "out/arabic");
+    let text = arg(&pos, 1, "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ");
+    let body_name = arg(&pos, 2, "male");
+    let b = body(body_name)?;
+    let f0 = match body_name {
+        "female" => 205.0,
+        "child" => 250.0,
+        _ => 112.0,
+    };
+    let phrases = to_phrases(text, &o);
+    println!("{}", phrases.iter().map(|p| p.ipa.clone()).collect::<Vec<_>>().join(" | "));
+    let guessed: usize = phrases.iter().map(|p| p.guessed).sum();
+    if guessed > 0 {
+        println!("({guessed} letters had no vowel mark; read with a guess)");
+    }
+    let mut voice = HumanVoice::new(FS, b, 2);
+    voice.set_source(&SourcePatch::f0(f0));
+    let inputs: Vec<PhraseInput> = phrases
+        .iter()
+        .map(|p| PhraseInput {
+            segments: p.segments.clone(),
+            intonation: Some(p.intonation),
+            pause: Some(p.pause),
+        })
+        .collect();
+    let plan = plan_phrases(
+        &inputs,
+        &PlanOptions {
+            body: body_name.into(),
+            t0: 0.05,
+            f0: Some(f0),
+            ..Default::default()
+        },
+    );
+    voice.schedule(&plan.gestures);
+    let total = js_round(FS * (plan.end + 0.3)) as usize;
+    let mut out = vec![0f32; total];
+    render_blocks(&mut voice, &mut out);
+    let file = wav_name(name);
+    ctx.write_wav(&file, &out)?;
+    println!("wrote {file}  {} s", fixed(total as f64 / FS, 2));
+    Ok(())
+}
+
 /// The demo songs, and a live-style key sequence. `render song [outdir] [body]`
 pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let out_dir = arg(a, 0, "out/song");

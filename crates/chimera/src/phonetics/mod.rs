@@ -5,6 +5,7 @@
 use crate::control::score::Gesture;
 use serde::{Deserialize, Serialize};
 
+pub mod arabic;
 pub mod beatbox;
 pub mod durations;
 pub mod english;
