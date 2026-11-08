@@ -14,7 +14,15 @@ pub struct NoiseGains {
     pub glottis: f64,
     pub constriction: f64,
     pub teeth: f64,
+    /// a jet from a constriction at the back of the tract (uvula, pharynx) striking the soft
+    /// palate and the bend of the airway
+    pub back: f64,
 }
+
+/// Gain of the back obstacle source (see `update_noise`).
+pub const BACK_GAIN: f64 = 3.0e-6;
+/// The back source's noise band: low, as a long front cavity shapes it anyway.
+const BACK_LOWPASS: f64 = 3000.0;
 
 #[derive(Clone, Debug)]
 pub struct HumanAirway {
@@ -139,7 +147,7 @@ impl HumanAirway {
             frame: None,
             ph_len: 8.8,
             or_len: 8.3,
-            noise_gain: NoiseGains { glottis: 3.2e-6, constriction: 2.2e-6, teeth: 3.0e-6 },
+            noise_gain: NoiseGains { glottis: 3.2e-6, constriction: 2.2e-6, teeth: 3.0e-6, back: BACK_GAIN },
             max_area_rate: 45.0,
             area_rate_gain: 40.0,
             seal_rate: 5.0,
@@ -300,9 +308,20 @@ impl HumanAirway {
             };
             let dx = if min_i < n_ph_i { dx_ph } else { dx_or };
             let off = js_max(1.0, js_round((0.9 * self.body.scale) / dx)) as isize;
-            let src = to_branch(min_i.min(n_tot - 2));
-            let fwd = to_branch((n_tot - 2).min(min_i + off));
-            let bwd = to_branch(0.max(min_i - off));
+            // downstream of the junction for the jet's own branch and where it lands
+            let ahead = |gi: isize| match to_branch(gi) {
+                -1 => to_branch((n_tot - 2).min(gi + 1)),
+                b => b,
+            };
+            let src = ahead(min_i.min(n_tot - 2));
+            let fwd = ahead((n_tot - 2).min(min_i + off));
+            // the section at the pharynx–mouth junction has no branch of its own: inject just
+            // upstream of it instead (a constriction one or two sections into the mouth, as for
+            // the uvular fricatives, used to lose its whole frication source here)
+            let bwd = match to_branch(0.max(min_i - off)) {
+                -1 => to_branch(0.max(min_i - off - 1)),
+                b => b,
+            };
             if src >= 0 && fwd >= 0 && bwd >= 0 {
                 list.push(NoiseSpec::new(src as usize, fwd as usize, bwd as usize, g.constriction * w_area).band(2600.0, 350.0));
                 // obstacle source: a narrow anterior jet impinging on the incisors (sibilants)
@@ -316,6 +335,18 @@ impl HumanAirway {
                     let tb = to_branch(teeth_i);
                     if tb >= 0 {
                         list.push(NoiseSpec::new(src as usize, tb as usize, bwd as usize, g.teeth * wt).band(5000.0, 1200.0));
+                    }
+                }
+                // obstacle source at the back: a narrow jet from the uvula or the pharynx (Arabic
+                // خ غ ح ع, 6.7–10.4 cm behind the teeth in the male tract) has no teeth to hit, but
+                // strikes the soft palate and the bend of the airway a couple of centimetres on.
+                // Velars (~4–5 cm) and everything in front of them are left alone.
+                let wb = smooth(5.5, 6.5, behind) * w_jet;
+                if wb > 1e-3 {
+                    let off_b = js_max(1.0, js_round((2.0 * self.body.scale) / dx)) as isize;
+                    let bb = ahead((n_tot - 2).min(min_i + off_b));
+                    if bb >= 0 {
+                        list.push(NoiseSpec::new(src as usize, bb as usize, bwd as usize, g.back * wb).band(BACK_LOWPASS, 300.0));
                     }
                 }
             }

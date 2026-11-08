@@ -81,25 +81,33 @@ The control is the macOS Arabic voice (Majed), a real synthesizer: it sets the c
 |---|---|---|---|---|
 | Majed (control) | 92.6 % | 96.3 % | 1.9 % | 1.0 % |
 | before (reader, emphatics) | 62.0 % | 83.3 % | 24.0 % | — |
-| now | 63.0 % | 87.0 % | 14.7 % | 42.4 % |
+| reader, trills, narrower back fricatives | 63.0 % | 87.0 % | 14.7 % | 42.4 % |
+| now (+ glottis closes by the release, back frication) | 63.0 % | 87.0 % | 12.8 % | 32.9 % |
 
-Contrasts carried now: ʕ/ʔ, ħ/h, interdental/sibilant, length, ش/س and voicing 100 %; emphatic
-94 %; q/k, ħ/χ and ʕ/ʁ 50 %. The training sentences that come out exactly: the basmala, al-Fātiḥa's
-second verse, السلام عليكم, صباح الخير, ذهب الولد إلى المدرسة (male).
+Contrasts carried now: ʕ/ʔ, ħ/h, emphatic/plain and voicing 100 %; interdental and length 83 %;
+ʕ/ʁ and q/k 75 %; ħ/χ and ش/س 50 %. Male voice 96 %, female 78 %. The training sentences that
+come out exactly include the basmala, al-Fātiḥa's second verse, السلام عليكم, صباح الخير, أنا أحب
+اللغة العربية and قل هو الله أحد.
 
 "Heard" is low next to "carried": for single words Whisper's prior leans to the commoner word
-(قلب over كلب, حب over هب, جمال over جمل), and the voice's contrasts are real but small. What still
-limits it, measured:
+(قلب over كلب, حب over هب, جمال over جمل), and the voice's contrasts are real but small.
 
-- **Short vowels between voiceless consonants devoice in the male voice.** In كَيْفَ حَالُكَ the
-  100 ms fatḥa between f and ħ voices for ~30 ms: the glottis re-adducts 30–40 ms after a voiceless
-  fricative ends and opens ~45 ms before the next. Whisper hears "كيف سعي جوك". It is the shared
-  planner's timing (English has it too), so fixing it should be judged by the English speech judge
-  as well: a proposal, not done here.
-- **ħ/χ and ʕ/ʁ.** Narrowing the constrictions helped (25 → 50 %), but the constriction noise
-  source is calibrated for weak fricatives (f, θ); a uvular or pharyngeal jet has no obstacle
-  source of its own. A place-aware noise source is the next experiment.
-- **q/k**: half the pairs carry the contrast.
+Fixed in the shared engine (judged by both speech judges):
+
+- **The glottis closes by a voiceless fricative's release.** It stayed open ~23 ms past it, so a
+  short vowel after one was voiced late (/ɪ/ in "city" 0 %, the fatḥa in كَيْفَ حَالُكَ 37 %; now 53
+  and 61 %). Opening it later as well voiced more, but tripped the /f/-click judge, so the
+  opening is as it was.
+- **A constriction just inside the mouth kept its frication.** Its noise source was dropped when
+  its upstream branch fell on the pharynx–mouth junction: χ was 29 dB under the vowel, now 17.
+- **A back obstacle source**: a jet from 5.5 cm or more behind the teeth (χ ʁ q ħ ʕ, not the
+  velars) strikes the soft palate and the bend of the airway. ħ 7 dB louder.
+
+English (tools/asr/speech_wer.py, small.en): training WER 38.74 → 37.42 % (no clear change);
+held-out 44.33 → 48.0 %, all in the unpredictable sentences, which don't decide but are worth
+watching. The singer judge (CSD, a 1.85 GB download) was not run.
+
+Still limiting: ħ/χ (50 %), and the female voice's pairs (78 %).
 
 Tried and reverted (Arabic-only knobs): a faster count (0.08 s; CER 14.4 → 19.9 %) and short
 vowels at 0.8 of a count (CER 14.7 → 17.6 %): this voice needs the time.

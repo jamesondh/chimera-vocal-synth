@@ -334,7 +334,12 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
                 let vot = if aspirated { 0.05 / rate } else { 0.012 };
                 gestures.push(Gesture::new(t0 + 0.25 * dur, t1 + vot * 0.4, 0.035, if aspirated { 0.045 } else { 0.02 }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration"));
             } else {
-                gestures.push(Gesture::new(t0 - 0.015, t1 + 0.005, 0.03, 0.03, 6.0, one(ControlKey::ABDUCTION, 0.3)).label("voiceless"));
+                // the glottis opens as before but closes again by the release, not ~20 ms after it,
+                // so the vowel that follows is voiced from its start (it opens widest mid-fricative
+                // and closes by the release: Löfqvist & Yoshioka 1980). Opening it later too voiced
+                // the vowel before an /f/ up to its onset, which tests/consonant_artifacts.rs reads
+                // as the old click.
+                gestures.push(Gesture::new(t0 - 0.015, js_max(t0 + 0.5 * dur, t1 + VL_CLOSE), 0.03, 0.03, 6.0, one(ControlKey::ABDUCTION, 0.3)).label("voiceless"));
             }
         } else if def.manner == Manner::Fricative {
             gestures.push(Gesture::new(t0, t1, 0.03, 0.03, 3.0, one(ControlKey::ABDUCTION, 0.035)).label("voiced frication"));
@@ -455,6 +460,10 @@ fn trill_gestures_into(def: &PhonemeDef, t0: f64, t1: f64, out: &mut Vec<Gesture
         k += 1.0;
     }
 }
+
+/// When a voiceless fricative's glottal opening ends, relative to the fricative's end (s): its
+/// ramp-out then finishes 10 ms after the release.
+const VL_CLOSE: f64 = -0.02;
 
 /// Front-to-back order of the oral places of articulation.
 fn place_rank(place: &str) -> Option<u8> {
