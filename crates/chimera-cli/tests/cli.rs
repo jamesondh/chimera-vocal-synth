@@ -471,3 +471,20 @@ fn throat_render_lifts_the_melody_harmonic_over_its_neighbours() {
         );
     }
 }
+
+#[test]
+fn throat_solve_scores_the_whole_band_on_a_low_drone() {
+    // a 49 Hz drone sings on harmonic 30 (1.47 kHz): the cost once scored a fixed 26 harmonics,
+    // which indexed past its end here, and on a 65 Hz drone ignored everything above 1.7 kHz
+    let stdout = chimera(&["throat", "solve", "49", "30"]);
+    let lead: f64 = stdout
+        .split("lead over n±1 ")
+        .nth(1)
+        .and_then(|s| s.split(' ').next())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("no lead in {stdout}"));
+    assert!(lead > 5.0, "{stdout}");
+    // the printed response covers harmonics up to 4 kHz (82 of 49 Hz), not 26
+    let row = stdout.lines().find(|l| l.contains("from h1:")).unwrap();
+    assert!(row.split(':').nth(1).unwrap().split_whitespace().count() >= 82, "{row}");
+}

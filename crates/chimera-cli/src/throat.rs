@@ -56,22 +56,31 @@ fn harmonic_response(air: &mut HumanAirway, a: &HumanArtic, freqs: &[f64]) -> (V
     (h.mag, min_area)
 }
 
-/// Frequencies the cost samples: harmonics 1..=NH of f0, then the target ±WIDE·f0.
-const NH: usize = 26;
+/// The cost scores every harmonic up to this frequency: a competing resonance anywhere in the
+/// band the ear hears as the whistle's surroundings counts (with a fixed count of 26 harmonics, a
+/// 65 Hz drone was scored only up to 1.7 kHz, and stray resonances near 2 kHz went unseen).
+const BAND_TOP: f64 = 4000.0;
 const WIDE: f64 = 0.2;
 /// source roll-off assumed when scoring (dB per octave): a pressed voice still loses about this
 const TILT: f64 = -10.0;
 
+/// Harmonics scored for drone f0 and target n.
+fn n_harmonics(f0: f64, n: usize) -> usize {
+    ((BAND_TOP / f0).ceil() as usize).max(n + 3)
+}
+
+/// Frequencies the cost samples: harmonics 1..=nh of f0, then the target ±WIDE·f0.
 fn cost_freqs(f0: f64, n: usize) -> Vec<f64> {
-    let mut v: Vec<f64> = (1..=NH).map(|k| k as f64 * f0).collect();
+    let mut v: Vec<f64> = (1..=n_harmonics(f0, n)).map(|k| k as f64 * f0).collect();
     v.push((n as f64 - WIDE) * f0);
     v.push((n as f64 + WIDE) * f0);
     v
 }
 
 /// Predicted output level per harmonic: tract response plus the source roll-off.
+/// `h` holds the harmonics first, as `cost_freqs` lays them out, then the two target-width probes.
 fn out_db(h: &[f64]) -> Vec<f64> {
-    (0..NH)
+    (0..h.len() - 2)
         .map(|i| h[i] + TILT * ((i + 1) as f64).log2())
         .collect()
 }
@@ -92,10 +101,11 @@ fn cost(
     let (h, min_area) = harmonic_response(air, &a, freqs);
     let tilt_n = TILT * (n as f64).log2();
     let o = out_db(&h);
-    let t = (h[n - 1].min(h[NH]).min(h[NH + 1])) + tilt_n;
+    let nh = o.len();
+    let t = (h[n - 1].min(h[nh]).min(h[nh + 1])) + tilt_n;
     let nb = |d: isize| -> f64 {
         let i = n as isize - 1 + d;
-        if i >= 0 && (i as usize) < NH {
+        if i >= 0 && (i as usize) < nh {
             o[i as usize]
         } else {
             -200.0
@@ -248,8 +258,8 @@ pub fn solve(a: &[String]) -> Result<(), String> {
             fixed(air.tract.contact_tip, 2),
             fixed(air.tract.contact_body, 2)
         );
-        let hs: Vec<String> = h.iter().take(20).map(|v| fixed(v - t, 0)).collect();
-        println!("      FD out dB rel. target, h1..h20: {}", hs.join(" "));
+        let hs: Vec<String> = h.iter().map(|v| fixed(v - t, 0)).collect();
+        println!("      FD out dB rel. target, from h1: {}", hs.join(" "));
     }
     // how far each articulator travels across the melody
     let names = [
