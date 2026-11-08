@@ -106,6 +106,12 @@ pub struct ParametricGlottis {
 
 impl ParametricGlottis {
     pub fn new(fs: f64) -> Self {
+        Self::with_seed(fs, 0)
+    }
+
+    /// A glottis whose jitter, shimmer and drift are their own (`seed` 0 is `new`'s): a second
+    /// voicebox seeded like the first would wobble in lockstep with it.
+    pub fn with_seed(fs: f64, seed: u32) -> Self {
         ParametricGlottis {
             fs,
             params: DEFAULT_GLOTTIS,
@@ -115,8 +121,8 @@ impl ParametricGlottis {
             cycle_index: 0,
             chaos_x: 0.37,
             vib_phase: 0.0,
-            rng: Rng::new(777),
-            drift: Drift::new(fs / 32.0, 0.3, 4242),
+            rng: Rng::new(777 + seed),
+            drift: Drift::new(fs / 32.0, 0.3, 4242 + seed),
             drift_value: 0.0,
             drift_counter: 0,
             pitch_factor: 1.0,

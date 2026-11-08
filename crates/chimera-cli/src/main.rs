@@ -10,6 +10,7 @@ mod js;
 mod render;
 mod wav;
 
+use chimera::anatomy::alien::{ALIEN_PRESETS, AlienPreset, alien_preset};
 use chimera::anatomy::human::{BODY_CHILD, BODY_FEMALE, BODY_MALE, BodyMix, HumanBody};
 use std::process::ExitCode;
 
@@ -33,6 +34,7 @@ usage: chimera <command> [args] [--float]
   calibrate consonants [--out file]
 
 Output names are stems (<out>.wav). --float writes 32-bit float WAVs instead of 16-bit PCM.
+--alien <id> renders text and notes as an alien (homesick, choir, bellows, hornhead, pip).
 Calibration writes the tables the engine embeds, in crates/chimera/src/phonetics/.";
 
 /// The output rate of every render.
@@ -47,6 +49,8 @@ pub fn repo_path(rel: &str) -> String {
 pub struct Ctx {
     /// write 32-bit float WAVs
     pub float: bool,
+    /// render text and notes as this alien
+    pub alien: Option<&'static AlienPreset>,
 }
 
 impl Ctx {
@@ -92,8 +96,15 @@ pub fn arg<'a>(a: &'a [String], i: usize, default: &'a str) -> &'a str {
 
 fn run(args: Vec<String>) -> Result<(), String> {
     let float = args.iter().any(|a| a == "--float");
-    let args: Vec<String> = args.into_iter().filter(|a| a != "--float").collect();
-    let ctx = Ctx { float };
+    let mut args: Vec<String> = args.into_iter().filter(|a| a != "--float").collect();
+    let mut alien = None;
+    if let Some(i) = args.iter().position(|a| a == "--alien") {
+        let id = args.get(i + 1).ok_or("--alien needs an id")?.clone();
+        let ids = || ALIEN_PRESETS.iter().map(|p| p.id).collect::<Vec<_>>().join(", ");
+        alien = Some(alien_preset(&id).ok_or_else(|| format!("unknown alien {id:?}; have {}", ids()))?);
+        args.drain(i..i + 2);
+    }
+    let ctx = Ctx { float, alien };
     let cmd: Vec<&str> = args.iter().take(2).map(String::as_str).collect();
     match cmd.as_slice() {
         ["render", kind, ..] => {

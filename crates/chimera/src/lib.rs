@@ -14,6 +14,7 @@ pub mod airway {
 }
 
 pub mod anatomy {
+    pub mod alien;
     pub mod geom;
     pub mod human;
 }

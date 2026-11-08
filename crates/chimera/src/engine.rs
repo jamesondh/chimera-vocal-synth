@@ -9,6 +9,7 @@
 //! - Rendering, gestures, releases, artic/source/gate changes and beat edits allocate nothing once
 //!   warm. A body or creature switch builds a new airway network (it allocates).
 
+use crate::anatomy::alien::AlienShape;
 use crate::anatomy::human::{ArticPatch, BodyMix, BodyName};
 use crate::control::beat_player::BeatPlayer;
 use crate::control::score::{Gesture, GestureScore};
@@ -40,6 +41,7 @@ pub fn default_f0(body: impl Into<BodyMix>) -> f64 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VoiceInfo {
     pub body: BodyMix,
+    pub alien: AlienShape,
     pub n_ph: usize,
     pub n_or: usize,
 }
@@ -47,6 +49,7 @@ pub struct VoiceInfo {
 pub struct Engine {
     pub sample_rate: f64,
     body: BodyMix,
+    alien: AlienShape,
     voice: HumanVoice,
     /// the performer's breath (the voice's own gate also follows the score)
     gate_level: f64,
@@ -62,17 +65,18 @@ impl Engine {
     pub fn new(sample_rate: f64) -> Engine {
         crate::init();
         let body = BodyMix::MALE;
-        Engine { sample_rate, body, voice: Self::make_voice(sample_rate, body), gate_level: 0.0, pos: 0, scratch: Vec::with_capacity(MAX_SCHEDULE), beat: BeatPlayer::new(), creature: None }
+        let alien = AlienShape::HUMAN;
+        Engine { sample_rate, body, alien, voice: Self::make_voice(sample_rate, body, alien), gate_level: 0.0, pos: 0, scratch: Vec::with_capacity(MAX_SCHEDULE), beat: BeatPlayer::new(), creature: None }
     }
 
-    fn make_voice(fs: f64, body: BodyMix) -> HumanVoice {
-        let mut v = HumanVoice::new(fs, body.body(), if fs > 60000.0 { 1 } else { 2 });
+    fn make_voice(fs: f64, body: BodyMix, alien: AlienShape) -> HumanVoice {
+        let mut v = HumanVoice::with_alien(fs, body.body(), alien, if fs > 60000.0 { 1 } else { 2 });
         v.set_source(&SourcePatch::f0(default_f0(body)));
         v
     }
 
     pub fn info(&self) -> VoiceInfo {
-        VoiceInfo { body: self.body, n_ph: self.voice.airway.n_ph, n_or: self.voice.airway.n_or }
+        VoiceInfo { body: self.body, alien: self.alien, n_ph: self.voice.airway.n_ph, n_or: self.voice.airway.n_or }
     }
 
     pub fn voice(&self) -> &HumanVoice {
@@ -87,9 +91,19 @@ impl Engine {
     /// new body's default), posture, breath. Allocates (a new airway network).
     pub fn set_body(&mut self, body: impl Into<BodyMix>) -> VoiceInfo {
         let body: BodyMix = body.into();
-        let body = BodyMix::new(body.female, body.child);
-        let prev = core::mem::replace(&mut self.voice, Self::make_voice(self.sample_rate, body));
+        self.rebuild(BodyMix::new(body.female, body.child), self.alien)
+    }
+
+    /// Reshape the voice as an alien (`AlienShape::HUMAN`: back to the plain body), keeping the
+    /// performer's settings as `set_body` does. Allocates (a new airway network).
+    pub fn set_alien(&mut self, alien: AlienShape) -> VoiceInfo {
+        self.rebuild(self.body, AlienShape::new(alien))
+    }
+
+    fn rebuild(&mut self, body: BodyMix, alien: AlienShape) -> VoiceInfo {
+        let prev = core::mem::replace(&mut self.voice, Self::make_voice(self.sample_rate, body, alien));
         self.body = body;
+        self.alien = alien;
         let mut src = SourcePatch::from_source(&prev.source);
         src.f0 = Some(default_f0(body));
         self.voice.set_source(&src);

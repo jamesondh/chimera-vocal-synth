@@ -24,6 +24,7 @@ use chimera::phonetics::sing::{
 use chimera::phonetics::songs::DEMO_SONGS;
 use chimera::phonetics::syllables::lyrics_to_syllables;
 use chimera::phonetics::{Intonation, Plan, Syllable};
+use chimera::anatomy::alien::{AlienPreset, AlienShape};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
 use std::io::Read;
 use std::time::Instant;
@@ -143,6 +144,11 @@ pub fn text_f0(body_name: &str) -> f64 {
 /// Say `text` the way `render text` does: CMUdict G2P, the phrase planner from t0 = 50 ms, the
 /// body's speaking f0, 300 ms of tail. `chimera compare tsp` measures exactly these renders.
 pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String> {
+    say_as(g, text, body_name, None)
+}
+
+/// `say`, as an alien when one is given (its shape and voice, at its speaking rate).
+pub fn say_as(g: &EnglishG2P, text: &str, body_name: &str, alien: Option<&AlienPreset>) -> Result<Spoken, String> {
     let b = body(body_name)?;
     let f0 = text_f0(body_name);
     let phrases = g.to_phrases(text);
@@ -161,8 +167,11 @@ pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String
             }
         })
         .collect();
-    let mut voice = HumanVoice::new(FS, b, 2);
+    let mut voice = HumanVoice::with_alien(FS, b, alien.map_or(AlienShape::HUMAN, |a| a.shape), 2);
     voice.set_source(&SourcePatch::f0(f0));
+    if let Some(a) = alien {
+        voice.set_source(&a.source);
+    }
     let inputs: Vec<PhraseInput> = phrases
         .iter()
         .map(|p| PhraseInput {
@@ -177,6 +186,7 @@ pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String
             body: body_name.into(),
             t0: 0.05,
             f0: Some(f0),
+            rate: alien.map(|a| a.rate),
             ..Default::default()
         },
     );
@@ -194,7 +204,7 @@ pub fn text(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let body_name = arg(a, 2, "male");
     let g = g2p()?;
     let t = Instant::now();
-    let s = say(&g, text, body_name)?;
+    let s = say_as(&g, text, body_name, ctx.alien)?;
     let ms = ms_since(t);
     println!("{}", s.shown);
     let file = wav_name(name);
@@ -518,7 +528,7 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     }
     let t0 = j["t0"].as_f64().unwrap_or(0.3);
     let beat = 60.0 / bpm;
-    let mut v = HumanVoice::new(FS, b, 2);
+    let mut v = HumanVoice::with_alien(FS, b, ctx.alien.map_or(AlienShape::HUMAN, |a| a.shape), 2);
     let first = raw.iter().find(|n| n[0] > 0.0).ok_or("no notes")?;
     v.set_source(&SourcePatch {
         f0: Some(midi_to_hz(first[0])),
@@ -527,6 +537,9 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         tension: Some(0.55),
         ..Default::default()
     });
+    if let Some(a) = ctx.alien {
+        v.set_source(&a.source);
+    }
     let (mut t, mut k, mut end) = (t0, 0usize, 0.0f64);
     let mut phrase: Vec<SungNote> = Vec::new();
     let mut start = t;

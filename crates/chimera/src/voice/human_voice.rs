@@ -4,6 +4,7 @@
 
 use super::human_airway::HumanAirway;
 use crate::airway::decimator::Decimator;
+use crate::anatomy::alien::AlienShape;
 use crate::anatomy::geom::Vec2;
 use crate::anatomy::human::{ArticKey, ArticPatch, BODY_MALE, HumanBody, N_ARTIC};
 use crate::control::articulators::ArticulatorBank;
@@ -150,6 +151,10 @@ pub struct HumanVoice {
     pub fs: f64,
     pub airway: HumanAirway,
     pub glottis: crate::sources::glottis::ParametricGlottis,
+    /// an alien's shape (`AlienShape::HUMAN` for a human)
+    pub alien: AlienShape,
+    /// an alien's second voicebox, following the first at its interval
+    pub twin: Option<crate::sources::glottis::ParametricGlottis>,
     pub artic: ArticulatorBank,
     pub source: VoiceSource,
     dec: Decimator,
@@ -201,9 +206,16 @@ pub struct HumanVoice {
 impl HumanVoice {
     /// A voice rendering at `fs_out`, simulating at `fs_out · oversample`.
     pub fn new(fs_out: f64, body: HumanBody, oversample: usize) -> Self {
+        Self::with_alien(fs_out, body, AlienShape::HUMAN, oversample)
+    }
+
+    /// A voice with `body` reshaped by an alien's shape and given its organs.
+    pub fn with_alien(fs_out: f64, body: HumanBody, alien: AlienShape, oversample: usize) -> Self {
         let m = oversample;
         let fs = fs_out * m as f64;
-        let airway = HumanAirway::new(fs, body);
+        let alien = AlienShape::new(alien);
+        let airway = HumanAirway::with_organs(fs, alien.apply(body), alien.organs());
+        let twin = airway.twin_port.map(|_| crate::sources::glottis::ParametricGlottis::with_seed(fs, 101));
         let n_tract = airway.n_ph + airway.n_or;
         let mut v = HumanVoice {
             fs_out,
@@ -211,6 +223,8 @@ impl HumanVoice {
             fs,
             airway,
             glottis: crate::sources::glottis::ParametricGlottis::new(fs),
+            alien,
+            twin,
             artic: ArticulatorBank::new(),
             source: DEFAULT_SOURCE,
             dec: Decimator::new(m),
@@ -256,7 +270,7 @@ impl HumanVoice {
         v.airway.net.snap_to_targets();
         // smaller bodies radiate more high-frequency (derivative) energy at their higher f0
         // (a ramp from the adult female's scale up to the adult male's, so blended bodies have no step)
-        let sc = v.airway.body.scale;
+        let sc = body.scale;
         v.output_gain *= if sc >= 1.0 {
             1.0
         } else if sc <= 0.9 {
@@ -264,6 +278,20 @@ impl HumanVoice {
         } else {
             0.55 + 0.45 * (sc - 0.9) / 0.1
         };
+        // an alien's size scales the glottal flow with its area (∝ size²), but the output follows
+        // it only in part: measured, about ∝ size^1.5 below human size and ∝ size above it (where
+        // the limiter already holds the loudest). Undo that, so a tiny alien is not a whisper and a
+        // huge one not a roar
+        let size = v.alien.size;
+        if size < 1.0 {
+            v.output_gain /= size * sqrt(size);
+        } else if size > 1.0 {
+            v.output_gain /= size;
+        }
+        // and the output, the derivative of the flow, grows with the pitch it is transposed by
+        if v.alien.pitch > 1.0 {
+            v.output_gain /= v.alien.pitch;
+        }
         v.apply_source();
         v
     }
@@ -347,6 +375,7 @@ impl HumanVoice {
         let sub_node = self.airway.trachea.last_node();
         let supra = self.airway.pharynx.first_node();
         let gp = self.airway.glottis_port;
+        let twin_port = self.airway.twin_port;
         let n_ph = self.airway.n_ph;
         let n_or = self.airway.n_or;
         let ph_first = self.airway.pharynx.first_node();
@@ -360,8 +389,12 @@ impl HumanVoice {
                 let net = &mut self.airway.net;
                 self.p_lung_now += self.p_lung_step;
                 net.set_fixed_pressure(lungs, self.p_lung_now);
-                let a = self.glottis.next(net.p[sub_node] - net.p[supra]);
+                let dp = net.p[sub_node] - net.p[supra];
+                let a = self.glottis.next(dp);
                 net.set_port_area(gp, a);
+                if let (Some(tw), Some(tp)) = (self.twin.as_mut(), twin_port) {
+                    net.set_port_area(tp, tw.next(dp));
+                }
                 let y = net.step();
                 if self.dec.push(y) {
                     // output sample
@@ -498,7 +531,15 @@ impl HumanVoice {
         // pitch glide
         let g = js_max(0.002, if self.score_f0.is_some() { 0.03 } else { self.source.glide });
         self.f0 *= pow(f0_target / self.f0, 1.0 - exp(-dt / g));
-        self.glottis.params.f0 = self.f0;
+        self.glottis.params.f0 = if self.alien.pitch == 1.0 { self.f0 } else { self.f0 * self.alien.pitch };
+        // the second voicebox: the first's settings, at its interval and level, with no chink of
+        // its own (the first's already leaks)
+        if let Some(tw) = self.twin.as_mut() {
+            tw.params = self.glottis.params;
+            tw.params.f0 *= pow(2.0, self.alien.interval / 12.0);
+            tw.params.amplitude *= self.alien.twin;
+            tw.params.chink = 0.0;
+        }
         // smoothed mean flow per tract node (for particle speeds)
         let a = 1.0 - exp(-dt / 0.03);
         let n_ph = self.airway.n_ph;

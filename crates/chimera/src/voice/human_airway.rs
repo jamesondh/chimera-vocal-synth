@@ -1,10 +1,12 @@
 //! Human airway: lungs → trachea → glottis → pharynx ─┬─ oral → lips
 //!                                                    └─ velum port → nasal (+maxillary sinus) → nostrils
-//! plus piriform fossae (closed side branch above the epilarynx).
+//! plus piriform fossae (closed side branch above the epilarynx), and an alien's organs when it
+//! has any (see `anatomy::alien`): a throat sac, a second voicebox, a crest.
 //! Applies HumanArtic configurations (geometry → area function → tube targets) and manages
 //! the turbulence noise sources at constrictions and the teeth.
 
 use crate::airway::network::{AirwayNetwork, Area, NoiseSpec, PortSpec, Tube, TubeSpec};
+use crate::anatomy::alien::Organs;
 use crate::anatomy::human::{HumanArtic, HumanBody, HumanFrame, HumanVocalTract};
 use crate::math::{js_max, js_min, js_round, smoothstep as smooth, sqrt};
 use crate::physics::{C_SOUND, RHO, WALL_NASAL, WALL_SOFT, WALL_TRACHEA};
@@ -31,6 +33,12 @@ pub struct HumanAirway {
     pub velum_port: usize,
     pub rad_lips: usize,
     pub rad_nose: usize,
+    /// the second voicebox's port (an alien's), beside the glottis
+    pub twin_port: Option<usize>,
+    /// an alien's crest tube (from the back of the nasal cavity, open at its far end)
+    pub crest: Option<Tube>,
+    /// an alien's throat sac (a cavity node)
+    pub sac: Option<usize>,
     pub n_ph: usize,
     pub n_or: usize,
     pub ph_areas: Vec<f64>,
@@ -67,6 +75,12 @@ pub struct HumanAirway {
 impl HumanAirway {
     /// `fs`: internal sample rate (Hz).
     pub fn new(fs: f64, body: HumanBody) -> Self {
+        Self::with_organs(fs, body, Organs::NONE)
+    }
+
+    /// A human airway plus an alien's organs. They are added after every human part, so with
+    /// `Organs::NONE` the network is the human one, node for node.
+    pub fn with_organs(fs: f64, body: HumanBody, organs: Organs) -> Self {
         let k = body.scale;
         let tract = HumanVocalTract::new(body);
         let mut net = AirwayNetwork::new(fs);
@@ -115,6 +129,30 @@ impl HumanAirway {
         net.add_port(nasal.node(js_round(n_na as f64 * 0.45) as usize), sinus, PortSpec::new(0.12 * k * k, 0.5 * k).kinetic(0.0, 0.0).no_half_sections());
         let rad_lips = net.add_radiation(oral.last_node());
         let rad_nose = net.add_radiation(nasal.last_node());
+        // ---- an alien's organs
+        // throat sac: an inflatable cavity on a short neck ≈2 cm above the glottis (a few cm³ up to
+        // ~400 cm³ for a human-sized body: its Helmholtz resonance falls from ~1 kHz to ~200 Hz)
+        let sac = (organs.sac > 0.0).then(|| {
+            let node = pharynx.node(((n_ph - 1) as f64).min(js_round((2.0 / 8.8) * n_ph as f64)) as usize);
+            let cav = net.add_cavity("sac", (6.0 + 400.0 * organs.sac) * k * k * k, Some(WALL_SOFT));
+            net.add_port(node, cav, PortSpec::new((0.3 + 0.9 * organs.sac) * k * k, 1.2 * k).kinetic(0.0, 0.0).no_half_sections());
+            cav
+        });
+        // second voicebox: a slit in parallel with the glottis, driven by its own folds
+        let twin_port = organs.twin.then(|| net.add_port(trachea.last_node(), pharynx.first_node(), PortSpec::new(0.0, 0.3 * k).kinetic(0.37, 1.0).slit(1.4 * k)));
+        // crest: 25 cm (a short horn) to 125 cm (a lambeosaur's) of tube, opening off the top of the
+        // pharynx behind the velum, so it sounds with the velum shut too (off the nasal cavity, as in
+        // a lambeosaur, it was silent in every vowel)
+        let crest = (organs.crest > 0.0).then(|| {
+            let len = (25.0 + 100.0 * organs.crest) * k;
+            // coarse (≈2 cm sections, good to ~9 kHz): at the tract's own spacing a metre of crest
+            // cost more than the whole human airway
+            let n = js_max(8.0, (len / js_max(dx_min, 1.9 * k)).floor()) as usize;
+            let t = net.add_tube(TubeSpec::new("crest", n, len, Area::Uniform(1.6 * k * k)).wall(Some(WALL_NASAL)).perimeter(1.4).viscous(1.5));
+            net.add_port(pharynx.last_node(), t.first_node(), PortSpec::new((0.3 + 0.9 * organs.crest) * k * k, 0.8 * k).kinetic(0.0, 0.0));
+            net.add_radiation(t.last_node());
+            t
+        });
         net.finalize();
         HumanAirway {
             net,
@@ -130,6 +168,9 @@ impl HumanAirway {
             velum_port,
             rad_lips,
             rad_nose,
+            twin_port,
+            crest,
+            sac,
             n_ph,
             n_or,
             ph_areas: vec![0.0; n_ph],
