@@ -201,6 +201,11 @@ pub fn arabic(ctx: &Ctx, a: &[String]) -> Result<(), String> {
                 k += 1;
             }
             "--no-waqf" => o.waqf = false,
+            "--recite" => o.recite = true,
+            "--arid" => {
+                o.arid = a.get(k + 1).and_then(|x| x.parse().ok()).ok_or("--arid needs 2, 4 or 6")?;
+                k += 1;
+            }
             x => pos.push(x.to_string()),
         }
         k += 1;

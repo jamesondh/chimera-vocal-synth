@@ -34,6 +34,10 @@ pub struct Segment {
     /// word boundary after this segment
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub word_end: Option<bool>,
+    /// said with the soft palate lowered (a nasalized vowel or glide: tajweed's ghunna on an idghām
+    /// into ي or و)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nasalized: Option<bool>,
 }
 
 impl Segment {

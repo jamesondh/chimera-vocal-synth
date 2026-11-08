@@ -199,6 +199,7 @@ struct Seg<'a> {
     def: Option<PhonemeDef>,
     vowel: Option<ArticPatch>,
     glide_from: bool,
+    nasalized: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -225,10 +226,10 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             let base = durs[si];
             for (i, p) in parts.iter().enumerate() {
                 let dur = if parts.len() > 1 { base * (if i == 0 { 0.55 } else { 0.45 }) } else { base };
-                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0 });
+                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, nasalized: s.nasalized == Some(true) });
             }
         } else {
-            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false });
+            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, nasalized: s.nasalized == Some(true) });
         }
     }
     for s in segs.iter_mut() {
@@ -287,6 +288,10 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             stress: if s.vowel.is_some() { Some(s.stress.unwrap_or(0)) } else { None },
             kind: if s.vowel.is_some() { "vowel".to_string() } else { s.def.map_or("?", |d| d.manner.as_str()).to_string() },
         });
+        // a nasalized segment: the velum lowers for it, as for a nasal (0.45 cm²)
+        if s.nasalized && !s.def.is_some_and(|d| d.nasal == Some(true)) {
+            gestures.push(Gesture::new(t0 - 0.02, t1 - 0.02, 0.05, 0.03, 4.0, one(ArticKey::Velum, 0.45)).label("velum"));
+        }
         let Some(def) = s.def.as_ref() else { continue };
         let next_vowel = i < segs.len() - 1 && segs[i + 1].vowel.is_some();
         let prev_seg = if i > 0 { Some(&segs[i - 1]) } else { None };

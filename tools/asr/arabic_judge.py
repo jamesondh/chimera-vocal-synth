@@ -1,6 +1,6 @@
 """Arabic pronunciation of the engine, judged by Whisper (large-v3-turbo, multilingual, on MLX).
 
-usage: arabic_judge.py <outdir> [--against earlier/arabic.json] [--control]
+usage: arabic_judge.py <outdir> [--against earlier/arabic.json] [--control] [--recite]
 
 Two tests, on renders by `chimera render arabic` in the male and female voices:
 
@@ -13,6 +13,8 @@ Two tests, on renders by `chimera render arabic` in the male and female voices:
 2. Sentences (arabic-sentences.tsv), free transcription (greedy, language ar): character error
    rate after removing vowel marks and folding hamza seats, alif maqṣūra and tāʾ marbūṭa, at most
    100 % per sentence. The "held" sentences are reported but never decide.
+
+--recite renders as a recitation (tajweed applied, `chimera render arabic --recite`).
 
 --control runs the same tests on the macOS Arabic voice (say -v Majed): a real speech synthesizer,
 so its scores show what the judge can hear, the ceiling for these words.
@@ -103,9 +105,12 @@ class Judge:
         return r["text"].strip()
 
 
+RECITE = []
+
+
 def render_engine(text, body, stem):
     exe = os.path.join(REPO, "target/release/chimera")
-    subprocess.run([exe, "render", "arabic", stem, text, body], check=True, capture_output=True)
+    subprocess.run([exe, "render", "arabic", stem, text, body] + RECITE, check=True, capture_output=True)
 
 
 def render_control(text, body, stem):
@@ -120,7 +125,9 @@ def main():
         against = args[i + 1]
         del args[i : i + 2]
     control = "--control" in args
-    args = [a for a in args if a != "--control"]
+    if "--recite" in args:
+        RECITE.append("--recite")
+    args = [a for a in args if a not in ("--control", "--recite")]
     out = args[0]
     os.makedirs(out, exist_ok=True)
     bodies = ("majed",) if control else BODIES
@@ -166,7 +173,7 @@ def main():
             ref, hyp = norm(text), norm(heard)
             # capped at the sentence's length: a Whisper repetition loop counts as all wrong, once
             e = min(edits(ref, hyp), len(ref))
-            for key in (part, f"{part}-{body}"):
+            for key in (part, f"{part}-{body}", f"kind-{kind}"):
                 c = cer.setdefault(key, [0, 0])
                 c[0] += e
                 c[1] += len(ref)

@@ -97,6 +97,18 @@ pub struct ArabicOptions {
     /// read the last word of each phrase in pause (waqf)
     #[serde(default = "default_true")]
     pub waqf: bool,
+    /// recite: apply the tajweed (madd lengths, ghunna, idghām, iqlāb, ikhfāʾ), as Ḥafṣ ʿan ʿĀṣim
+    /// by way of al-Shāṭibiyya, on a reciting tone: no word accents, the pitch drifting down
+    /// through the āya and falling at its end
+    #[serde(default)]
+    pub recite: bool,
+    /// counts of a madd ʿāriḍ (a long vowel before the last letter in pause): 2, 4 or 6
+    #[serde(default = "default_arid")]
+    pub arid: f64,
+}
+
+fn default_arid() -> f64 {
+    4.0
 }
 
 /// A ḥaraka at a careful reading pace: short vowels of 100 ms, long ones 200 ms. (MSA short vowels
@@ -111,7 +123,7 @@ fn default_true() -> bool {
 
 impl Default for ArabicOptions {
     fn default() -> Self {
-        ArabicOptions { count: default_count(), waqf: true }
+        ArabicOptions { count: default_count(), waqf: true, recite: false, arid: default_arid() }
     }
 }
 
@@ -490,14 +502,19 @@ struct Phone {
     src: [usize; 2],
     rules: Vec<&'static str>,
     word: usize,
+    /// recited length in ḥarakāt, when tajweed sets it (a madd of 4 or 6, a ghunna of 2)
+    counts: Option<f64>,
+    nasalized: bool,
+    /// merged into the next letter (idghām): not said
+    drop: bool,
 }
 
 impl Phone {
     fn cons(ipa: &'static str, letter: char, src: [usize; 2], word: usize) -> Phone {
-        Phone { ipa, vowel: None, long: false, gem: false, heavy: false, letter, wasl: false, allah: false, src, rules: vec![], word }
+        Phone { ipa, vowel: None, long: false, gem: false, heavy: false, letter, wasl: false, allah: false, src, rules: vec![], word, counts: None, nasalized: false, drop: false }
     }
     fn vowel(v: V, src: [usize; 2], word: usize) -> Phone {
-        Phone { ipa: v.ipa(), vowel: Some(v), long: false, gem: false, heavy: false, letter: '\0', wasl: false, allah: false, src, rules: vec![], word }
+        Phone { ipa: v.ipa(), vowel: Some(v), long: false, gem: false, heavy: false, letter: '\0', wasl: false, allah: false, src, rules: vec![], word, counts: None, nasalized: false, drop: false }
     }
     fn is_vowel(&self) -> bool {
         self.vowel.is_some()
@@ -1151,6 +1168,88 @@ fn annotate(words: &[Word], pause: bool) -> Vec<Annotation> {
     annotate_words(words, pause)
 }
 
+/// The nasal a hidden nūn (ikhfāʾ) takes toward the next consonant: made at its place, held with
+/// the velum open. (In ikhfāʾ the tongue only approaches that place; a full closure there is the
+/// nearest this articulator set comes.)
+fn hidden_nasal(next: &str) -> &'static str {
+    match next.trim_end_matches('ˤ') {
+        "k" | "g" => "ŋ",
+        "q" => "ɴ",
+        "f" => "ɱ",
+        "ʃ" | "dʒ" | "j" => "ɲ",
+        _ => "n",
+    }
+}
+
+/// Tajweed applied to the sounds, from the annotations of the text (Ḥafṣ by way of al-Shāṭibiyya):
+/// madd muttaṣil and munfaṣil 4 counts, lāzim 6, ʿāriḍ `o.arid`; a ghunna held 2 counts; idghām
+/// with ghunna (the nūn merges into a doubled ي ن م و, nasalized), iqlāb (n → m), ikhfāʾ (a nasal
+/// at the next letter's place), ikhfāʾ and idghām shafawī; like and near letters merged. (Qalqala
+/// is annotated; its echo is not made yet, see below.)
+fn recite(ph: &mut [Phone], ann: &[Annotation], o: &ArabicOptions) {
+    let over = |p: &Phone, a: &Annotation| p.src[0] < a.end && a.start < p.src[1];
+    let n = ph.len();
+    for a in ann {
+        // the first consonant in the span, and the first consonant after index i
+        let first_cons = |ph: &[Phone], letter: Option<char>| (0..n).find(|&i| !ph[i].is_vowel() && !ph[i].drop && over(&ph[i], a) && letter.is_none_or(|c| ph[i].letter == c));
+        let next_cons = |ph: &[Phone], i: usize| (i + 1..n).find(|&j| !ph[j].is_vowel() && !ph[j].drop);
+        match a.rule {
+            "madd_muttasil" | "madd_munfasil" | "madd_6" | "madd_246" => {
+                let c = match a.rule {
+                    "madd_6" => 6.0,
+                    "madd_246" => o.arid,
+                    _ => 4.0,
+                };
+                for p in ph.iter_mut().filter(|p| p.is_vowel() && p.long && over(p, a)) {
+                    p.counts = Some(c);
+                }
+            }
+            "ghunnah" => {
+                if let Some(i) = first_cons(ph, None) {
+                    ph[i].counts = Some(2.0);
+                }
+            }
+            "idghaam_ghunnah" | "idghaam_shafawi" => {
+                let letter = if a.rule == "idghaam_shafawi" { 'م' } else { 'ن' };
+                if let Some(i) = first_cons(ph, Some(letter))
+                    && let Some(j) = next_cons(ph, i)
+                {
+                    ph[i].drop = true;
+                    let t = &mut ph[j];
+                    t.gem = true;
+                    t.counts = Some(2.0);
+                    t.nasalized = matches!(t.ipa, "j" | "w");
+                    t.rules.push(GHUNNA);
+                }
+            }
+            "iqlab" | "ikhfa" => {
+                if let Some(i) = first_cons(ph, Some('ن')) {
+                    let next = next_cons(ph, i).map_or("n", |j| ph[j].ipa);
+                    let p = &mut ph[i];
+                    p.ipa = if a.rule == "iqlab" { "m" } else { hidden_nasal(next) };
+                    p.counts = Some(2.0);
+                    p.rules.push(GHUNNA);
+                }
+            }
+            "ikhfa_shafawi" => {
+                if let Some(i) = first_cons(ph, Some('م')) {
+                    ph[i].counts = Some(2.0);
+                    ph[i].rules.push(GHUNNA);
+                }
+            }
+            "idghaam_mutajanisayn" | "idghaam_mutaqaribayn" => {
+                if let Some(i) = first_cons(ph, None) {
+                    ph[i].drop = true;
+                }
+            }
+            // qalqala: the stop is released (as every stop before a pause is). Its echo, an added
+            // short vowel even 15 ms long, made Whisper hear another syllable (أَحَدْ → "أحوال",
+            // لَمْ يَلِدْ → garbage): a bounce in the release itself needs a better source model.
+            _ => {}
+        }
+    }
+}
+
 /// Heaviness: the heavy letters, rāʾ by its vowels, the lām of Allāh by the vowel before it.
 fn tafkhim(ph: &mut [Phone]) {
     let n = ph.len();
@@ -1302,7 +1401,10 @@ fn consonant_dur(p: &Phone, count: f64) -> (f64, f64) {
 }
 
 fn time_phrase(ph: Vec<Phone>, words: &[Word], raw_words: &[usize], o: &ArabicOptions, question: bool, guessed: usize) -> ArabicPhrase {
-    let st = stress(&ph, words);
+    // letters merged into the next (idghām) are not said
+    let ph: Vec<Phone> = ph.into_iter().filter(|p| !p.drop).collect();
+    // a recitation has no speech stress accents
+    let st = if o.recite { vec![0; ph.len()] } else { stress(&ph, words) };
     let last_vowel = ph.iter().rposition(|p| p.is_vowel());
     let n = ph.len();
     let mut segments = Vec::with_capacity(n);
@@ -1332,7 +1434,10 @@ fn time_phrase(ph: Vec<Phone>, words: &[Word], raw_words: &[usize], o: &ArabicOp
         if p.heavy && p.is_vowel() {
             seg_ipa.push('ˤ');
         }
-        let (dur, c) = if p.is_vowel() {
+        let (dur, c) = if let Some(c) = p.counts {
+            // a length tajweed sets (a madd of 4 or 6, a ghunna of 2)
+            (c * o.count, c)
+        } else if p.is_vowel() {
             let c = if p.long { 2.0 } else { 1.0 };
             // the phrase's last vowel lengthens (phrase-final lengthening), stressed ones a little
             let mut d = c * o.count;
@@ -1349,14 +1454,18 @@ fn time_phrase(ph: Vec<Phone>, words: &[Word], raw_words: &[usize], o: &ArabicOp
         } else {
             consonant_dur(p, o.count)
         };
-        segments.push(Segment { ipa: seg_ipa.clone(), dur: Some(dur), stress: Some(if p.is_vowel() { st[i] } else { 0 }), f0: None, word_end: if word_end { Some(true) } else { None } });
+        segments.push(Segment { ipa: seg_ipa.clone(), dur: Some(dur), stress: Some(if p.is_vowel() { st[i] } else { 0 }), f0: None, word_end: if word_end { Some(true) } else { None }, nasalized: if p.nasalized { Some(true) } else { None } });
         sources.push(p.src);
         counts.push(c);
         rules.push(p.rules.clone());
         let mut part = seg_ipa.clone();
-        if p.long || p.gem {
+        if let Some(c) = p.counts.filter(|c| *c > 2.0) {
+            // a lengthened madd: one more ː per two counts
+            part.push_str(&"ː".repeat((c / 2.0).round() as usize));
+        } else if p.long || p.gem || p.counts.is_some() {
             part.push('ː');
         }
+
         if st[i] == 1 {
             let onset = i > 0 && !ph[i - 1].is_vowel() && ph[i - 1].word == p.word;
             let k = if onset { parts.len() - 1 } else { parts.len() };
@@ -1373,7 +1482,10 @@ fn time_phrase(ph: Vec<Phone>, words: &[Word], raw_words: &[usize], o: &ArabicOp
         parts.push(part);
     }
     let ipa = parts.concat().trim_end().to_string();
-    ArabicPhrase { segments, intonation: if question { Intonation::Question } else { Intonation::Statement }, pause: 0.35, words: out_words, sources, counts, rules, ipa, guessed, annotations: vec![] }
+    // recited, the āya drifts down and falls at its end (a level tone lost words to Whisper:
+    // قُلْ هُوَ → "قره"); spoken, a question rises
+    let intonation = if question && !o.recite { Intonation::Question } else { Intonation::Statement };
+    ArabicPhrase { segments, intonation, pause: if o.recite { 0.6 } else { 0.35 }, words: out_words, sources, counts, rules, ipa, guessed, annotations: vec![] }
 }
 
 /// Arabic text → phrases of segments (see the module docs).
@@ -1396,9 +1508,13 @@ pub fn to_phrases(text: &str, o: &ArabicOptions) -> Vec<ArabicPhrase> {
         idgham_without_ghunna(&mut ph);
         tafkhim(&mut ph);
         contexts(&mut ph, o.waqf);
+        let annotations = annotate(&words, o.waqf);
+        if o.recite {
+            recite(&mut ph, &annotations, o);
+        }
         let idx: Vec<usize> = (0..nw).collect();
         let mut phrase = time_phrase(ph, &words, &idx, o, rp.question, r.guessed);
-        phrase.annotations = annotate(&words, o.waqf);
+        phrase.annotations = annotations;
         out.push(phrase);
     }
     out

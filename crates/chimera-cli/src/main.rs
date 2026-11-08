@@ -20,7 +20,9 @@ usage: chimera <command> [args] [--float]
   render speech  <out> [\"ipa / ipa\"] [male|female|child]
   render text    <out> [\"English text.\"] [male|female|child]
   render arabic  <out> [\"نص عربي مشكول\"] [male|female|child] [--count s] [--no-waqf]
-                 (vowelled Arabic; --count is the seconds per haraka, 0.1)
+                 [--recite] [--arid 2|4|6]
+                 (vowelled Arabic; --count is the seconds per haraka, 0.1; --recite applies
+                 the tajweed, --arid sets the madd at a pause)
   render song    [outdir] [male|female|child]
   render notes   <in.json> <out> [male|female|child] [--artic tracks.json] [--tele voice.tele]
                  (melody file; midi <= 0 is a rest; --artic also writes the articulators at 100 Hz)
