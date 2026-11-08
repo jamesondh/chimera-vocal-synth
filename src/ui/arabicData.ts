@@ -262,7 +262,7 @@ export const PRESET_GROUPS: PresetGroup[] = [
       { text: "ٱلرَّحْمَٰنِ ٱلرَّحِيمِ ۝ مَٰلِكِ يَوْمِ ٱلدِّينِ", en: "The Most Gracious, the Most Merciful. Master of the Day of Judgement (1:3–4)" },
       { text: "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ", en: "You alone we worship, and You alone we ask for help (1:5)" },
       { text: "ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ", en: "Guide us along the straight path (1:6)" },
-      { text: "قُلْ هُوَ ٱللَّهُ أَحَدٌ ۝ ٱللَّهُ ٱلصَّمَدُ", en: "Say: He is God, the One. God, the Eternal (112:1–2)" },
+      { text: "قُلْ هُوَ ٱللَّهُ أَحَدٌ ۝ ٱللَّهُ ٱلصَّمَدُ ۝ لَمْ يَلِدْ وَلَمْ يُولَدْ ۝ وَلَمْ يَكُن لَّهُۥ كُفُوًا أَحَدٌۢ", en: "Sūrat al-Ikhlāṣ: Say, He is God, the One; God, the Eternal; He neither begets nor is born; and none is comparable to Him (112)" },
     ],
   },
 ];

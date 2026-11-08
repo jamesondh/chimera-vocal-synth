@@ -129,6 +129,17 @@ fn the_basmala_and_the_fatiha_in_uthmani_script() {
 }
 
 #[test]
+fn surat_al_ikhlas() {
+    // 112:1–4, each āya read in pause; in 112:4 the nūn of يَكُن merges into the lām (idghām
+    // without ghunna: yakul-lahū)
+    let text = "قُلْ هُوَ ٱللَّهُ أَحَدٌ ۝ ٱللَّهُ ٱلصَّمَدُ ۝ لَمْ يَلِدْ وَلَمْ يُولَدْ ۝ وَلَمْ يَكُن لَّهُۥ كُفُوًا أَحَدٌۢ";
+    assert_eq!(read(text), "quˤl huwa ɫːaˤːhu ʔaħad | ʔaɫːaˤːhu sˤːaˤmad | lam jalid walam juːlad | walam jaku lːahuː kufuwan ʔaħad");
+    reads("مِن رَّبِّهِمْ", "mi rˤːaˤbːihim");
+    let p = &to_phrases("وَلَمْ يَكُن لَّهُۥ", &ArabicOptions::default())[0];
+    assert!(p.segments.iter().zip(&p.rules).any(|(s, r)| s.ipa == "l" && r.contains(&rules::IDGHAM)), "{:?}", p.rules);
+}
+
+#[test]
 fn unvowelled_letters_are_guessed_and_counted() {
     let p = &to_phrases("كتب", &ArabicOptions::default())[0];
     assert_eq!(p.ipa.replace('ˈ', ""), "katab");

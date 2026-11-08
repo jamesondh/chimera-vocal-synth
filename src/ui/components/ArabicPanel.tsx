@@ -87,6 +87,7 @@ const RULE_NAMES: Record<string, string> = {
   "nun-sakin": "Nūn sākin before a consonant",
   "mim-sakin": "Mīm sākin before a consonant",
   iqlab: "Iqlāb",
+  idgham: "Idghām: the nūn merges into this letter",
   qalqala: "Qalqala letter without a vowel",
   tafkhim: "Tafkhīm: heavy, the tongue drawn back",
   tarqiq: "Tarqīq: light",

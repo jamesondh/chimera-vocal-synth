@@ -71,6 +71,9 @@ pub mod rules {
     pub const SHAMSIYYA: &str = "shamsiyya";
     /// the hamza and vowel of a hamzat al-waṣl, at the start of an utterance
     pub const HAMZAT_WASL: &str = "hamzat-wasl";
+    /// a nūn sākin or tanwīn merged into a following lām or rāʾ (idghām without ghunna): the n is
+    /// not said and the lām or rāʾ is doubled
+    pub const IDGHAM: &str = "idgham";
     /// a vowel added to join a sākin word end to a hamzat al-waṣl
     pub const HELPING_VOWEL: &str = "helping-vowel";
     /// a long vowel shortened before a sākin consonant across words
@@ -840,6 +843,32 @@ impl Letter {
     }
 }
 
+/// Idghām without ghunna: a nūn sākin or tanwīn at a word's end merges into a lām or rāʾ starting
+/// the next word (يَكُن لَّهُۥ → yakul-lahū). The n goes; the lām or rāʾ is doubled (the vowelled text
+/// marks it with shadda already; unvowelled text gets it here). Ḥafṣ makes no exception before
+/// these two letters. (Idghām with ghunna, iqlāb and ikhfāʾ come with the tajweed step.)
+fn idgham_without_ghunna(ph: &mut Vec<Phone>) {
+    let mut i = 0;
+    while i + 1 < ph.len() {
+        let n = &ph[i];
+        let merges = n.letter == 'ن' && !n.is_vowel() && !n.gem && ph[i + 1].word != n.word && matches!(ph[i + 1].letter, 'ل' | 'ر') && !ph[i + 1].is_vowel();
+        if merges {
+            let src0 = ph[i].src[0].min(ph[i + 1].src[0]);
+            let next = &mut ph[i + 1];
+            next.gem = true;
+            next.rules.push(IDGHAM);
+            if !next.rules.contains(&SHADDA) {
+                next.rules.push(SHADDA);
+            }
+            // the merged consonant is said from the n's letter on (the whole span lights)
+            let _ = src0;
+            ph.remove(i);
+            continue;
+        }
+        i += 1;
+    }
+}
+
 /// Heaviness: the heavy letters, rāʾ by its vowels, the lām of Allāh by the vowel before it.
 fn tafkhim(ph: &mut [Phone]) {
     let n = ph.len();
@@ -1082,6 +1111,7 @@ pub fn to_phrases(text: &str, o: &ArabicOptions) -> Vec<ArabicPhrase> {
         if ph.is_empty() {
             continue;
         }
+        idgham_without_ghunna(&mut ph);
         tafkhim(&mut ph);
         contexts(&mut ph, o.waqf);
         let idx: Vec<usize> = (0..nw).collect();
