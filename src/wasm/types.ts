@@ -191,6 +191,8 @@ export interface ArabicPhrase extends Phrase {
   ipa: string;
   /** letters whose vowel was not written and was guessed */
   guessed: number;
+  /** the tajweed of the written text: a rule on [start, end) code points (quran-tajweed names) */
+  annotations: { rule: string; start: number; end: number }[];
 }
 
 export interface ArabicOptions {

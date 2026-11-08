@@ -8,6 +8,7 @@ mod compare;
 mod diagnose;
 mod js;
 mod render;
+mod tajweed;
 mod wav;
 
 use chimera::anatomy::human::{BODY_CHILD, BODY_FEMALE, BODY_MALE, BodyMix, HumanBody};
@@ -31,6 +32,9 @@ usage: chimera <command> [args] [--float]
                  [--against earlier/score.json]  (score.json: distance to the singer, and the verdict)
   calibrate vowels     [male|female|child|all] [--out file]
   calibrate consonants [--out file]
+  tajweed score  [dir] [--show rule]
+                 (the Arabic reader's tajweed against quran-tajweed over the whole Qurʾān;
+                 tools/fetch-tajweed.sh puts the data in ~/datasets/quran-tajweed)
 
 Output names are stems (<out>.wav). --float writes 32-bit float WAVs instead of 16-bit PCM.
 Calibration writes the tables the engine embeds, in crates/chimera/src/phonetics/.";
@@ -114,6 +118,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["diagnose", ..] => diagnose::run(&ctx, &args[1..]),
         ["calibrate", "vowels", ..] => calibrate::vowels(&args[2..]),
         ["calibrate", "consonants", ..] => calibrate::consonants(&args[2..]),
+        ["tajweed", "score", ..] => tajweed::score(&args[2..]),
         ["help" | "--help" | "-h", ..] => {
             println!("{USAGE}");
             Ok(())

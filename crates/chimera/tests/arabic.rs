@@ -216,3 +216,57 @@ fn a_doubled_consonant_holds_longer_than_a_single_one() {
     // a doubled nasal is held two counts (its ghunna)
     assert!((dur("إِنَّ", "n") - 2.0 * ArabicOptions::default().count).abs() < 1e-9);
 }
+
+/// The tajweed annotations of a phrase, as (rule, the text they cover).
+fn annotated(text: &str) -> Vec<(&'static str, String)> {
+    let chars: Vec<char> = text.chars().collect();
+    to_phrases(text, &ArabicOptions::default()).iter().flat_map(|p| p.annotations.clone()).map(|a| (a.rule, chars[a.start..a.end].iter().collect())).collect()
+}
+
+#[track_caller]
+fn has(text: &str, rule: &str, span: &str) {
+    let a = annotated(text);
+    assert!(a.iter().any(|(r, s)| *r == rule && s == span), "{text}: no {rule} on [{span}] in {a:?}");
+}
+
+#[test]
+fn tajweed_is_annotated_as_the_mushaf_colours_it() {
+    // al-Baqara 2:2–8 and al-Fātiḥa, spans as cpfair/quran-tajweed marks them
+    has("ذَٰلِكَ ٱلْكِتَٰبُ لَا رَيْبَ ۛ فِيهِ ۛ هُدًى لِّلْمُتَّقِينَ", "idghaam_no_ghunnah", "ًى لِّ");
+    has("ٱلَّذِينَ يُؤْمِنُونَ بِٱلْغَيْبِ وَيُقِيمُونَ ٱلصَّلَوٰةَ وَمِمَّا رَزَقْنَٰهُمْ يُنفِقُونَ", "ghunnah", "مَّ");
+    has("ٱلَّذِينَ يُؤْمِنُونَ بِٱلْغَيْبِ وَيُقِيمُونَ ٱلصَّلَوٰةَ وَمِمَّا رَزَقْنَٰهُمْ يُنفِقُونَ", "qalqalah", "قْ");
+    has("ٱلَّذِينَ يُؤْمِنُونَ بِٱلْغَيْبِ وَيُقِيمُونَ ٱلصَّلَوٰةَ وَمِمَّا رَزَقْنَٰهُمْ يُنفِقُونَ", "ikhfa", "نفِ");
+    has("ٱلَّذِينَ يُؤْمِنُونَ بِٱلْغَيْبِ وَيُقِيمُونَ ٱلصَّلَوٰةَ وَمِمَّا رَزَقْنَٰهُمْ يُنفِقُونَ", "silent", "و");
+    has("وَٱلَّذِينَ يُؤْمِنُونَ بِمَآ أُنزِلَ إِلَيْكَ", "madd_munfasil", "آ");
+    has("أُو۟لَٰٓئِكَ عَلَىٰ هُدًى مِّن رَّبِّهِمْ", "madd_muttasil", "ٰٓ");
+    has("أُو۟لَٰٓئِكَ عَلَىٰ هُدًى مِّن رَّبِّهِمْ", "idghaam_ghunnah", "ًى مِّ");
+    has("أُو۟لَٰٓئِكَ عَلَىٰ هُدًى مِّن رَّبِّهِمْ", "idghaam_no_ghunnah", "ن رَّ");
+    has("أُو۟لَٰٓئِكَ عَلَىٰ هُدًى مِّن رَّبِّهِمْ", "silent", "و۟");
+    has("وَمِنَ ٱلنَّاسِ مَن يَقُولُ ءَامَنَّا بِٱللَّهِ وَمَا هُم بِمُؤْمِنِينَ", "idghaam_ghunnah", "ن يَ");
+    has("وَمِنَ ٱلنَّاسِ مَن يَقُولُ ءَامَنَّا بِٱللَّهِ وَمَا هُم بِمُؤْمِنِينَ", "ikhfa_shafawi", "م بِ");
+    has("وَلَهُمْ عَذَابٌ أَلِيمٌۢ بِمَا كَانُوا۟", "iqlab", "ٌۢ بِ");
+    has("فِى قُلُوبِهِم مَّرَضٌ", "idghaam_shafawi", "م مَّ");
+    has("ٱلَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ", "madd_6", "آ");
+    has("ٱلَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ", "madd_246", "ي");
+    has("بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ", "lam_shamsiyyah", "ل");
+    has("بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ", "madd_2", "ٰ");
+    has("قَدْ تَبَيَّنَ ٱلرُّشْدُ مِنَ ٱلْغَىِّ", "qalqalah", "دْ");
+    has("لَآ إِكْرَاهَ فِى ٱلدِّينِ ۖ قَد تَّبَيَّنَ", "idghaam_mutajanisayn", "د");
+    has("بَل رَّفَعَهُ ٱللَّهُ إِلَيْهِ", "idghaam_mutaqaribayn", "ل");
+    has("الٓمٓ", "madd_6", "لٓ");
+    // the hamzat al-waṣl that starts a phrase is said, so it isn't marked; the sun lām of the
+    // name Allāh isn't an article's
+    assert!(!annotated("ٱلْحَمْدُ لِلَّهِ").iter().any(|(r, _)| *r == "hamzat_wasl"));
+    assert!(!annotated("بِسْمِ ٱللَّهِ").iter().any(|(r, _)| *r == "lam_shamsiyyah"));
+    // a madd before a word's last lām (the letter names دال and ذال) once read past the word
+    reads("دَال", "daːl");
+    reads("ذَال", "ðaːl");
+}
+
+#[test]
+fn a_bare_consonant_in_vowelled_text_is_still() {
+    // Uthmani script leaves the sukūn off a nūn that hides (ikhfāʾ): not a vowel to guess
+    let p = &to_phrases("يُنفِقُونَ", &ArabicOptions::default())[0];
+    assert_eq!(p.ipa.replace('ˈ', ""), "junfiquˤːn");
+    assert_eq!(p.guessed, 0);
+}

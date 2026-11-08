@@ -136,6 +136,20 @@ pub struct ArabicPhrase {
     pub ipa: String,
     /// letters whose vowel was not written
     pub guessed: usize,
+    /// the tajweed of the written text: rules on spans of it (see [`annotate`])
+    pub annotations: Vec<Annotation>,
+}
+
+/// A tajweed rule on a span of the text, `[start, end)` in code points. The rule names follow the
+/// quran-tajweed data (cpfair/quran-tajweed, CC BY 4.0), the de-facto names for tajweed colouring:
+/// `madd_2`, `madd_246`, `madd_muttasil`, `madd_munfasil`, `madd_6`, `ghunnah`, `idghaam_ghunnah`,
+/// `idghaam_no_ghunnah`, `idghaam_shafawi`, `idghaam_mutajanisayn`, `idghaam_mutaqaribayn`,
+/// `ikhfa`, `ikhfa_shafawi`, `iqlab`, `qalqalah`, `hamzat_wasl`, `lam_shamsiyyah`, `silent`.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Annotation {
+    pub rule: &'static str,
+    pub start: usize,
+    pub end: usize,
 }
 
 // ---------------------------------------------------------------- the script
@@ -207,12 +221,18 @@ struct Letter {
     long_after: Option<V>,
     /// the lām of the name Allāh
     allah: bool,
+    /// its long ā is not written (added by the spelling repairs)
+    hidden: bool,
     src: [usize; 2],
+    /// where the tanwīn mark, the dagger alif and a small wāw/yāʾ are (code points)
+    tanwin_at: usize,
+    dagger_at: usize,
+    long_after_at: usize,
 }
 
 impl Letter {
     fn new(ch: char, at: usize) -> Letter {
-        Letter { ch, vowel: None, tanwin: None, shadda: false, sukun: false, dagger: false, maddah: false, silent: false, pause_only: false, long_madd: false, iqlab: false, long_after: None, allah: false, src: [at, at + 1] }
+        Letter { ch, vowel: None, tanwin: None, shadda: false, sukun: false, dagger: false, maddah: false, silent: false, pause_only: false, long_madd: false, iqlab: false, long_after: None, allah: false, hidden: false, src: [at, at + 1], tanwin_at: at, dagger_at: at, long_after_at: at }
     }
     /// carries no vowel sign, no sukūn and no shadda
     fn bare(&self) -> bool {
@@ -224,6 +244,20 @@ impl Letter {
 struct Word {
     letters: Vec<Letter>,
     text: String,
+}
+
+impl Word {
+    /// The disjoint letters opening some sūras (الٓمٓ, كٓهيعٓصٓ, طه, يسٓ, …): read as letter names. Their
+    /// letters carry the maddah without a vowel.
+    fn muqattaat(&self) -> bool {
+        self.letters.iter().any(|l| l.maddah && l.vowel.is_none() && l.long_after.is_none() && !matches!(l.ch, 'ا' | 'و' | 'ي' | 'ى' | 'آ') && !l.dagger && consonant(l.ch).is_some())
+    }
+
+    /// Written with vowel marks: then a bare consonant is sākin (Uthmani script leaves the sukūn
+    /// off a letter that merges into or hides before the next), not a vowel to guess.
+    fn vowelled(&self) -> bool {
+        self.letters.iter().any(|l| l.vowel.is_some() || l.tanwin.is_some() || l.sukun || l.shadda)
+    }
 }
 
 fn is_mark(c: char) -> bool {
@@ -254,10 +288,11 @@ fn parse(text: &str) -> Vec<RawPhrase> {
     let mut words: Vec<Word> = vec![];
     let mut cur: Option<Word> = None;
     let flush_word = |cur: &mut Option<Word>, words: &mut Vec<Word>| {
-        if let Some(w) = cur.take()
-            && !w.letters.is_empty()
-        {
-            words.push(w);
+        if let Some(mut w) = cur.take() {
+            settle(&mut w);
+            if !w.letters.is_empty() {
+                words.push(w);
+            }
         }
     };
     for (at, c) in text.chars().enumerate() {
@@ -279,6 +314,11 @@ fn parse(text: &str) -> Vec<RawPhrase> {
         if c == TATWEEL || c == '\u{200C}' || c == '\u{200D}' {
             if let Some(w) = cur.as_mut() {
                 w.text.push(c);
+                // a tatweel can carry a hamza (ـٔ) or a dagger alif (ـٰ): hold it as a letter until
+                // its marks say which (see `settle`)
+                if c == TATWEEL {
+                    w.letters.push(Letter::new(TATWEEL, at));
+                }
             }
             continue;
         }
@@ -291,24 +331,25 @@ fn parse(text: &str) -> Vec<RawPhrase> {
                 FATHA => l.vowel = Some(V::A),
                 KASRA => l.vowel = Some(V::I),
                 DAMMA => l.vowel = Some(V::U),
-                FATHATAN | OPEN_FATHATAN => l.tanwin = Some(V::A),
-                KASRATAN | OPEN_KASRATAN => l.tanwin = Some(V::I),
-                DAMMATAN | OPEN_DAMMATAN => l.tanwin = Some(V::U),
+                FATHATAN | OPEN_FATHATAN => (l.tanwin, l.tanwin_at) = (Some(V::A), at),
+                KASRATAN | OPEN_KASRATAN => (l.tanwin, l.tanwin_at) = (Some(V::I), at),
+                DAMMATAN | OPEN_DAMMATAN => (l.tanwin, l.tanwin_at) = (Some(V::U), at),
                 SHADDA_MARK => l.shadda = true,
                 SUKUN | SMALL_DOTLESS_KHAH => l.sukun = true,
                 MADDAH => l.maddah = true,
                 SMALL_HIGH_MADDA => l.long_madd = true,
-                DAGGER_ALEF => l.dagger = true,
+                DAGGER_ALEF => (l.dagger, l.dagger_at) = (true, at),
                 SMALL_HIGH_ZERO => l.silent = true,
                 SMALL_HIGH_RECT_ZERO => l.pause_only = true,
                 SMALL_HIGH_MEEM | SMALL_LOW_MEEM => l.iqlab = true,
-                SMALL_WAW | INVERTED_DAMMA => l.long_after = Some(V::U),
-                SMALL_YEH | SUBSCRIPT_ALEF => l.long_after = Some(V::I),
+                SMALL_WAW | INVERTED_DAMMA => (l.long_after, l.long_after_at) = (Some(V::U), at),
+                SMALL_YEH | SUBSCRIPT_ALEF => (l.long_after, l.long_after_at) = (Some(V::I), at),
                 HAMZA_ABOVE => {
                     l.ch = match l.ch {
                         'ا' => 'أ',
                         'و' => 'ؤ',
                         'ي' | 'ى' => 'ئ',
+                        TATWEEL => 'ء',
                         x => x,
                     }
                 }
@@ -335,6 +376,26 @@ fn parse(text: &str) -> Vec<RawPhrase> {
         phrases.push(RawPhrase { words, question: false });
     }
     phrases
+}
+
+/// A tatweel that carried no hamza is no letter: its dagger alif (ـٰ) belongs to the letter before.
+fn settle(w: &mut Word) {
+    let mut i = 0;
+    while i < w.letters.len() {
+        if w.letters[i].ch != TATWEEL {
+            i += 1;
+            continue;
+        }
+        let t = w.letters.remove(i);
+        if i > 0 {
+            let p = &mut w.letters[i - 1];
+            if t.dagger {
+                (p.dagger, p.dagger_at) = (true, t.dagger_at);
+            }
+            p.maddah |= t.maddah;
+            p.src[1] = t.src[1];
+        }
+    }
 }
 
 // ---------------------------------------------------------------- spelling repairs
@@ -387,8 +448,16 @@ fn repair(w: &mut Word) {
         } else {
             continue;
         };
+        // أُولُو "possessors of" (ʔu…), not أَوَلَوْ "or if"
+        if form.starts_with('أ') && w.letters[off].vowel.is_some_and(|v| v != V::U) {
+            continue;
+        }
         for &k in hidden {
-            w.letters[off + k].dagger = true;
+            let l = &mut w.letters[off + k];
+            if !l.dagger {
+                l.hidden = true;
+            }
+            l.dagger = true;
         }
         for &k in silent {
             w.letters[off + k].silent = true;
@@ -509,7 +578,8 @@ fn article_lam(w: &Word, i: usize) -> bool {
         return false;
     }
     let alif = |k: usize| matches!(l[k].ch, 'ا' | WASLA) && l[k].vowel.is_none() && !l[k].maddah;
-    let li = |k: usize| l[k].ch == 'ل' && matches!(l[k].vowel, Some(V::I) | None) && !l[k].sukun && !l[k].shadda;
+    // li- (doubled when a nūn or tanwīn before it merges in: هُدًى لِّلنَّاسِ)
+    let li = |k: usize| l[k].ch == 'ل' && matches!(l[k].vowel, Some(V::I) | None) && !l[k].sukun;
     let pro = |k: usize| PROCLITICS.contains(&l[k].ch) && !l[k].sukun && !l[k].shadda;
     match i {
         1 => alif(0) || li(0),
@@ -757,6 +827,7 @@ impl Reader<'_> {
         if !more || pause_final {
             return;
         }
+        let vowelled = w.vowelled();
         if let Some(n) = next {
             let v = match n.ch {
                 'ا' | 'ى' if n.vowel.is_none() => Some(V::A),
@@ -768,6 +839,9 @@ impl Reader<'_> {
                 // the madd letter adds the vowel and lengthens it
                 return;
             }
+        }
+        if vowelled {
+            return;
         }
         self.phones.push(Phone::vowel(V::A, x.src, wi).tag(GUESSED));
         self.guessed += 1;
@@ -867,6 +941,214 @@ fn idgham_without_ghunna(ph: &mut Vec<Phone>) {
         }
         i += 1;
     }
+}
+
+// ---------------------------------------------------------------- tajweed annotations
+
+fn is_hamza_or_throat(c: char) -> bool {
+    matches!(c, 'ء' | 'أ' | 'إ' | 'ؤ' | 'ئ' | 'آ' | 'ه' | 'ع' | 'ح' | 'غ' | 'خ')
+}
+
+/// The pairs that merge when the first is sākin: same place (mutajānisayn) and near places
+/// (mutaqāribayn).
+fn merging_pair(a: char, b: char) -> Option<&'static str> {
+    match (a, b) {
+        ('د', 'ت') | ('ت', 'د') | ('ت', 'ط') | ('ط', 'ت') | ('ث', 'ذ') | ('ذ', 'ظ') | ('ب', 'م') => Some("idghaam_mutajanisayn"),
+        ('ل', 'ر') | ('ق', 'ك') => Some("idghaam_mutaqaribayn"),
+        _ => None,
+    }
+}
+
+/// The tajweed of a written phrase (its last word read in pause when `pause`), letter by letter as
+/// tajweed is taught. The spans follow the quran-tajweed data: a madd on its madd letter, ghunna on
+/// the doubled nūn or mīm, qalqala on its letter, a nūn or mīm sākin (or the tanwīn mark) through
+/// the letter after it, an idghām of like or near letters on the letter that merges, and the silent
+/// letters (hamzat al-waṣl, the sun lām, the marked ones) on themselves.
+fn annotate_words(words: &[Word], pause: bool) -> Vec<Annotation> {
+    let mut out: Vec<Annotation> = vec![];
+    let flat: Vec<(usize, usize)> = words.iter().enumerate().flat_map(|(wi, w)| (0..w.letters.len()).map(move |li| (wi, li))).collect();
+    let at = |k: usize| &words[flat[k].0].letters[flat[k].1];
+    let nw = words.len();
+    // a letter that is not said: marked silent, the seat of a tanwīn fatḥ, the alif after a plural wāw
+    let unsaid = |k: usize| -> bool {
+        let (wi, li) = flat[k];
+        let l = at(k);
+        let w = &words[wi];
+        let prev = if li > 0 { Some(&w.letters[li - 1]) } else { None };
+        l.silent
+            || (l.pause_only && !(pause && wi + 1 == nw))
+            // the seat of a tanwīn fatḥ, unless the word ends in pause (then it is the ā said)
+            || matches!(l.ch, 'ا' | 'ى') && l.bare() && !l.maddah && prev.is_some_and(|p| p.tanwin.is_some()) && !(pause && wi + 1 == nw)
+            || l.ch == 'ا' && l.bare() && li + 1 == w.letters.len() && prev.is_some_and(|p| p.ch == 'و' && (p.bare() || p.sukun))
+    };
+    // the next letter that is said, across words
+    let next_said = |k: usize| -> Option<usize> { (k + 1..flat.len()).find(|&j| !unsaid(j)) };
+    // whether letter k is the last said letter of its word
+    let last_in_word = |k: usize| -> bool { next_said(k).is_none_or(|j| flat[j].0 != flat[k].0) };
+    let in_pause = |k: usize| -> bool { pause && flat[k].0 + 1 == nw && last_in_word(k) };
+    let push = |out: &mut Vec<Annotation>, rule: &'static str, start: usize, end: usize| out.push(Annotation { rule, start, end });
+    // Uthmani script (the muṣḥaf's spelling) marks its lengthened madds
+    let uthmani = words.iter().flat_map(|w| &w.letters).any(|l| l.ch == WASLA || l.dagger && !l.hidden || l.maddah && l.ch != 'ا');
+    for k in 0..flat.len() {
+        let (wi, li) = flat[k];
+        let w = &words[wi];
+        let l = at(k);
+        let vowelled = w.vowelled();
+        let prev = if li > 0 { Some(&w.letters[li - 1]) } else { None };
+        // ---- silent letters and the waṣl
+        if l.ch == WASLA {
+            // said (ʔa, ʔi) at the start of the phrase; elsewhere not
+            if k > 0 {
+                push(&mut out, "hamzat_wasl", l.src[0], l.src[1]);
+            }
+            continue;
+        }
+        if unsaid(k) && (l.silent || l.pause_only || l.ch == 'ا' && prev.is_some_and(|p| p.ch == 'و' && (p.bare() || p.sukun))) {
+            push(&mut out, "silent", l.src[0], l.src[1]);
+            continue;
+        }
+        if !w.muqattaat() && article_lam(w, li) && !l.sukun && w.letters.get(li + 1).is_some_and(|n| (n.shadda || sun_letter(n.ch)) && !n.allah) {
+            push(&mut out, "lam_shamsiyyah", l.src[0], l.src[1]);
+            continue;
+        }
+        // ---- madd
+        // a full madd letter: alif or dotless yāʾ after fatḥa (or a dagger), dotless yāʾ after
+        // kasra, wāw after ḍamma, yāʾ after kasra
+        let after = |v: V| prev.is_some_and(|p| p.vowel == Some(v));
+        let full_madd = match l.ch {
+            'ا' | 'ى' => l.vowel.is_none() && !l.shadda && !l.sukun && l.tanwin.is_none() && !unsaid(k) && (after(V::A) || prev.is_some_and(|p| p.dagger) || l.ch == 'ى' && after(V::I)) && prev.is_some_and(|p| p.tanwin.is_none()),
+            'و' => l.bare() && !l.dagger && after(V::U),
+            'ي' => l.bare() && !l.dagger && after(V::I),
+            _ => false,
+        };
+        let madd_span: Option<[usize; 2]> = if full_madd {
+            Some(l.src)
+        } else if l.dagger && !l.hidden && l.ch != 'ى' {
+            if matches!(l.ch, 'و' | 'ي') && l.vowel.is_none() {
+                // a wāw or yāʾ carrying the dagger alif is its silent seat
+                push(&mut out, "silent", l.src[0], l.dagger_at);
+            }
+            Some([l.dagger_at, l.src[1]])
+        } else {
+            None
+        };
+        if let Some(span) = madd_span {
+            let nxt = next_said(k);
+            // the vocative yā is a word of its own joined in writing (يَٰٓأَيُّهَا): a hamza after it
+            // starts the next word (the hā of attention, هَٰٓؤُلَآءِ, counts as one word)
+            let joined_particle = li == 0 && l.dagger && l.ch == 'ي';
+            let same_word_next = nxt.filter(|&j| flat[j].0 == wi && !joined_particle);
+            let rule = if let Some(j) = same_word_next {
+                let n = at(j);
+                // the article's silent lām before a sun letter: the doubled letter follows (ءَآلذَّكَرَ)
+                let doubled_after = n.ch == 'ل' && n.bare() && j + 1 < flat.len() && flat[j + 1].0 == wi && at(j + 1).shadda;
+                if hamza_letter(n.ch) {
+                    "madd_muttasil"
+                } else if n.shadda || n.sukun || doubled_after {
+                    "madd_6"
+                } else if pause && wi + 1 == nw && last_in_word(j) {
+                    "madd_246"
+                } else {
+                    "madd_2"
+                }
+            } else {
+                // the word's last letter: before a hamza in the next word, or (shortened) a waṣl
+                match nxt.map(at) {
+                    Some(n) if hamza_letter(n.ch) => "madd_munfasil",
+                    Some(n) if n.ch == WASLA => "",
+                    _ => "madd_2",
+                }
+            };
+            // the muṣḥaf's colouring: a written madd letter of two counts isn't marked (only the
+            // dagger alif and the small wāw and yāʾ are), and in Uthmani text the lengthened madds
+            // are the ones written with the maddah
+            let marked = l.maddah || l.long_madd;
+            let rule = match rule {
+                "madd_muttasil" | "madd_munfasil" | "madd_6" if uthmani && !marked => "madd_2",
+                "madd_2" if !l.dagger || l.ch == 'ى' && last_in_word(k) => "",
+                r => r,
+            };
+            // a natural madd on a dotless yāʾ is coloured on its dagger alif, inside a word (عَلَىٰ
+            // at a word's end is not coloured)
+            let span = if rule == "madd_2" && l.ch == 'ى' { [l.dagger_at, l.src[1]] } else { span };
+            if !rule.is_empty() {
+                push(&mut out, rule, span[0], span[1]);
+            }
+        }
+        // the pronoun's ṣila (ۥ ۦ): a madd of its own, not said in pause
+        if l.long_after.is_some() && !in_pause(k) {
+            let rule = match next_said(k).map(at) {
+                Some(n) if hamza_letter(n.ch) && (!uthmani || l.maddah) => "madd_munfasil",
+                Some(n) if n.ch == WASLA => "",
+                _ => "madd_2",
+            };
+            if !rule.is_empty() {
+                push(&mut out, rule, l.long_after_at, l.src[1]);
+            }
+        }
+        // a consonant with the maddah: a letter-name of the openings (الٓمٓ): six counts
+        if l.maddah && l.vowel.is_none() && l.long_after.is_none() && !matches!(l.ch, 'ا' | 'و' | 'ي' | 'ى') && !l.dagger && consonant(l.ch).is_some() && !hamza_letter(l.ch) {
+            push(&mut out, "madd_6", l.src[0], l.src[1]);
+        }
+        // līn in pause: wāw or yāʾ sākin after fatḥa before the last letter
+        if pause && wi + 1 == nw && matches!(l.ch, 'و' | 'ي') && l.sukun && prev.is_some_and(|p| p.vowel == Some(V::A)) && next_said(k).is_some_and(|j| flat[j].0 == wi && last_in_word(j)) {
+            push(&mut out, "madd_246", l.src[0], l.src[1]);
+        }
+        // ---- ghunna and qalqala
+        // a doubled nūn or mīm holds its ghunna, unless a nūn, tanwīn or mīm before it merges into
+        // it (then the idghām is the rule)
+        let merged_into = k > 0 && {
+            let p = at(k - 1);
+            let pw = &words[flat[k - 1].0];
+            p.tanwin.is_some() || matches!(p.ch, 'ن' | 'م') && (p.sukun || p.bare() && pw.vowelled()) || matches!(p.ch, 'ا' | 'ى') && p.bare() && k > 1 && at(k - 2).tanwin.is_some()
+        };
+        if matches!(l.ch, 'ن' | 'م') && l.shadda && !merged_into {
+            push(&mut out, "ghunnah", l.src[0], l.src[1]);
+        }
+        let sakin = l.sukun || (l.bare() && vowelled && consonant(l.ch).is_some() && !matches!(l.ch, 'ا' | 'ى'));
+        if qalqala_letter(l.ch) && (l.sukun || in_pause(k)) {
+            push(&mut out, "qalqalah", l.src[0], l.src[1]);
+        }
+        // ---- nūn sākin, tanwīn, mīm sākin, and merging letters
+        let pausing = in_pause(k);
+        let next = next_said(k);
+        if !pausing && let Some(j) = next {
+            let n = at(j);
+            let nun = l.ch == 'ن' && sakin && !l.shadda;
+            if (nun || l.tanwin.is_some()) && n.ch != WASLA {
+                let across = flat[j].0 != wi;
+                // iẓhār before the throat letters; idghām before يرملون (with ghunna into ينمو, across
+                // words only); iqlāb before ب; ikhfāʾ before the other fifteen
+                let rule = match n.ch {
+                    c if is_hamza_or_throat(c) => "",
+                    'ي' | 'ن' | 'م' | 'و' if across => "idghaam_ghunnah",
+                    'ي' | 'ن' | 'م' | 'و' => "",
+                    'ل' | 'ر' => "idghaam_no_ghunnah",
+                    'ب' => "iqlab",
+                    c if consonant(c).is_some() => "ikhfa",
+                    _ => "",
+                };
+                if !rule.is_empty() {
+                    let start = if l.tanwin.is_some() { l.tanwin_at } else { l.src[0] };
+                    push(&mut out, rule, start, n.src[1]);
+                }
+            } else if l.ch == 'م' && sakin && !l.shadda {
+                if n.ch == 'ب' {
+                    push(&mut out, "ikhfa_shafawi", l.src[0], n.src[1]);
+                } else if n.ch == 'م' {
+                    push(&mut out, "idghaam_shafawi", l.src[0], n.src[1]);
+                }
+            } else if l.bare() && vowelled && n.shadda && !article_lam(w, li) && let Some(rule) = merging_pair(l.ch, n.ch) {
+                push(&mut out, rule, l.src[0], l.src[1]);
+            }
+        }
+    }
+    out
+}
+
+/// The tajweed annotations of each phrase of a text (as [`to_phrases`] splits it).
+fn annotate(words: &[Word], pause: bool) -> Vec<Annotation> {
+    annotate_words(words, pause)
 }
 
 /// Heaviness: the heavy letters, rāʾ by its vowels, the lām of Allāh by the vowel before it.
@@ -1091,7 +1373,7 @@ fn time_phrase(ph: Vec<Phone>, words: &[Word], raw_words: &[usize], o: &ArabicOp
         parts.push(part);
     }
     let ipa = parts.concat().trim_end().to_string();
-    ArabicPhrase { segments, intonation: if question { Intonation::Question } else { Intonation::Statement }, pause: 0.35, words: out_words, sources, counts, rules, ipa, guessed }
+    ArabicPhrase { segments, intonation: if question { Intonation::Question } else { Intonation::Statement }, pause: 0.35, words: out_words, sources, counts, rules, ipa, guessed, annotations: vec![] }
 }
 
 /// Arabic text → phrases of segments (see the module docs).
@@ -1115,7 +1397,9 @@ pub fn to_phrases(text: &str, o: &ArabicOptions) -> Vec<ArabicPhrase> {
         tafkhim(&mut ph);
         contexts(&mut ph, o.waqf);
         let idx: Vec<usize> = (0..nw).collect();
-        out.push(time_phrase(ph, &words, &idx, o, rp.question, r.guessed));
+        let mut phrase = time_phrase(ph, &words, &idx, o, rp.question, r.guessed);
+        phrase.annotations = annotate(&words, o.waqf);
+        out.push(phrase);
     }
     out
 }
