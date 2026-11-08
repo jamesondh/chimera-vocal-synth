@@ -4,7 +4,7 @@ import { engine } from "../../audio/AudioEngine.ts";
 import { currentPlan, onPlan, type SpokenPlan } from "../speech.ts";
 import { activation, type Gesture } from "../../wasm/engine.ts";
 import { V } from "../colors.ts";
-import { beam, beamPts, blockLineH, label, labelBlock, seg, wrapLabel, type Pt } from "../render/vector.ts";
+import { beam, beamPts, blockLineH, label, labelBlock, labelWidth, seg, wrapLabel, type Pt } from "../render/vector.ts";
 
 /** rows of the score, coloured like the articulators on the face (lips pink, tongue green, soft palate white, glottis amber) */
 const ROWS: { name: string; keys: string[]; color: string }[] = [
@@ -110,7 +110,11 @@ export function ScoreView() {
       tri.lineTo(x, top - 3);
       tri.closePath();
       beam(ctx, tri, V.white, 1.1);
-      label(ctx, `${Math.max(0, now).toFixed(2)} S`, x + 8, top - 4, { size: 9, color: V.white, ls: 0.12, alpha: 0.8 });
+      // the time beside the playhead, on its left once it nears the right edge
+      const time = `${Math.max(0, now).toFixed(2)} S`;
+      const o = { size: 9, color: V.white, ls: 0.12, alpha: 0.8 };
+      const fits = x + 8 + labelWidth(ctx, time, o) <= w - 2;
+      label(ctx, time, fits ? x + 8 : x - 8, top - 4, { ...o, align: fits ? "left" : "right" });
     }
   });
   return <canvas ref={ref} className="score-canvas" aria-label="Gestural score of the current utterance: which articulator moves, when, and how they overlap" role="img" />;
