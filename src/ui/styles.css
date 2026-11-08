@@ -11,6 +11,14 @@
   font-display: swap;
 }
 @font-face {
+  /* Amiri Quran (OFL, public/fonts/AMIRI-OFL.txt): Arabic with the Qurʾān's marks */
+  font-family: "Amiri Quran";
+  src: url("/fonts/amiri-quran-arabic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
+@font-face {
   font-family: "Archivo";
   src: url("/fonts/archivo-latin.woff2") format("woff2");
   font-weight: 100 900;
@@ -2102,6 +2110,256 @@ input[type="range"]::-moz-range-thumb {
   /* room to wrap here, rather than cut the transcription short */
   .say .transcription {
     white-space: normal;
+  }
+}
+
+/* ---------- Arabic */
+.right-arabic {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(min-content, 200fr);
+  grid-template-areas: "read" "presets" "letters" "score";
+}
+
+.s-read { grid-area: read; }
+.s-presets { grid-area: presets; }
+.s-letters { grid-area: letters; }
+.right-arabic .s-score { grid-area: score; }
+
+.right-arabic .screen-body {
+  min-height: 0;
+}
+
+.right-arabic .s-score .screen-body {
+  min-height: 180px;
+}
+
+:root {
+  --arabic: "Amiri Quran", "Geeza Pro", "Noto Naskh Arabic", "Arabic Typesetting", serif;
+}
+
+.ar-say {
+  grid-template-rows: auto auto auto auto;
+}
+
+.ar-say textarea {
+  font-family: var(--arabic);
+  font-size: 20px;
+  line-height: 1.6;
+  height: 64px;
+  letter-spacing: 0;
+}
+
+.ar-text {
+  margin: 0;
+  font-family: var(--arabic);
+  font-size: 26px;
+  line-height: 1.9;
+  letter-spacing: 0;
+  color: var(--white);
+  text-shadow: 0 0 3px rgba(238, 246, 248, 0.35);
+  overflow-wrap: anywhere;
+}
+
+.ar-now {
+  color: var(--green);
+  text-shadow: 0 0 6px rgba(91, 227, 129, 0.8);
+}
+
+.ar-why {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--blue-mid);
+}
+
+.ar-groups,
+.ar-forms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ar-chip {
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+.ar-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px;
+  padding: 6px 14px 12px;
+}
+
+.ar-preset {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  padding: 4px 10px 6px;
+  background: transparent;
+  border: 1px solid var(--frame);
+  color: var(--blue);
+  cursor: pointer;
+  text-align: right;
+}
+
+.ar-preset:hover {
+  border-color: var(--blue-dim);
+  box-shadow: 0 0 5px rgba(79, 182, 242, 0.25);
+}
+
+.ar-glyphs {
+  font-family: var(--arabic);
+  font-size: 19px;
+  line-height: 1.7;
+  letter-spacing: 0;
+  color: var(--white);
+}
+
+.ar-gloss {
+  font-family: var(--font);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--blue-mid);
+  text-align: left;
+}
+
+.ar-chart {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 14px 4px;
+}
+
+.ar-makhraj {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 3px 6px 6px;
+  border: 1px solid var(--frame);
+}
+
+.ar-makhraj-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ar-makhraj-ar {
+  font-family: var(--arabic);
+  font-size: 13px;
+  letter-spacing: 0;
+  color: var(--blue-mid);
+}
+
+.ar-makhraj-en {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--blue-dim);
+  white-space: nowrap;
+}
+
+.ar-letters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.ar-letter {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 40px;
+  padding: 0 0 2px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--blue);
+  cursor: pointer;
+}
+
+.ar-letter:hover {
+  border-color: var(--blue-dim);
+}
+
+.ar-letter.picked {
+  border-color: var(--frame);
+}
+
+.ar-letter.now {
+  border-color: var(--green);
+  box-shadow: 0 0 6px rgba(91, 227, 129, 0.5);
+}
+
+.ar-letter-glyph {
+  font-family: var(--arabic);
+  font-size: 24px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  color: var(--white);
+}
+
+.ar-letter.now .ar-letter-glyph {
+  color: var(--green);
+  text-shadow: 0 0 5px rgba(91, 227, 129, 0.8);
+}
+
+.ar-letter-ipa {
+  font-family: var(--font);
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--blue-mid);
+}
+
+.ar-letter-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 2px 14px 10px;
+}
+
+.ar-letter-name {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--blue);
+}
+
+.ar-letter-name [lang="ar"] {
+  font-family: var(--arabic);
+  font-size: 17px;
+  letter-spacing: 0;
+  color: var(--white);
+}
+
+.ar-sifat {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ar-sifa {
+  padding: 1px 6px;
+  border: 1px solid var(--frame);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--blue-mid);
+  cursor: help;
+}
+
+@media (max-width: 640px) {
+  .ar-presets {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ar-text {
+    font-size: 22px;
   }
 }
 

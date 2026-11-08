@@ -24,7 +24,7 @@
  *  - label(..., { moving: true }) on canvas text in flight (a word flying off the lips)
  *  Text truncated with an ellipsis or a line clamp is reported as a warning, not an error.
  *
- * Usage: bun tools/layout-lint.ts [--url http://...] [--out out/layout] [--only 1440x900] [--mode play|duet]
+ * Usage: bun tools/layout-lint.ts [--url http://...] [--out out/layout] [--only 1440x900] [--mode play|arabic|duet]
  * Without --url it starts its own Vite dev server (build the wasm first: bun run wasm).
  * Screenshots of every failing view are saved under --out.
  */
@@ -47,7 +47,7 @@ export const VIEWPORTS: { w: number; h: number }[] = [
   { w: 1920, h: 1080 },
   { w: 2560, h: 1440 },
 ];
-const MODES = ["play", "speak", "sing", "bestiary", "beatbox"] as const;
+const MODES = ["play", "speak", "sing", "bestiary", "beatbox", "arabic"] as const;
 
 interface Problem {
   kind: string;
@@ -344,6 +344,20 @@ async function main() {
         // the gestural score with a phrase in it, mid-utterance
         await page.getByRole("button", { name: /^Speak$/ }).click();
         await check("speak (running), speaking", 900);
+      }
+      if (m === "arabic") {
+        // a phrase mid-reading (its letters lit, words at the mouth), then each preset group and
+        // a letter
+        await page.getByRole("button", { name: /^Speak$/ }).click();
+        await check("arabic (running), speaking", 1200);
+        const groups = page.locator(".s-presets .ar-groups .chip");
+        for (let i = 1; i < (await groups.count()); i++) {
+          await groups.nth(i).click();
+          await check(`arabic (running), presets ${(await groups.nth(i).textContent())?.trim()}`);
+        }
+        await groups.first().click();
+        await page.locator(".ar-letter").nth(5).click();
+        await check("arabic (running), a letter", 500);
       }
       if (m === "bestiary") {
         // each creature has its own names and parameters

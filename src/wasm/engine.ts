@@ -7,7 +7,7 @@
 import { call } from "./chimera.ts";
 import { CREATURE_VISUALS } from "../ui/creatureVisuals.ts";
 import type {
-  ArticKey, ArticSpec, BeatPreset, BodyMix, BeatSound, BeatStep, CreatureDef, CreatureTelemetry, DemoSong, Gesture, HumanArtic, HumanBody,
+  ArabicOptions, ArabicPhrase, ArticKey, ArticSpec, BeatPreset, BodyMix, BeatSound, BeatStep, CreatureDef, CreatureTelemetry, DemoSong, Gesture, HumanArtic, HumanBody,
   HumanFrame, Phrase, Plan, Segment, SungNote, Syllable, VoiceSource, VowelRef,
 } from "./types.ts";
 
@@ -110,6 +110,14 @@ export class EnglishG2P {
   word(w: string, reduce = true): Segment[] {
     return call("g2pWord", { word: w, reduce });
   }
+}
+
+/**
+ * Vowelled Arabic → phrases of segments, read by the rules of correct reading (waṣl and waqf, the
+ * article, shadda, madd, tafkhīm), each segment with the span of text it came from and its rules.
+ */
+export function arabicPhrases(text: string, options?: ArabicOptions): ArabicPhrase[] {
+  return call("arabicPhrases", { text, options });
 }
 
 /** Lyrics → sung syllables, through the page's dictionary (see EnglishG2P). */

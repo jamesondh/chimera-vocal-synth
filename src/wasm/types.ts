@@ -179,6 +179,27 @@ export interface Phrase {
   words: string[];
 }
 
+/** A phrase of Arabic as the engine reads it (crates/chimera/src/phonetics/arabic.rs). */
+export interface ArabicPhrase extends Phrase {
+  /** per segment: the characters of the text it was read from, [start, end) in code points */
+  sources: [number, number][];
+  /** per segment: its length in ḥarakāt */
+  counts: number[];
+  /** per segment: the rules that shaped it ("shadda", "madd", "tafkhim", "qalqala", …) */
+  rules: string[][];
+  /** the reading in IPA */
+  ipa: string;
+  /** letters whose vowel was not written and was guessed */
+  guessed: number;
+}
+
+export interface ArabicOptions {
+  /** seconds per ḥaraka (a short vowel), 0.1 by default */
+  count?: number;
+  /** read each phrase's last word in pause (waqf); on by default */
+  waqf?: boolean;
+}
+
 export interface Syllable {
   text: string;
   onset: Segment[];

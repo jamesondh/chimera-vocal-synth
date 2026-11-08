@@ -11,6 +11,7 @@ use chimera::math;
 use chimera::phonetics::beatbox::{self, BeatStep};
 use chimera::phonetics::planner::{self, PhraseInput, PlanOptions};
 use chimera::phonetics::sing::{self, MelismaOptions, NoteOnOptions, SongOptions, SungNote};
+use chimera::phonetics::arabic::{self, ArabicOptions};
 use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::{Segment, Syllable, ipa, songs, syllables, vowel_data};
 use chimera::voice::human_airway::HumanAirway;
@@ -125,6 +126,8 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
         "g2pPhrases" => to_json(&st.g2p.to_phrases(&arg::<String>(req, "text")?)),
         "g2pWord" => to_json(&st.g2p.word(&arg::<String>(req, "word")?, arg::<Option<bool>>(req, "reduce")?.unwrap_or(true))),
         "lyricsToSyllables" => to_json(&syllables::lyrics_to_syllables(&arg::<String>(req, "text")?, &st.g2p)),
+        // vowelled Arabic → phrases, each segment with its source span and rules (Arabic page)
+        "arabicPhrases" => to_json(&arabic::to_phrases(&arg::<String>(req, "text")?, &arg::<Option<ArabicOptions>>(req, "options")?.unwrap_or_default())),
         // ---------------------------------------------------------------- creatures
         "creaturePreview" => {
             let id: String = arg(req, "id")?;

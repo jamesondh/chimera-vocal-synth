@@ -9,8 +9,9 @@ import { BEAT_PRESETS, BASS_NOTE, beatReady, parseBeat, type BeatStep } from "..
 import { singNoteOn, singNoteOff, stopSinging, ensureDictionary } from "./singing.ts";
 import { stopSpeaking } from "./speech.ts";
 import { connectMidi, disconnectMidi, type MidiStatus } from "./midi.ts";
+import { modeOfPath } from "./route.ts";
 
-export type Mode = "play" | "speak" | "sing" | "bestiary" | "beatbox";
+export type Mode = "play" | "speak" | "sing" | "bestiary" | "beatbox" | "arabic";
 
 export interface BeatState {
   steps: (BeatStep | null)[];
@@ -132,15 +133,15 @@ export const useStore = create<State>((set, get) => ({
   hold: false,
   heldNotes: [],
   view: { pressure: true, particles: true, grid: false, calipers: true, threeD: false },
-  mode: "play",
+  mode: typeof location === "undefined" ? "play" : modeOfPath(location.pathname),
   setMode: (m) => {
     const prev = get().mode;
     if (prev === m) return;
     session++;
     // notes held across the switch would keep breathing into the other voice
     set({ mode: m, heldNotes: [] });
-    // speech belongs to Speak: under a creature the human clock stops and it would resume later
-    if (prev === "speak" || m === "bestiary") stopSpeaking();
+    // speech belongs to Speak and Arabic: under a creature the human clock stops and it would resume later
+    if (prev === "speak" || prev === "arabic" || m === "bestiary") stopSpeaking();
     if ((prev === "bestiary") !== (m === "bestiary")) {
       // a sustain belongs to the voice it was started on
       set({ hold: false });
@@ -153,7 +154,7 @@ export const useStore = create<State>((set, get) => ({
     }
     if (prev === "sing") stopSinging();
     // speech and song breathe by themselves: a held breath would drone under them
-    if (m === "speak" || m === "sing") set({ hold: false });
+    if (m === "speak" || m === "sing" || m === "arabic") set({ hold: false });
     if (m === "sing") ensureDictionary();
     if (m === "beatbox") {
       // a beatboxer waits with the jaw nearly closed; the sounds bring their own breath
@@ -269,7 +270,7 @@ export const useStore = create<State>((set, get) => ({
     if (get().mode === "sing") stopSinging();
     const f0 = defaultF0(b);
     // nor does speech carry over (and the new voice's clock starts again from zero)
-    if (get().mode === "speak") stopSpeaking();
+    if (get().mode === "speak" || get().mode === "arabic") stopSpeaking();
     set((s) => ({ body: b, source: { ...s.source, f0 } }));
     engine.setBody(b);
   },

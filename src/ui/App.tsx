@@ -16,8 +16,12 @@ import { CreatureView } from "./components/CreatureView.tsx";
 import { creatureById } from "../wasm/engine.ts";
 import { BeatboxRight, BeatOverlay, beatInfo, beatSlots } from "./components/BeatboxPanel.tsx";
 import { SingRight, singInfo, singWords } from "./components/SingPanel.tsx";
+import { ArabicRight, arabicSlots, arabicWords } from "./components/ArabicPanel.tsx";
 import { playDemo, DEMO_SONGS } from "./singing.ts";
+import { speakArabic } from "./arabic.ts";
+import { PRESET_GROUPS } from "./arabicData.ts";
 import type { Mode } from "./store.ts";
+import { modeOfPath, pathOfMode } from "./route.ts";
 import type { BodyName } from "../worklet/protocol.ts";
 import { BodyPad } from "./components/BodyPad.tsx";
 import { bodyLabel, presetOf, PRESETS } from "./body.ts";
@@ -64,6 +68,7 @@ function TopBar() {
           { value: "sing", label: "Sing" },
           { value: "bestiary", label: "Bestiary" },
           { value: "beatbox", label: "Beatbox" },
+          { value: "arabic", label: "Arabic" },
         ]}
       />
       {mode !== "bestiary" && (
@@ -138,8 +143,9 @@ function StartPrompt() {
     bestiary: ["Each animal's sound comes from a simulation of its own sound source and airway.", "Start and hear a call", "Then play its calls, or hold the keys to sustain it at a pitch."],
     beatbox: ["Every drum here is a mouth sound: lips, tongue and larynx pushing, sealing and sucking air.", "Start the beat", "Then edit the pattern, tap the pads, or hum a bass note on the keys."],
     speak: ["Every sound here is produced by simulating air moving through a throat, mouth and nose.", "Start the voice", "Then type something and press Speak, or tap a sound in the chart."],
+    arabic: ["Every Arabic letter here is made where tajweed places it: in the throat, on the tongue or at the lips of a simulated airway.", "Start and hear the basmala", "Then pick a preset, type vowelled Arabic, or tap a letter."],
     sing: ["Every sound here is produced by simulating air moving through a throat, mouth and nose.", "Start and hear a song", "Then play the keys: each note sings the next syllable of the lyrics."],
-  }[mode as "bestiary" | "beatbox" | "speak" | "sing"] ?? ["Every sound here is produced by simulating air moving through a throat, mouth and nose.", "Breathe in and start", "Then drag the tongue, lips or jaw, or play the keys."];
+  }[mode as "bestiary" | "beatbox" | "speak" | "sing" | "arabic"] ?? ["Every sound here is produced by simulating air moving through a throat, mouth and nose.", "Breathe in and start", "Then drag the tongue, lips or jaw, or play the keys."];
   return (
     <div className="start-prompt" data-layout="overlay">
       <p>{copy[0]}</p>
@@ -150,6 +156,10 @@ function StartPrompt() {
           // the demo waits for audio itself, so a stop meanwhile (body, mode) cancels it
           if (mode === "sing") return void playDemo(DEMO_SONGS[0].name, useStore.getState().body, start);
           await start();
+          if (mode === "arabic") {
+            const s = useStore.getState();
+            speakArabic(PRESET_GROUPS[4].presets[0].text, { body: s.body, rate: 1, f0: s.source.f0 });
+          }
           const first = creatureById(creature)?.calls[0];
           if (mode === "bestiary" && first) playCall(first.id);
           else if (mode === "beatbox") setBeatPlaying(true);
@@ -180,7 +190,7 @@ function LeftScreen() {
       tools={<ViewToggles />}
     >
       <Suspense fallback={null}>
-        {bestiary ? <CreatureView /> : mode === "speak" ? <Face slots={speechSlots} info={speechInfo} overlay={speechWords} /> : mode === "sing" ? <Face info={singInfo} overlay={singWords} /> : mode === "beatbox" ? <Face slots={beatSlots} info={beatInfo} showFormants={false} /> : <Face />}
+        {bestiary ? <CreatureView /> : mode === "speak" ? <Face slots={speechSlots} info={speechInfo} overlay={speechWords} /> : mode === "arabic" ? <Face slots={arabicSlots} info={speechInfo} overlay={arabicWords} /> : mode === "sing" ? <Face info={singInfo} overlay={singWords} /> : mode === "beatbox" ? <Face slots={beatSlots} info={beatInfo} showFormants={false} /> : <Face />}
       </Suspense>
       {mode === "beatbox" && <BeatOverlay />}
       <StartPrompt />
@@ -225,14 +235,29 @@ export function App() {
   return <Wall />;
 }
 
+/** The address follows the mode (/arabic for the Arabic page), and back/forward switch modes. */
+function useModePath(mode: Mode, setMode: (m: Mode) => void) {
+  useEffect(() => {
+    const path = pathOfMode(mode);
+    if (window.location.pathname !== path) window.history.pushState(null, "", path + window.location.search);
+  }, [mode]);
+  useEffect(() => {
+    const back = () => setMode(modeOfPath(window.location.pathname));
+    window.addEventListener("popstate", back);
+    return () => window.removeEventListener("popstate", back);
+  }, [setMode]);
+}
+
 function Wall() {
   const mode = useStore((s) => s.mode);
+  const setMode = useStore((s) => s.setMode);
+  useModePath(mode, setMode);
   return (
     <div className={`app mode-${mode}`}>
       <TopBar />
       <main className={`wall wall-${mode}`}>
         <LeftScreen />
-        {mode === "play" ? <PlayRight /> : mode === "speak" ? <SpeakRight /> : mode === "sing" ? <SingRight /> : mode === "beatbox" ? <BeatboxRight /> : <BestiaryRight />}
+        {mode === "play" ? <PlayRight /> : mode === "speak" ? <SpeakRight /> : mode === "arabic" ? <ArabicRight /> : mode === "sing" ? <SingRight /> : mode === "beatbox" ? <BeatboxRight /> : <BestiaryRight />}
       </main>
     </div>
   );

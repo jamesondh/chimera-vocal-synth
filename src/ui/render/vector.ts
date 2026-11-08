@@ -11,6 +11,12 @@ export type Pt = [number, number];
 
 /** Hershey Simplex first; anything it lacks (IPA, ², ×) falls back to Archivo, which covers IPA. */
 export const HERSHEY = '"Hershey", "Archivo", system-ui, sans-serif';
+
+/** Arabic script: Amiri Quran (it draws the Qurʾān's marks), then whatever the system has. */
+export const ARABIC = '"Amiri Quran", "Geeza Pro", "Noto Naskh Arabic", "Arabic Typesetting", serif';
+
+/** A canvas font: Hershey, or another family at the same weights. */
+const fontOf = (size: number, weight: "l" | "m" = "l", family?: string) => (family ? `${weight === "m" ? 500 : 300} ${size}px ${family}` : hfont(size, weight));
 export const hfont = (size: number, weight: "l" | "m" = "l") => `${weight === "m" ? 500 : 300} ${size}px ${HERSHEY}`;
 
 const hasLetterSpacing = typeof CanvasRenderingContext2D !== "undefined" && "letterSpacing" in CanvasRenderingContext2D.prototype;
@@ -115,6 +121,8 @@ export interface LabelOpts {
    * tools/layout-lint.ts skips it
    */
   moving?: boolean;
+  /** a font family instead of Hershey (Arabic text: ARABIC) */
+  family?: string;
 }
 
 /** Hershey text (pass capitals for chrome-style labels) */
@@ -123,7 +131,7 @@ export function label(ctx: CanvasRenderingContext2D, text: string, x: number, y:
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   ctx.globalAlpha = o.alpha ?? 1;
-  ctx.font = hfont(size, o.weight);
+  ctx.font = fontOf(size, o.weight, o.family);
   if (hasLetterSpacing) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${((o.ls ?? 0.14) * size).toFixed(2)}px`;
   ctx.textAlign = o.align ?? "left";
   ctx.textBaseline = o.baseline ?? "alphabetic";
@@ -139,7 +147,7 @@ export function label(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 export function labelWidth(ctx: CanvasRenderingContext2D, text: string, o: LabelOpts = {}): number {
   const size = o.size ?? 11;
   ctx.save();
-  ctx.font = hfont(size, o.weight);
+  ctx.font = fontOf(size, o.weight, o.family);
   if (hasLetterSpacing) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${((o.ls ?? 0.14) * size).toFixed(2)}px`;
   const wd = ctx.measureText(text).width;
   ctx.restore();

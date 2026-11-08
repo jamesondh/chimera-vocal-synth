@@ -3,7 +3,7 @@
  * the lips as it sounds. When the next one starts, it shrinks, dims and flies up and away, so a
  * fast scat run leaves a short trail instead of a pile-up.
  */
-import { hfont, label, seg } from "./render/vector.ts";
+import { hfont, label, labelWidth, seg } from "./render/vector.ts";
 import type { OverlayFn } from "./components/AnatomyView.tsx";
 
 /** What is being said now. `key` changes with each new syllable or word (equal text may repeat). */
@@ -40,7 +40,7 @@ export function advanceTrail(t: Trail, word: MouthWord | null, clock: number): v
  * `side` is where the face looks on screen: 1 writes to the right of the lips, −1 to the left (a
  * head turned to face left), so the word is always in the open space in front of the mouth.
  */
-export function mouthWords(now: () => MouthWord | null, color: string, side: 1 | -1 = 1): OverlayFn {
+export function mouthWords(now: () => MouthWord | null, color: string, side: 1 | -1 = 1, family?: string): OverlayFn {
   const t: Trail = { entries: [] };
   const trail = t.entries;
   let clock = 0;
@@ -62,16 +62,28 @@ export function mouthWords(now: () => MouthWord | null, color: string, side: 1 |
     for (const { word: wd, left } of trail) {
       const age = left === null ? 0 : clock - left;
       const u = Math.min(1, age / FADE);
-      const text = wd.text.toUpperCase();
+      // Arabic keeps its own font (and has no capitals)
+      const text = family ? wd.text : wd.text.toUpperCase();
       ctx.font = hfont(base, "m");
-      const wide = ctx.measureText(text).width * 1.08;
+      const wide = (family ? labelWidth(ctx, text, { size: base, weight: "m", ls: 0, family }) : ctx.measureText(text).width) * 1.08;
       const size = (wide > room ? (base * room) / wide : base) * (1 - 0.55 * u);
       const alpha = left === null ? 1 : 0.75 * (1 - u) ** 1.5;
-      const o = { size, color, weight: "m" as const, ls: 0.05, alpha, moving: left !== null };
+      const o = { size, color, weight: "m" as const, ls: family ? 0 : 0.05, alpha, moving: left !== null, family };
+      // Arabic letters and marks reach far above and below a Latin capital's box: set the word by
+      // its own glyphs, its top where a capital's would be and its foot inside the screen
+      let dy = 0;
+      if (family) {
+        ctx.save();
+        ctx.font = `500 ${size}px ${family}`;
+        const m = ctx.measureText(text);
+        ctx.restore();
+        dy = m.actualBoundingBoxAscent - 0.72 * size;
+        if (below) dy = Math.min(dy, h - 2 - m.actualBoundingBoxDescent - by);
+      }
       if (below) {
         const half = (Math.min(wide, room) * (1 - 0.55 * u)) / 2;
-        label(ctx, text, Math.min(w - 8 - half, Math.max(8 + half, lx)), by + age * 120, { ...o, align: "center" });
-      } else label(ctx, text, x0 + side * age * 240, ly + size * 0.36 - age * 200, { ...o, align: side > 0 ? "left" : "right" });
+        label(ctx, text, Math.min(w - 8 - half, Math.max(8 + half, lx)), by + dy + age * 120, { ...o, align: "center" });
+      } else label(ctx, text, x0 + side * age * 240, ly + size * 0.36 + dy / 2 - age * 200, { ...o, align: side > 0 ? "left" : "right" });
     }
     if (!below && trail[trail.length - 1].left === null) seg(ctx, lx + side * 10, ly, x0 - side * 10, ly, color, 1, { dash: [2, 5], alpha: 0.7 });
   };

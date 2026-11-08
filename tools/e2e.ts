@@ -195,10 +195,54 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.close();
 }
 
+// the Arabic page, opened by its address: the basmala is read by the rules (the article's lām
+// assimilated, the doubled rāʾ, waqf at the end), voiced, then silent; a letter plays; the address
+// follows the mode
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on("console", (m) => m.type() === "error" && errors.push(`[arabic] ${m.type()}: ${m.text()}`));
+  page.on("pageerror", (e) => errors.push(`[arabic] pageerror: ${e.message}`));
+  await page.goto(new URL("arabic", url).href, { waitUntil: "networkidle" });
+  if ((await page.getByRole("radio", { name: "Arabic" }).getAttribute("aria-checked")) !== "true") errors.push("[arabic] /arabic did not open the Arabic page");
+  await page.getByRole("button", { name: /Start and hear the basmala/ }).click();
+  await page.waitForTimeout(1200);
+  const reading = (await page.locator(".s-read .transcription").textContent())?.replace(/ˈ/g, "") ?? "";
+  logs.push(`[arabic] transcription: ${reading}`);
+  if (reading !== "/bismi lːaːhi rˤːaˤħmaːni rˤːaˤħiːm/") errors.push(`[arabic] the basmala read as ${reading}`);
+  const rms: number[] = [];
+  for (let i = 0; i < 14; i++) {
+    await page.waitForTimeout(250);
+    rms.push(
+      await page.evaluate(() => {
+        // @ts-expect-error debug handle
+        return window.__chimeraEngine?.latest?.t?.outRms ?? -1;
+      }),
+    );
+  }
+  logs.push(`[arabic] basmala rms then silence ${rms.map((r) => r.toFixed(4)).join(",")}`);
+  if (!(Math.max(...rms.slice(0, 4)) > 0.01)) errors.push(`[arabic] the basmala made no sound: ${rms.slice(0, 4).join(",")}`);
+  if (!(Math.max(...rms.slice(-3)) < 1e-3)) errors.push(`[arabic] voice still sounding after the basmala: ${rms.slice(-3).join(",")}`);
+  await page.locator(".ar-letter", { hasText: "ع" }).first().click();
+  await page.waitForTimeout(300);
+  const letter = await page.evaluate(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.latest?.t?.outRms ?? -1;
+  });
+  if (!(letter > 0.005)) errors.push(`[arabic] the letter ʿayn made no sound (${letter})`);
+  await page.getByRole("radio", { name: "Speak" }).click();
+  const path = await page.evaluate(() => location.pathname);
+  if (path !== "/") errors.push(`[arabic] leaving the Arabic page left the address at ${path}`);
+  await page.goBack();
+  await page.waitForTimeout(300);
+  if ((await page.getByRole("radio", { name: "Arabic" }).getAttribute("aria-checked")) !== "true") errors.push("[arabic] going back did not return to the Arabic page");
+  await page.screenshot({ path: `${outDir}/arabic.png` });
+  await page.close();
+}
+
 await run({ width: 1440, height: 980 }, "desktop");
 await run({ width: 390, height: 844 }, "mobile");
 await browser.close();
 console.log("console errors:", errors.length ? "\n" + errors.join("\n") : "none");
-console.log(logs.filter((l) => /load|warn|transcription|creature|held|back to|beatbox|silence|sing/i.test(l)).slice(0, 40).join("\n"));
+console.log(logs.filter((l) => /load|warn|transcription|creature|held|back to|beatbox|silence|sing|arabic/i.test(l)).slice(0, 40).join("\n"));
 // a run that collected errors fails, so CI and agents can't read it as a pass
 if (errors.length) process.exit(1);
