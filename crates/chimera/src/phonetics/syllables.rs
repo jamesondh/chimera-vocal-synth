@@ -144,15 +144,13 @@ impl<F: Fn(&str, bool) -> Vec<Segment>> WordSource for F {
     }
 }
 
-fn is_lyric_punct(c: char) -> bool {
+pub(crate) fn is_lyric_punct(c: char) -> bool {
     matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '\n')
 }
-fn is_word_start(c: char) -> bool {
-    c.is_ascii_alphabetic() || c == '\''
-}
-
-/// `text.match(/[A-Za-z'][A-Za-z'\-]*|(?<=\s|^)[~-](?=\s|$)|[.,;:!?\n]/g)`
-fn lyric_tokens(text: &str) -> Vec<String> {
+/// `text.match(/[A-Za-z'][A-Za-z'\-]*|(?<=\s|^)[~-](?=\s|$)|[.,;:!?\n]/g)`, with `letter` for
+/// `[A-Za-z]` (Turkish lyrics bring their own letters)
+pub(crate) fn lyric_tokens(text: &str, letter: fn(char) -> bool) -> Vec<String> {
+    let is_word_start = |c: char| letter(c) || c == '\'';
     let s: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -180,7 +178,7 @@ fn lyric_tokens(text: &str) -> Vec<String> {
 pub fn lyrics_to_syllables(text: &str, g2p: &impl WordSource) -> Vec<Syllable> {
     let mut out: Vec<Syllable> = Vec::new();
     // words, melisma marks and phrase punctuation, in order
-    let tokens = lyric_tokens(&text.replace('’', "'"));
+    let tokens = lyric_tokens(&text.replace('’', "'"), |c| c.is_ascii_alphabetic());
     for tok in &tokens {
         if tok.chars().count() == 1 && tok.chars().all(is_lyric_punct) {
             if let Some(last) = out.last_mut() {

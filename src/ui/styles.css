@@ -1979,9 +1979,15 @@ input[type="range"]::-moz-range-thumb {
   padding: 2px 7px;
 }
 
-.vowel-pick {
+.vowel-pick,
+.lang-pick {
   display: flex;
   gap: 4px;
+}
+
+/* the language chips sit a little apart from the IPA toggle */
+.lang-pick {
+  margin-right: 6px;
 }
 
 .ipa-chip {

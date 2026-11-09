@@ -112,6 +112,19 @@ export class EnglishG2P {
   }
 }
 
+/**
+ * Turkish text → phrases of segments. Its spelling rules are the G2P, so there is no dictionary to
+ * load (crates/chimera/src/phonetics/turkish.rs).
+ */
+export function turkishPhrases(text: string): Phrase[] {
+  return call("trPhrases", { text });
+}
+
+/** Turkish lyrics → sung syllables, split where Turkish spelling splits them. */
+export function turkishLyricsToSyllables(text: string): Syllable[] {
+  return call("trLyricsToSyllables", { text });
+}
+
 /** Lyrics → sung syllables, through the page's dictionary (see EnglishG2P). */
 export function lyricsToSyllables(text: string): Syllable[] {
   return call("lyricsToSyllables", { text });

@@ -20,6 +20,13 @@ pub struct DemoSong {
     pub notes: &'static [[f64; 2]],
     /// octave shift per body
     pub octave: SongOctave,
+    /// the language of the lyrics ("en" or "tr"), which says how they become syllables
+    #[serde(skip_serializing_if = "is_english")]
+    pub lang: &'static str,
+}
+
+fn is_english(lang: &&str) -> bool {
+    *lang == "en"
 }
 
 #[rustfmt::skip]
@@ -36,6 +43,7 @@ pub static DEMO_SONGS: &[DemoSong] = &[
             [64.0, 0.5], [62.0, 0.5], [60.0, 0.5], [59.0, 0.5], [57.0, 2.0],
         ],
         octave: SongOctave { male: -1.0, female: 0.0, child: 0.0 },
+        lang: "en",
     },
     DemoSong {
         // traditional (public domain)
@@ -47,5 +55,6 @@ pub static DEMO_SONGS: &[DemoSong] = &[
             [65.0, 1.0], [65.0, 1.0], [64.0, 1.0], [64.0, 1.0], [62.0, 1.0], [62.0, 1.0], [60.0, 2.0],
         ],
         octave: SongOctave { male: -1.0, female: 0.0, child: 0.0 },
+        lang: "en",
     },
 ];

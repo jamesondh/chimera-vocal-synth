@@ -12,7 +12,7 @@ use chimera::creatures::voice::CreatureVoice;
 use chimera::creatures::{CREATURES, creature_by_id};
 use chimera::math::{js_max, js_min, js_round, log10};
 use chimera::phonetics::beatbox::{BEAT_PRESETS, BEAT_SOUNDS, BeatStep, beat_ready, parse_beat};
-use chimera::phonetics::english::EnglishG2P;
+use chimera::phonetics::english::{EnglishG2P, Phrase};
 use chimera::phonetics::ipa::tokenize_ipa;
 use chimera::phonetics::planner::{
     PhraseInput, PlanOptions, plan_phrases, plan_utterance, vowel_table,
@@ -23,6 +23,7 @@ use chimera::phonetics::sing::{
 };
 use chimera::phonetics::songs::DEMO_SONGS;
 use chimera::phonetics::syllables::lyrics_to_syllables;
+use chimera::phonetics::turkish;
 use chimera::phonetics::{Intonation, Plan, Syllable};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
 use std::io::Read;
@@ -143,9 +144,13 @@ pub fn text_f0(body_name: &str) -> f64 {
 /// Say `text` the way `render text` does: CMUdict G2P, the phrase planner from t0 = 50 ms, the
 /// body's speaking f0, 300 ms of tail. `chimera compare tsp` measures exactly these renders.
 pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String> {
+    say_phrases(&g.to_phrases(text), body_name)
+}
+
+/// Say phrases from any G2P the way `render text` does (see [`say`]).
+pub fn say_phrases(phrases: &[Phrase], body_name: &str) -> Result<Spoken, String> {
     let b = body(body_name)?;
     let f0 = text_f0(body_name);
-    let phrases = g.to_phrases(text);
     let shown: Vec<String> = phrases
         .iter()
         .map(|p| {
@@ -207,6 +212,20 @@ pub fn text(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Turkish text through its spelling rules and the phrase planner.
+/// `render turkish <out> ["Türkçe metin."] [body]`
+pub fn turkish(ctx: &Ctx, a: &[String]) -> Result<(), String> {
+    let name = arg(a, 0, "out/turkish");
+    let text = arg(a, 1, "Merhaba, nasılsın?");
+    let body_name = arg(a, 2, "male");
+    let s = say_phrases(&turkish::to_phrases(text), body_name)?;
+    println!("{}", s.shown);
+    let file = wav_name(name);
+    ctx.write_wav(&file, &s.out)?;
+    println!("wrote {file}  {} s", fixed(s.out.len() as f64 / FS, 2));
+    Ok(())
+}
+
 /// The demo songs, and a live-style key sequence. `render song [outdir] [body]`
 pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let out_dir = arg(a, 0, "out/song");
@@ -221,7 +240,7 @@ pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     };
 
     for song in DEMO_SONGS {
-        let syl = lyrics_to_syllables(song.lyrics, &g);
+        let syl = if song.lang == "tr" { turkish::lyrics_to_syllables(song.lyrics) } else { lyrics_to_syllables(song.lyrics, &g) };
         let octave = match body_name {
             "female" => song.octave.female,
             "child" => song.octave.child,

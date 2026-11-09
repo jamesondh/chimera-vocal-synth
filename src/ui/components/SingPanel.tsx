@@ -6,6 +6,7 @@ import { Keys } from "./Keys.tsx";
 import { PianoRoll } from "./PianoRoll.tsx";
 import { SpectrumView } from "./SpectrumView.tsx";
 import { Chip, Screen } from "./Screen.tsx";
+import { LangPick } from "./LangPick.tsx";
 import { EncoderPages } from "./Encoder.tsx";
 import { noteName } from "./VoiceControls.tsx";
 import type { InfoFn } from "./AnatomyView.tsx";
@@ -35,6 +36,7 @@ export const singInfo: InfoFn = (_m, _f, tele) => {
 
 function Lyrics() {
   const lyrics = useSing((s) => s.lyrics);
+  const lang = useSing((s) => s.lang);
   const syllables = useSing((s) => s.syllables);
   const cursor = useSing((s) => s.cursor);
   const demo = useSing((s) => s.demo);
@@ -50,8 +52,9 @@ function Lyrics() {
         onChange={(e) => setLyrics(e.target.value)}
         onKeyDown={(e) => e.stopPropagation()}
         rows={1}
+        lang={lang}
         aria-label="Lyrics to sing"
-        placeholder="Type the words to sing"
+        placeholder={lang === "tr" ? "Söylenecek sözleri yaz" : "Type the words to sing"}
         title="Each note sings the next syllable. Hold a key while you press the next one to sing legato. A lone “-” between words holds a vowel over several notes; hyphens split a word your way (“ti-ger”)."
       />
       <div className="syllables" role="group" aria-label="Syllables. Each note sings the marked one; choose another to start there.">
@@ -111,6 +114,12 @@ function SongControls() {
   );
 }
 
+function LyricsLang() {
+  const lang = useSing((s) => s.lang);
+  const setLang = useSing((s) => s.setLang);
+  return <LangPick value={lang} onChange={setLang} />;
+}
+
 function DemoSongs() {
   const body = useStore((s) => s.body);
   const start = useStore((s) => s.start);
@@ -145,7 +154,17 @@ export function SingRight() {
       <Screen className="s-roll" title="Piano roll" sub="Notes and the pitch sung">
         <PianoRoll />
       </Screen>
-      <Screen className="s-lyrics" title="Lyrics" sub="Each note sings the next syllable" tools={<DemoSongs />}>
+      <Screen
+        className="s-lyrics"
+        title="Lyrics"
+        sub="Each note sings the next syllable"
+        tools={
+          <>
+            <LyricsLang />
+            <DemoSongs />
+          </>
+        }
+      >
         <Lyrics />
       </Screen>
       <Screen className="s-spec" title="Spectrum" sub={ring ? "Ring on" : ""}>
