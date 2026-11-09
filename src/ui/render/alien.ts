@@ -23,13 +23,15 @@ export function alienView(model: VoiceModel, a: AlienShape): typeof VIEW {
   const k = model.tract.scale;
   const B = bodyPoint(model);
   return {
-    x0: VIEW.x0 * k - (a.crest > 0 ? 4 * a.crest * k : 0),
+    // the dome pushes the back of the skull out to ≈−12.7 (profile.ts's −8.7, 1.3 × 1.12 from 0.2)
+    x0: -13.2 * k - (a.crest > 0 ? 4 * a.crest * k : 0),
     x1: 13.5 * k,
     // a little lower than a human's: a crest makes the view tall, and the measurements at the
     // glottis then fell off the bottom of the canvas
     y0: B(0, VIEW.y0 - 1.2).y,
-    // the dome rises to ≈25.6 (profile.ts's crown, 22.9, pushed out 1.3× from 14.2)
-    y1: Math.max(26.2, a.crest > 0 ? 26.5 + 5 * a.crest : 0) * k,
+    // the dome rises to ≈25.6 (profile.ts's crown, 22.9, pushed out 1.3× from 14.2), with room
+    // above it for the screen's header and view toggles, which sit over the canvas's top edge
+    y1: Math.max(27.6, a.crest > 0 ? 28 + 5 * a.crest : 0) * k,
   };
 }
 
