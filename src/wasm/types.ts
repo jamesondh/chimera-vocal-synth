@@ -55,7 +55,7 @@ export interface BodyMix {
 
 /**
  * An alien's reshaping of the body and its extra organs (mirrors the engine's AlienShape; the
- * human values are 1, except sac, twin and crest 0 and interval 7).
+ * human values are 1, except sac, twin and crest 0 and the intervals).
  */
 export interface AlienShape {
   /** overall size × (0.6 … 2.5) */
@@ -76,6 +76,10 @@ export interface AlienShape {
   interval: number;
   /** crest 0 … 1 */
   crest: number;
+  /** whole mouths, each its own voice (1 … 2: each one costs a whole voice's CPU) */
+  mouths: number;
+  /** the second mouth's interval from the first (semitones, −24 … 24) */
+  mouth2: number;
 }
 
 export interface AlienPreset {

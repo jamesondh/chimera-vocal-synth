@@ -112,7 +112,7 @@ class ChimeraProcessor extends AudioWorkletProcessor {
       case "alien": {
         const v = this.values();
         const s = m.shape;
-        if (s) [s.size, s.throat, s.tongue, s.lips, s.pitch, s.sac, s.twin, s.interval, s.crest].forEach((x, i) => (v[i] = x));
+        if (s) [s.size, s.throat, s.tongue, s.lips, s.pitch, s.sac, s.twin, s.interval, s.crest, s.mouths, s.mouth2].forEach((x, i) => (v[i] = x));
         x.engine_set_alien(h);
         this.postReady();
         break;

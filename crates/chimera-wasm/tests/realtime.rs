@@ -1,6 +1,6 @@
 //! The audio-thread ABI allocates nothing once an engine exists: from idle into the first labelled
 //! speech gestures, telemetry snapshots, the sequencer and pad hits, releases and parameter
-//! changes; and, after a creature switch (which may allocate), the creature's rendering,
+//! changes, for the human and for a two-mouthed alien; and, after a creature switch (which may allocate), the creature's rendering,
 //! telemetry, params and calls. Driven through the same C ABI the worklet uses.
 use chimera::phonetics::ipa::tokenize_ipa;
 use chimera::phonetics::planner::{PlanOptions, plan_utterance};
@@ -83,6 +83,40 @@ fn the_audio_thread_abi_does_not_allocate() {
         engine_stop_speech(h);
         render(50);
         assert_eq!(allocs() - before, 0, "the human voice's audio path allocated");
+
+        // an alien with two whole mouths: the switch allocates, the same audio path must not
+        vals.fill(f64::NAN);
+        vals[6..11].copy_from_slice(&[0.7, 7.0, f64::NAN, 2.0, 12.0]);
+        engine_set_alien(h);
+        render(40);
+        let before = allocs();
+        let rec = std::slice::from_raw_parts_mut(engine_records(h), plan.gestures.len() * GESTURE_RECORD);
+        for (i, g) in plan.gestures.iter().enumerate() {
+            write_gesture(g, &mut rec[i * GESTURE_RECORD..(i + 1) * GESTURE_RECORD]);
+        }
+        engine_schedule(h, plan.gestures.len(), 0.03, 1);
+        render(400);
+        vals.fill(f64::NAN);
+        vals[0] = 0.8;
+        engine_set_artic(h, 2);
+        vals.fill(f64::NAN);
+        vals[0] = 160.0;
+        engine_set_source(h);
+        engine_set_gate(h, 1.0);
+        let steps = std::slice::from_raw_parts_mut(engine_records(h), 4 * STEP_RECORD);
+        for (i, id) in ["B", "t", "Pf", "t"].iter().enumerate() {
+            write_step(&mut steps[i * STEP_RECORD..(i + 1) * STEP_RECORD], id);
+        }
+        engine_set_beat(h, 1, 4, 120.0, 0.1, 1);
+        render(300);
+        write_step(&mut steps[..STEP_RECORD], "K");
+        engine_beat_hit(h);
+        engine_release(h, 7.0);
+        render(100);
+        engine_set_beat(h, 0, 0, f64::NAN, f64::NAN, 0);
+        engine_stop_speech(h);
+        render(50);
+        assert_eq!(allocs() - before, 0, "the two-mouthed alien's audio path allocated");
 
         // a creature switch allocates; what follows must not (every creature)
         for def in chimera::creatures::CREATURES.iter() {

@@ -281,7 +281,7 @@ pub unsafe extern "C" fn engine_set_body(h: *mut Handle, female: f64, child: f64
 }
 
 /// Reshape the voice as an alien from the value area: size, throat, tongue, lips, pitch, sac, twin,
-/// interval, crest (see `AlienShape`; NaN: the human value). All 1/0/7 is the plain body.
+/// interval, crest, mouths, mouth2 (see `AlienShape`; NaN: the human value).
 /// Allocates, like `engine_set_body`.
 ///
 /// # Safety
@@ -290,7 +290,7 @@ pub unsafe extern "C" fn engine_set_body(h: *mut Handle, female: f64, child: f64
 pub unsafe extern "C" fn engine_set_alien(h: *mut Handle) {
     let h = handle!(h);
     let v = &h.values;
-    let s = AlienShape { size: v[0], throat: v[1], tongue: v[2], lips: v[3], pitch: v[4], sac: v[5], twin: v[6], interval: v[7], crest: v[8] };
+    let s = AlienShape { size: v[0], throat: v[1], tongue: v[2], lips: v[3], pitch: v[4], sac: v[5], twin: v[6], interval: v[7], crest: v[8], mouths: v[9], mouth2: v[10] };
     h.engine.set_alien(s);
     h.engine.telemetry(&mut h.tele); // resize the telemetry buffers for the new voice
 }
