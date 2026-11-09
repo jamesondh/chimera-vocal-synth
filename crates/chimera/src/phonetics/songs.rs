@@ -60,4 +60,26 @@ pub static DEMO_SONGS: &[DemoSong] = &[
         ],
         octave: SongOctave { male: -1.0, female: 0.0, child: 0.0 },
     },
+    DemoSong {
+        // traditional (public domain)
+        name: "Daisy bell",
+        bpm: 175.0,
+        lyrics: "daisy daisy give me your answer do i'm half crazy all for the love of you it won't be a stylish marriage i can't afford a carriage but you'll look sweet upon the seat of a bicycle built for two",
+        notes: &[
+            [66.0, 3.0], [63.0, 3.0], [59.0, 3.0], [54.0, 3.0],
+            [56.0, 1.0], [58.0, 1.0], [59.0, 1.0], [56.0, 2.0],
+            [59.0, 1.0], [54.0, 6.0], [61.0, 3.0], [66.0, 3.0],
+            [63.0, 3.0], [59.0, 3.0], [56.0, 1.0], [58.0, 1.0],
+            [59.0, 1.0], [61.0, 2.0], [63.0, 1.0], [61.0, 5.0],
+            [63.0, 1.0], [64.0, 1.0], [63.0, 1.0], [61.0, 1.0],
+            [66.0, 2.0], [63.0, 1.0], [61.0, 1.0], [59.0, 4.0],
+            [61.0, 1.0], [63.0, 2.0], [59.0, 1.0], [56.0, 2.0],
+            [59.0, 1.0], [56.0, 1.0], [54.0, 4.0], [54.0, 1.0],
+            [59.0, 2.0], [63.0, 1.0], [61.0, 2.0], [54.0, 1.0],
+            [59.0, 2.0], [63.0, 1.0], [61.0, 1.0], [63.0, 1.0],
+            [64.0, 1.0], [66.0, 1.0], [63.0, 1.0], [59.0, 1.0],
+            [61.0, 2.0], [54.0, 1.0], [59.0, 6.0],
+        ],
+        octave: SongOctave { male: -1.0, female: 0.0, child: 0.0 },
+    },
 ];
