@@ -31,7 +31,7 @@ fn cdur(ipa: &str, body: BodyMix, k: f64) -> f64 {
 /// nasal codas); otherwise the phoneme's spoken length times `k`. Either is squeezed when a note is
 /// too short for it.
 fn consonants(segs: &[Segment], body: BodyMix, k: f64) -> Vec<Segment> {
-    segs.iter().map(|c| Segment { ipa: c.ipa.clone(), dur: Some(c.dur.unwrap_or_else(|| cdur(&c.ipa, body, k))), aspirated: c.aspirated, vot: c.vot, ..Default::default() }).collect()
+    segs.iter().map(|c| Segment { ipa: c.ipa.clone(), dur: Some(c.dur.unwrap_or_else(|| cdur(&c.ipa, body, k))), aspirated: c.aspirated, vot: c.vot, phonation: c.phonation, ..Default::default() }).collect()
 }
 
 /// Sung consonants at their note's pitch: an onset consonant moves the pitch to the new note
@@ -210,10 +210,10 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
             let rest = vdur - g;
             match offglide(nuc).filter(|_| !next_melisma) {
                 Some(b) => {
-                    segs.push(Segment { ipa: held_vowel(nuc).to_string(), dur: Some(rest * (1.0 - OFFGLIDE)), f0: Some(hz), stress: Some(1), ..Default::default() });
+                    segs.push(Segment { ipa: held_vowel(nuc).to_string(), dur: Some(rest * (1.0 - OFFGLIDE)), f0: Some(hz), stress: Some(1), phonation: n.syl.nucleus.phonation, ..Default::default() });
                     segs.push(Segment { ipa: b.to_string(), dur: Some(rest * OFFGLIDE), f0: Some(hz), stress: Some(1), ..Default::default() });
                 }
-                None => segs.push(Segment { ipa: held_vowel(nuc).to_string(), dur: Some(rest), f0: Some(hz), stress: Some(1), ..Default::default() }),
+                None => segs.push(Segment { ipa: held_vowel(nuc).to_string(), dur: Some(rest), f0: Some(hz), stress: Some(1), phonation: n.syl.nucleus.phonation, ..Default::default() }),
             }
             if coda.first().is_some_and(|c| matches!(c.ipa.as_str(), "m" | "n" | "ŋ")) {
                 // the syllable whose coda this is decides (a melisma's coda is its parent's)
@@ -319,7 +319,7 @@ pub fn plan_note_on(syl: &Syllable, midi: f64, o: &NoteOnOptions) -> Vec<Gesture
     if let Some(a) = onglide(&syl.nucleus.ipa) {
         segs.push(Segment { ipa: a.to_string(), dur: Some(RISING_GLIDE * 0.6), f0: Some(hz), stress: Some(1), ..Default::default() });
     }
-    segs.push(Segment { ipa: held_vowel(&syl.nucleus.ipa).to_string(), dur: Some(HOLD), f0: Some(hz), stress: Some(1), ..Default::default() });
+    segs.push(Segment { ipa: held_vowel(&syl.nucleus.ipa).to_string(), dur: Some(HOLD), f0: Some(hz), stress: Some(1), phonation: syl.nucleus.phonation, ..Default::default() });
     let plan = plan_utterance(&segs, &PlanOptions { body: o.body, t0: LIVE_T0, f0: Some(hz), intonation: Some(Intonation::Flat), open_end: Some(true), ..Default::default() });
     let vowel = &plan.segments[plan.segments.len() - 1];
     let mut out: Vec<Gesture> = plan.gestures.iter().map(|g| g.tag(if g.targets.has(ControlKey::F0) { o.tag + 1.0 } else { o.tag })).collect();

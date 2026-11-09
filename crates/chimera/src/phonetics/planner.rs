@@ -218,6 +218,7 @@ struct Seg<'a> {
     glide_from: bool,
     aspirated: Option<bool>,
     vot: Option<f64>,
+    phonation: Option<super::Phonation>,
 }
 
 #[derive(Clone, Copy)]
@@ -251,10 +252,10 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             };
             for (i, p) in parts.iter().enumerate() {
                 let dur = base * shares.get(i).copied().unwrap_or(1.0);
-                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None });
+                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, phonation: if i == usize::from(is_rising(&s.ipa)) { s.phonation } else { None } });
             }
         } else {
-            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot });
+            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, phonation: s.phonation });
         }
     }
     for s in segs.iter_mut() {
@@ -313,6 +314,16 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             stress: if s.vowel.is_some() { Some(s.stress.unwrap_or(0)) } else { None },
             kind: if s.vowel.is_some() { "vowel".to_string() } else { s.def.map_or("?", |d| d.manner.as_str()).to_string() },
         });
+        if let Some(phonation) = s.phonation {
+            let (a, b, target, label) = match phonation {
+                // A short patch near the low point leaves the note's written pitch audible.
+                super::Phonation::Creaky => (t0 + 0.2 * js_min(dur, 0.4), t0 + 0.55 * js_min(dur, 0.4), one(ControlKey::FRY, 0.25), "creaky"),
+                // A fortis consonant stiffens the folds into the following vowel's onset.
+                super::Phonation::Tense => (t0, t1 + 0.08, one(ControlKey::TENSION, 0.95), "tense"),
+                super::Phonation::Breathy => (t0, t1, one(ControlKey::BREATHINESS, 0.7), "breathy"),
+            };
+            gestures.push(Gesture::new(a, b, 0.015, 0.035, 8.0, target).label(label));
+        }
         let Some(def) = s.def.as_ref() else { continue };
         let next_vowel = i < segs.len() - 1 && segs[i + 1].vowel.is_some();
         let prev_seg = if i > 0 { Some(&segs[i - 1]) } else { None };

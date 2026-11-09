@@ -1,6 +1,6 @@
 /** Engine types as the UI sees them (the JSON shapes of the Rust engine's serde types). */
 export type ArticKey = "jaw" | "tbX" | "tbY" | "ttX" | "ttY" | "ttCurl" | "root" | "lipAp" | "lipProt" | "lipWidth" | "labiodental" | "velum" | "larynx" | "epilarynx" | "ventricular" | "lateral" | "dorsum";
-export type SourceKey = "abduction" | "closure" | "breath" | "f0" | "vibrato";
+export type SourceKey = "abduction" | "closure" | "breath" | "f0" | "vibrato" | "fry" | "tension" | "breathiness";
 export type ControlKey = ArticKey | SourceKey;
 
 export interface Gesture {
@@ -159,6 +159,8 @@ export interface Segment {
   aspirated?: boolean;
   /** an aspirated stop or affricate's aspiration length (s); unset: 50 ms */
   vot?: number;
+  /** optional sound quality; unset keeps the performer's voice settings */
+  phonation?: "creaky" | "tense" | "breathy";
 }
 
 export interface PlannedSegment {

@@ -43,6 +43,17 @@ pub struct Segment {
     /// how long an aspirated stop or affricate's aspiration lasts (s, voice onset time); None: 50 ms
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vot: Option<f64>,
+    /// Optional syllable sound quality; absent keeps the performer's voice settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phonation: Option<Phonation>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Phonation {
+    Creaky,
+    Tense,
+    Breathy,
 }
 
 impl Segment {

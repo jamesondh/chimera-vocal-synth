@@ -5,7 +5,7 @@
 //! ㅎ aspirates its neighbour (좋다 → 조타), and obstruents tense after an obstruent coda.
 //!
 //! Stops say their own aspiration (Segment::aspirated): aspirated ㅋ ㅌ ㅍ ㅊ are aspirated, and
-//! tense ㄲ ㄸ ㅃ ㅉ are voiceless and unaspirated (the engine has no stiff "fortis" phonation yet).
+//! tense ㄲ ㄸ ㅃ ㅉ are voiceless and unaspirated (the front end does not request fortis phonation).
 //! Lax stops keep the planner's default: aspirated word-initially, voiced between voiced sounds.
 //! ㅈ ㅊ ㅉ are alveolo-palatal [tɕ], and ㅅ ㅆ before [i] or [j] are [ɕ].
 

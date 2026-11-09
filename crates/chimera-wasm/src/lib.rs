@@ -7,7 +7,7 @@
 //! object's lifetime; JavaScript must still re-create its typed-array views whenever
 //! `memory.buffer` changes (memory growth detaches them), and copy telemetry before the next call.
 //!
-//! # Gesture records (layout version 1, [`GESTURE_RECORD`] = 272 bytes, little-endian)
+//! # Gesture records (layout version 2, [`GESTURE_RECORD`] = 296 bytes, little-endian)
 //! | offset | type        | field |
 //! |-------:|-------------|-------|
 //! | 0      | f64         | t0 |
@@ -18,10 +18,10 @@
 //! | 40     | f64         | speed (NaN: absent) |
 //! | 48     | f64         | releaseHold (NaN: absent) |
 //! | 56     | f64         | tag (NaN: absent) |
-//! | 64     | 22 × f64    | targets in ControlKey order: the 17 articulators (ArticKey order), then abduction, closure, breath, f0, vibrato (NaN: absent) |
-//! | 240    | u8          | label length in bytes (255: no label) |
-//! | 241    | 24 × u8     | label, UTF-8, cut at a character boundary |
-//! | 265    | 7 × u8      | padding |
+//! | 64     | 25 × f64    | targets in ControlKey order: the 17 articulators (ArticKey order), then abduction, closure, breath, f0, vibrato, fry, tension, breathiness (NaN: absent) |
+//! | 264    | u8          | label length in bytes (255: no label) |
+//! | 265    | 24 × u8     | label, UTF-8, cut at a character boundary |
+//! | 289    | 7 × u8      | padding |
 //!
 //! # Beat-step records ([`STEP_RECORD`] = 48 bytes, in the same record area)
 //! | offset | type     | field |
@@ -40,9 +40,9 @@ use chimera::engine::{Engine, MAX_SCHEDULE};
 use chimera::phonetics::beatbox::BeatStep;
 use chimera::voice::human_voice::{SourcePatch, VoiceTelemetry};
 
-pub const GESTURE_RECORD: usize = 272;
+pub const GESTURE_RECORD: usize = 296;
 pub const STEP_RECORD: usize = 48;
-pub const LAYOUT_VERSION: u32 = 1;
+pub const LAYOUT_VERSION: u32 = 2;
 /// Largest `engine_render` request (frames).
 pub const MAX_RENDER: usize = 4096;
 
@@ -89,8 +89,8 @@ pub fn read_gesture(b: &[u8]) -> Gesture {
     for k in 0..N_CONTROL {
         targets.0[k] = f(8 + k);
     }
-    let len = b[240];
-    let label = if len == 255 { None } else { Some(Label::from_bytes(&b[241..241 + (len as usize).min(Label::CAP)])) };
+    let len = b[264];
+    let label = if len == 255 { None } else { Some(Label::from_bytes(&b[265..265 + (len as usize).min(Label::CAP)])) };
     Gesture { t0: f(0), t1: f(1), ramp_in: f(2), ramp_out: f(3), strength: f(4), speed: opt(f(5)), release_hold: opt(f(6)), tag: opt(f(7)), targets, label }
 }
 
@@ -104,12 +104,35 @@ pub fn write_gesture(g: &Gesture, b: &mut [u8]) {
         put(8 + k, g.targets.0[k]);
     }
     match &g.label {
-        None => b[240] = 255,
+        None => b[264] = 255,
         Some(l) => {
             let bytes = l.as_bytes();
-            b[240] = bytes.len() as u8;
-            b[241..241 + bytes.len()].copy_from_slice(bytes);
+            b[264] = bytes.len() as u8;
+            b[265..265 + bytes.len()].copy_from_slice(bytes);
         }
+    }
+}
+
+#[cfg(test)]
+mod gesture_tests {
+    use super::*;
+    use chimera::control::score::ControlKey;
+
+    #[test]
+    fn phonation_targets_and_label_survive_the_wire_record() {
+        let g = Gesture::new(0.1, 0.2, 0.01, 0.02, 8.0,
+            Targets::default().with(ControlKey::FRY, 0.5)
+                .with(ControlKey::TENSION, 0.9)
+                .with(ControlKey::BREATHINESS, 0.7)).label("phonation");
+        let mut b = [0u8; GESTURE_RECORD];
+        write_gesture(&g, &mut b);
+        let decoded = read_gesture(&b);
+        assert_eq!(decoded.label_str(), "phonation");
+        for (key, value) in [(ControlKey::FRY, 0.5), (ControlKey::TENSION, 0.9), (ControlKey::BREATHINESS, 0.7)] {
+            assert_eq!(decoded.targets.get(key), Some(value));
+        }
+        assert_eq!(decoded.t0, g.t0);
+        assert_eq!(decoded.t1, g.t1);
     }
 }
 

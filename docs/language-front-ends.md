@@ -62,6 +62,9 @@ A sung syllable per sounding note:
   its aspiration lasts in seconds (unsaid: 50 ms). Any consonant may say its sung `"dur"` (s;
   unsaid: its spoken length × 1.25): that's how a language holds its nasal codas or keeps an
   affricate's frication short.
+- Any segment may say `"phonation": "creaky"|"tense"|"breathy"`. Unset, the performer's source
+  settings apply. Creaky shapes a short part of the segment, tense carries into the next vowel's
+  onset, and breathy covers the segment. A front end may opt in per segment.
 - `nucleus`: one vowel, or a diphthong the planner knows. A note sings it as an on-glide, a held
   vowel and an off-glide. Falling ones (aɪ eɪ aʊ oʊ ɔɪ əʊ) hold their first vowel and glide off in
   the last 35% of the note. Rising ones (ia iɛ iɑ iʊ ua uo uɔ uɑ uə yɛ) sing a short glide on the
