@@ -2,6 +2,8 @@
 use chimera::anatomy::human::BodyMix;
 use chimera::phonetics::inventory::phoneme;
 use chimera::phonetics::planner::{PhraseInput, PlanOptions, is_vowel, plan_phrases};
+use chimera::phonetics::sing::{SongOptions, SungNote, plan_song};
+use chimera::phonetics::songs::DEMO_SONGS;
 use chimera::phonetics::turkish::{lyrics_to_syllables, to_phrases, word};
 use chimera::phonetics::{Intonation, Segment, Syllable};
 
@@ -217,4 +219,33 @@ fn held_notes_and_phrases_in_lyrics() {
     assert_eq!(syl[2].melisma, Some(true));
     assert_eq!(syl[2].nucleus.ipa, "a");
     assert!(syl[5].phrase_end);
+}
+
+#[test]
+fn turkish_songs_have_a_syllable_for_every_note_and_whole_bars() {
+    // name, beats (whole bars), where the phrases end
+    let expect: [(&str, f64, &[usize]); 1] = [
+        // the two-beat "Of" and five 6/4 bars
+        ("Gesi Bağları", 2.0 + 6.0 * 5.0, &[20, 37, 51, 68, 82]),
+    ];
+    assert_eq!(DEMO_SONGS.iter().filter(|s| s.lang == "tr").count(), expect.len());
+    for (name, beats, ends) in expect {
+        let song = DEMO_SONGS.iter().find(|s| s.name == name).unwrap();
+        assert_eq!(song.lang, "tr");
+        let syl = lyrics_to_syllables(song.lyrics);
+        assert_eq!(syl.len(), song.notes.len(), "{name}: syllables and notes");
+        assert_eq!(song.notes.iter().map(|n| n[1]).sum::<f64>(), beats, "{name}: beats");
+        let got: Vec<usize> = syl.iter().enumerate().filter(|(_, s)| s.phrase_end).map(|(i, _)| i).collect();
+        assert_eq!(got, ends, "{name}: phrase ends");
+        let notes: Vec<SungNote> = song.notes.iter().zip(&syl).map(|(n, s)| SungNote { midi: n[0], beats: n[1], syl: s.clone() }).collect();
+        let plan = plan_song(&notes, &SongOptions { body: BodyMix::MALE, bpm: song.bpm, t0: 0.35, vibrato: 35.0 });
+        assert!(plan.end > 0.35 + beats * 60.0 / song.bpm - 0.2, "{name}: {}", plan.end);
+    }
+    let text = |name: &str| {
+        let song = DEMO_SONGS.iter().find(|s| s.name == name).unwrap();
+        lyrics_to_syllables(song.lyrics).into_iter().map(|s| s.text).collect::<Vec<_>>()
+    };
+    let gesi = text("Gesi Bağları");
+    assert_eq!(&gesi[..11], ["Of", "~", "~", "~", "Ge", "si", "bağ", "la", "rın", "da", "do"]);
+    assert_eq!([gesi[37].as_str(), gesi[51].as_str(), gesi[82].as_str()], ["mi", "rum", "rum"]);
 }

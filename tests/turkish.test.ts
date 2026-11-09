@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { initEngine } from "./harness.ts";
 
 await initEngine();
-const { turkishPhrases, turkishLyricsToSyllables, planPhrases } = await import("../src/wasm/engine.ts");
+const { turkishPhrases, turkishLyricsToSyllables, planPhrases, DEMO_SONGS } = await import("../src/wasm/engine.ts");
 const { wordSpans } = await import("../src/ui/words.ts");
 const male = { female: 0, child: 0 };
 
@@ -31,5 +31,11 @@ describe("Turkish", () => {
     const syl = turkishLyricsToSyllables("Gesi bağlarında");
     expect(syl.map((s) => s.text)).toEqual(["Ge", "si", "bağ", "la", "rın", "da"]);
     expect(syl[1].wordEnd).toBe(true);
+  });
+
+  test("the Turkish demo song has a syllable for every note", () => {
+    const song = DEMO_SONGS.find((s) => s.lang === "tr");
+    expect(song?.name).toBe("Gesi Bağları");
+    expect(turkishLyricsToSyllables(song!.lyrics).length).toBe(song!.notes.length);
   });
 });
