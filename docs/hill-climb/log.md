@@ -1407,3 +1407,15 @@ No batch uses it yet: whether it decides the next batch, and Whisper guards, is 
   - **The male /ʃ/ centroid**, overshot by batch 2 (3.48 kHz, men 3.13).
   - **A diagnostic:** the voice lacks 1–4 kHz presence after batch 1 (female 1–2 kHz −16.1 dB re
     0–8 kHz, women −10.8). That is a spectral shape to fix, not a tilt.
+
+## Targeted SenseVoice engine study (2026-11-09, `engine-sibilants`)
+
+The [sibilant and nasal study](../engine-sibilants-study.md) used eight fixed
+scrambles of the new Mandarin probes and the default Chinese, Korean and English
+guard. A front-cavity-distance-dependent obstacle source band was kept: s→sh
+13→7 and z→zh 11→8, with sibilant probe initial errors 199→188. A distributed
+wake source and a gain-only low-pass lift were reverted. Nasal damping and two
+velum-port sizes were reverted after the nasal probe worsened. The source passed
+golden bless twice, normal Rust and Bun tests, and the paired bench; the golden
+files were restored as this batch's workflow requires. CSD, TSP, Whisper and
+human listening were not run for the targeted task.
