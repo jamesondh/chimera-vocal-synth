@@ -657,6 +657,13 @@ impl AirwayNetwork {
         self.port_area_target[branch] = js_max(0.0, area);
     }
 
+    /// Set a port's duct length (cm) and slit width (cm; 0: a round duct) at control rate, for a
+    /// valve whose anatomy scales (the flatulence creature's body size).
+    pub fn set_port_geometry(&mut self, branch: usize, length: f64, slit_width: f64) {
+        self.port_len[branch] = length;
+        self.port_slit[branch] = slit_width;
+    }
+
     /// Immediately set a port area (per-sample sources such as the glottis call this every sample).
     #[inline]
     pub fn set_port_area(&mut self, branch: usize, area: f64) {
