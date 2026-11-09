@@ -1,7 +1,7 @@
 //! The flatulence creature (docs/flatulence.md): a golden render that must not depend on the block
 //! size, and the physics it is meant to show — continence, the event ending when the gas is gone,
-//! gas conservation, pitch rising with sphincter tone, falling with body size, and more gas
-//! lasting longer.
+//! gas conservation, pitch rising with sphincter tone, falling with body size, more gas lasting
+//! longer, and pressed cheeks swinging as a second valve.
 mod common;
 use chimera::analysis::pitch::{YinOpts, yin_pitch};
 use chimera::creatures::{CreatureDef, CreatureTelemetry, CreatureVoice, creature_by_id};
@@ -146,4 +146,32 @@ fn more_gas_lasts_longer() {
     let little = duration(&hold(&[("gas", 30.0)], 2.0).0);
     let lots = duration(&hold(&[("gas", 250.0)], 3.0).0);
     assert!(lots > little * 1.5, "30 mL: {little} s, 250 mL: {lots} s");
+}
+
+/// The cheeks' gap (cm) over a held event, sampled every block: (smallest, largest).
+fn cheek_gap_range(kv: &[(&str, f64)], sec: f64) -> (f64, f64) {
+    let mut v = CreatureVoice::new(def(), FS, &params(kv));
+    let mut t = v.new_telemetry();
+    v.set_gate(1.0);
+    let mut buf = vec![0.0f32; 128];
+    let (mut lo, mut hi) = (f64::INFINITY, 0.0f64);
+    for _ in 0..(sec * FS / 128.0) as usize {
+        v.render(&mut buf);
+        v.telemetry(&mut t);
+        let g = source(&t, "cheeks");
+        lo = lo.min(g);
+        hi = hi.max(g);
+    }
+    (lo, hi)
+}
+
+#[test]
+fn pressed_cheeks_are_parted_by_the_gas_and_spread_cheeks_stay_open() {
+    // the cheeks are a second valve: pressed (1 mm apart at rest) the gas parts them by half as
+    // much again and they swing back past their rest gap (a valve only pushed open would stay
+    // above it); spread wide they stay open whatever the flow
+    let (lo, hi) = cheek_gap_range(&[("spread", 0.0)], 1.0);
+    assert!(lo < 0.098 && hi > 0.14, "pressed cheeks: gap {lo}..{hi} cm");
+    let (lo, _) = cheek_gap_range(&[("spread", 1.0)], 1.0);
+    assert!(lo > 0.5, "spread cheeks closed to {lo} cm");
 }

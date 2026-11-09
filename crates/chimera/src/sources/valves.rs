@@ -31,6 +31,13 @@ impl LipReed {
         LipReed { h: 0.0, v: 0.0, f: 400.0, zeta: 0.12, h0: -0.01, width: 1.2, surface_per_mass: 0.08, dt: 1.0 / fs, opening: 0.0 }
     }
 
+    /// Put the lips at rest at their rest opening (no motion), as before any flow.
+    pub fn settle(&mut self) {
+        self.h = self.h0.clamp(-0.05, 0.8);
+        self.v = 0.0;
+        self.opening = if self.h > 0.0 { self.h * self.width } else { 0.0 };
+    }
+
     /// Advance one sample with the pressure difference across the lips; returns the opening area (cm²).
     #[inline]
     pub fn next(&mut self, dp: f64) -> f64 {

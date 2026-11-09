@@ -5,10 +5,10 @@
 //! ```text
 //!  abdominal push ─┐
 //!   (+ rectal     ▼ (the tissue around the pocket: Rayleigh–Plesset, sample by sample)
-//!    wall recoil) rectal gas pocket ── upper anal canal ── ▷ anal verge valve ◁ ── gluteal cleft ── air
-//!                 (FDTD tube; its      (IAS zone, opened    (subcutaneous EAS      (soft-walled slot
-//!                  gas law is the       by the gas)          ring: LipReed,         between the cheeks,
-//!                  network's own)                            outward-striking)      radiating)
+//!    wall recoil) rectal gas pocket ── upper anal canal ── ▷ anal verge ◁ ── margin ── ▷ cheeks ◁ ── gluteal cleft ── air
+//!                 (FDTD tube; its      (IAS zone, opened    (subcutaneous   (slot)    (their contact   (soft-walled slot
+//!                  gas law is the       by the gas)          EAS ring:                 strip: LipReed   between the cheeks,
+//!                  network's own)                            LipReed)                  of fat)          radiating)
 //! ```
 //!
 //! - **Driving pressure.** The gas pocket is a tube of the airway network, so its gas law is the
@@ -28,6 +28,9 @@
 //! - **Turbulence.** The engine's Reynolds-number noise sources at their calibrated gains: the
 //!   human glottal aspiration source at the valve's jet (same mechanism: a jet from a slit valve
 //!   into a duct) and the human narrowest-constriction source in the cleft when it is narrow.
+//! - **The cheeks.** Beside the verge the cheeks meet or nearly meet: a second pressure-opened
+//!   valve, a LipReed whose mass and stiffness are the first thickness mode of the fat layer
+//!   under the perianal skin (the ischioanal fossa's), about 23 Hz. Spread cheeks leave it open.
 //! - **Radiation.** Through the gluteal cleft, a soft-walled wedge-shaped slot whose gap follows
 //!   the cheek spread, into a baffled radiation load (the body surface around it).
 
@@ -118,6 +121,25 @@ const CLEFT_DEPTH: f64 = 3.0;
 const CLEFT_GAP: f64 = 0.1;
 /// Half-angle of the cleft's wedge when fully spread (rad): the cheek surfaces at a right angle.
 const CLEFT_SPREAD_MAX: f64 = PI / 4.0;
+/// The cheeks as a second valve. Next to the anal verge the cheeks' surfaces meet (pressed) or
+/// nearly meet; the gas pushes them apart and their tissue springs back, as at the lips of a
+/// raspberry: a pressure-opened (+,−) valve (Fletcher 1993) of soft tissue, the same LipReed as
+/// the sphincter's. Its moving mass is the fat under the perianal skin (below).
+/// Length of the strip where the cheeks meet beside the verge, along the flow (cm). Not
+/// measured; about the anal margin's width.
+const CHEEK_LEN: f64 = 1.0;
+/// The space between the verge and that strip (cm): a short soft-walled slot, at least two
+/// stable sections at the smallest body size. Not measured.
+const MARGIN_LEN: f64 = 1.5;
+/// Thickness of the moving layer (cm). Beside the anal verge the skin covers the ischioanal
+/// fossa, a fat-filled wedge about 5 cm deep from the perineal skin to the levator ani
+/// (textbook figure; not an imaging series), not the gluteal muscle: so the fat's 5 cm. (Over
+/// the gluteus maximus, further out, the subcutaneous fat is 1.6 ± 0.4 cm in men and
+/// 2.5 ± 0.6 cm in women on CT.)
+const CHEEK_LAYER: f64 = 5.0;
+/// Young's modulus of subcutaneous fat (dyn/cm²): 3 × the shear modulus 7.5 kPa (Geerligs et al.
+/// 2008, Biorheology 45:677, at 10 rad/s and 37 °C), incompressible.
+const FAT_YOUNG: f64 = 3.0 * 7.5e4;
 
 // ---------------------------------------------------------------- turbulence (calibrated gains)
 
@@ -150,6 +172,12 @@ pub struct Flatus {
     cleft: Tube,
     valve: usize,
     lip: LipReed,
+    margin: Tube,
+    cheek_port: usize,
+    cheeks: LipReed,
+    margin_areas: Vec<f64>,
+    /// the cheeks start at rest at their first control step
+    cheeks_settled: bool,
     /// gas pocket volume (cm³) and its equal-volume sphere's radius (cm) and wall speed (cm/s)
     volume: f64,
     radius: f64,
@@ -190,26 +218,35 @@ fn create(fs: f64) -> Box<dyn CreatureSim> {
     let canal = tube(&mut net, "canal", fs, canal_len, TubeArea::Uniform(upper), TubeOpts { wall: Some(WALL_SOFT), min: Some(n_canal as f64), max: Some(n_canal as f64), ..Default::default() });
     let n_cleft = sections(fs, CLEFT_DEPTH * SIZE_MIN, 2.0, 30.0, 1.0);
     let cleft = tube(&mut net, "cleft", fs, CLEFT_DEPTH, TubeArea::Uniform(1.0), TubeOpts { wall: Some(WALL_SOFT), min: Some(n_cleft as f64), max: Some(n_cleft as f64), ..Default::default() });
+    let n_margin = sections(fs, MARGIN_LEN * SIZE_MIN, 2.0, 30.0, 1.0);
+    let margin = tube(&mut net, "margin", fs, MARGIN_LEN, TubeArea::Uniform(0.3), TubeOpts { wall: Some(WALL_SOFT), min: Some(n_margin as f64), max: Some(n_margin as f64), ..Default::default() });
     net.connect(rectum.last_node(), canal.first_node());
     // the distal ring: a slit duct of the lip's height whose gap the LipReed sets every sample;
     // Poiseuille slit resistance over its width, and Ishizaka & Flanagan's (1972) entrance and exit
     // kinetic coefficients (0.37 + 1.0), as at the glottis
-    let valve = net.add_port(canal.last_node(), cleft.first_node(), PortSpec::new(0.0, VALVE_LEN).kinetic(0.37, 1.0).slit(SLIT_LEN));
+    let valve = net.add_port(canal.last_node(), margin.first_node(), PortSpec::new(0.0, VALVE_LEN).kinetic(0.37, 1.0).slit(SLIT_LEN));
+    // the cheeks' strip: a slit across the cleft whose gap the cheeks' LipReed sets every sample
+    let cheek_port = net.add_port(margin.last_node(), cleft.first_node(), PortSpec::new(0.3, CHEEK_LEN).kinetic(0.37, 1.0).slit(1.0));
     net.add_radiation(cleft.last_node());
     net.finalize();
     // the pocket's wall motion enters as flow (sample by sample, below), so its geometry, which
     // follows at control rate, must not inject −dV/dt a second time; the other tubes change only
     // with body size and cheek spread, slowly
     net.enable_volume_source = false;
-    let jet = NoiseSpec::new(valve, cleft.branch(1.min(cleft.n - 2)), canal.branch(canal.n - 2), JET_NOISE.0).band(JET_NOISE.1, JET_NOISE.2);
+    let jet = NoiseSpec::new(valve, margin.branch(0), canal.branch(canal.n - 2), JET_NOISE.0).band(JET_NOISE.1, JET_NOISE.2);
     let mut s = Flatus {
         net,
-        tubes: vec![("rectum", rectum), ("canal", canal), ("cleft", cleft)],
+        tubes: vec![("rectum", rectum), ("canal", canal), ("margin", margin), ("cleft", cleft)],
         rectum,
         canal,
         cleft,
         valve,
         lip: LipReed::new(fs),
+        margin,
+        cheek_port,
+        cheeks: LipReed::new(fs),
+        margin_areas: vec![0.3; margin.n],
+        cheeks_settled: false,
         volume: 100.0,
         radius: sphere_radius(100.0),
         radius_rate: 0.0,
@@ -324,6 +361,30 @@ impl CreatureSim for Flatus {
             }
         }
         self.net.set_tube_targets(self.cleft, &self.cleft_areas, Some(depth), None);
+        // the cheeks: at rest their strip's mean gap is the wedge's over it; their layer of fat
+        // (over the levator ani) is a mass–spring whose one mass has the layer's first thickness mode,
+        // f = c/4L with c = √(E/ρ): stiffness E/L and mass 4ρL/π² per unit area (the gap is
+        // twice the surface's displacement). Damping: the layer's Kelvin–Voigt loss with the
+        // tissue viscosity above (3μ in extension), ζ = ω·3μ/(2E).
+        let strip = CHEEK_LEN * s;
+        let rest = CLEFT_GAP * s + strip * tan(half);
+        let layer = CHEEK_LAYER * s;
+        let k_c = FAT_YOUNG / layer;
+        let m_c = 4.0 * TISSUE_DENSITY * layer / (PI * PI);
+        let w_c = sqrt(k_c / m_c);
+        let ch = &mut self.cheeks;
+        ch.f = w_c / (2.0 * PI);
+        ch.zeta = w_c * 3.0 * TISSUE_VISCOSITY / (2.0 * FAT_YOUNG);
+        ch.surface_per_mass = 2.0 / m_c;
+        ch.h0 = rest;
+        ch.width = across;
+        if !self.cheeks_settled {
+            ch.settle();
+            self.cheeks_settled = true;
+        }
+        self.net.set_port_geometry(self.cheek_port, strip, across);
+        self.margin_areas.fill(rest * across);
+        self.net.set_tube_targets(self.margin, &self.margin_areas, Some(MARGIN_LEN * s), None);
         // the lip: mass per unit area ρ·δ; stiffness passive + the sphincter's short-range
         // stiffness; at rest the tone presses the ring shut with the closing pressure
         let tone = p[TONE] * CMH2O;
@@ -351,7 +412,8 @@ impl CreatureSim for Flatus {
     #[inline]
     fn sample(&mut self) -> f64 {
         let p = &self.net.p;
-        let dp = p[self.canal.last_node()] - p[self.cleft.first_node()];
+        let dp = p[self.canal.last_node()] - p[self.margin.first_node()];
+        let dpc = p[self.margin.last_node()] - p[self.cleft.first_node()];
         let mut pr = 0.0;
         for k in self.rectum.first_node()..=self.rectum.last_node() {
             pr += p[k];
@@ -382,6 +444,8 @@ impl CreatureSim for Flatus {
         self.radius_rate = rd;
         let open = self.lip.next(dp);
         self.net.set_port_area(self.valve, open);
+        let cheek_open = self.cheeks.next(dpc);
+        self.net.set_port_area(self.cheek_port, cheek_open);
         let y = self.net.step();
         self.u_acc += self.net.u[self.valve];
         self.n_acc += 1.0;
@@ -392,6 +456,7 @@ impl CreatureSim for Flatus {
         // the glyph: the gap against a 1 mm reference
         out.push(("sphincter", js_min(1.0, self.lip.opening / (self.lip.width * 0.1))));
         out.push(("gap", self.lip.opening / self.lip.width));
+        out.push(("cheeks", self.cheeks.opening / self.cheeks.width));
         out.push(("pressure", self.p_mean / CMH2O));
         out.push(("gas", self.volume));
         out.push(("flow", self.u_mean));
