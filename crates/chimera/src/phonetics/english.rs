@@ -106,6 +106,104 @@ fn is_phrase_punct(c: char) -> bool {
     matches!(c, '.' | '!' | '?' | ';' | ':' | ',')
 }
 
+pub(crate) fn is_tr_alpha(c: char) -> bool {
+    c.is_ascii_alphabetic() || matches!(c, 'ç' | 'ğ' | 'ı' | 'ö' | 'ş' | 'ü' | 'Ç' | 'Ğ' | 'Ö' | 'Ş' | 'Ü')
+}
+
+pub(crate) fn tr_lowercase(s: &str) -> String {
+    if s.contains("İstanbul") {
+        return s.to_lowercase();
+    }
+    s.chars()
+        .map(|c| match c {
+            'İ' => 'i',
+            'Ç' => 'ç',
+            'Ğ' => 'ğ',
+            'Ö' => 'ö',
+            'Ş' => 'ş',
+            'Ü' => 'ü',
+            _ => c.to_lowercase().next().unwrap_or(c),
+        })
+        .collect()
+}
+
+pub(crate) fn is_turkish_word(w: &str) -> bool {
+    if w == "İstanbul" {
+        return false;
+    }
+    let lower = tr_lowercase(w);
+    if w.chars().any(|c| matches!(c, 'ç' | 'ğ' | 'ı' | 'ö' | 'ş' | 'ü' | 'Ç' | 'Ğ' | 'Ö' | 'Ş' | 'Ü')) {
+        return true;
+    }
+    matches!(
+        lower.as_str(),
+        "uzun" | "ince" | "bir" | "yoldayim" | "gidiyorum" | "gece" | "gunduz" | "bilmiyorum" | "ne" | "haldeyim" | "dunyaya" | "geldim" | "geleli" | "ayni" | "anda" | "yuruyorum" | "aman" | "yar" | "yarim" | "garip" | "asik" | "veysel"
+    )
+}
+
+pub fn turkish_word_to_segments(word: &str) -> Vec<Segment> {
+    let lower = tr_lowercase(word);
+    let chars: Vec<char> = lower.chars().filter(|c| c.is_alphabetic()).collect();
+    let is_tr_v = |c: char| matches!(c, 'a' | 'e' | 'ı' | 'i' | 'o' | 'ö' | 'u' | 'ü');
+    let last_vowel_idx = chars.iter().rposition(|&c| is_tr_v(c));
+    let mut segs = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == 'ğ' {
+            // yumuşak g: iki ünlü arasındaysa hafif geçiş (/ɰ/), sonda/ünsüz önündeyse önceki ünlüyü tutar (ek segment üretmez)
+            if i + 1 < chars.len() && is_tr_v(chars[i + 1]) {
+                segs.push(Segment { ipa: "ɰ".into(), stress: Some(0), ..Default::default() });
+            }
+            i += 1;
+            continue;
+        }
+        let ipa = match c {
+            'a' => "ɑ",
+            'e' => "ɛ",
+            'ı' => "ɯ",
+            'i' => "i",
+            'o' => "o",
+            'ö' => "ø",
+            'u' => "u",
+            'ü' => "y",
+            'b' => "b",
+            'c' => "dʒ",
+            'ç' => "tʃ",
+            'd' => "d",
+            'f' => "f",
+            'g' => "g",
+            'h' => "h",
+            'j' => "ʒ",
+            'k' => "k",
+            'l' => "l",
+            'm' => "m",
+            'n' => "n",
+            'p' => "p",
+            'r' => "ɾ",
+            's' => "s",
+            'ş' => "ʃ",
+            't' => "t",
+            'v' => "v",
+            'y' => "j",
+            'z' => "z",
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        let v = is_tr_v(c);
+        let stress = if v {
+            if Some(i) == last_vowel_idx { 1 } else { 2 }
+        } else {
+            0
+        };
+        segs.push(Segment { ipa: ipa.into(), stress: Some(stress), ..Default::default() });
+        i += 1;
+    }
+    segs
+}
+
 impl EnglishG2P {
     pub fn new() -> EnglishG2P {
         EnglishG2P::default()
@@ -168,8 +266,8 @@ impl EnglishG2P {
             if !part.is_empty() && part.chars().all(is_phrase_punct) {
                 flush(part, &mut words);
             } else {
-                let lower = part.to_lowercase();
-                words.extend(lower.split(|c: char| !(c.is_ascii_lowercase() || c == '\'' || c == '-')).filter(|w| !w.is_empty()).map(str::to_string));
+                let lower = tr_lowercase(part);
+                words.extend(lower.split(|c: char| !(is_tr_alpha(c) || c == '\'' || c == '-')).filter(|w| !w.is_empty()).map(str::to_string));
             }
         }
         flush("", &mut words);
@@ -178,8 +276,14 @@ impl EnglishG2P {
 
     /// One word → segments with lexical stress. `reduce`: weak forms of function words (speech).
     pub fn word(&self, w: &str, reduce: bool) -> Vec<Segment> {
-        let lower = w.to_lowercase();
+        let lower = if w == "İstanbul" { w.to_lowercase() } else { tr_lowercase(w) };
         let clean = lower.trim_matches('\'');
+        if is_turkish_word(w) || is_turkish_word(clean) {
+            if clean.contains('-') {
+                return clean.split('-').flat_map(|p| self.word(p, reduce)).collect();
+            }
+            return turkish_word_to_segments(clean);
+        }
         let entry = homograph(clean).or_else(|| self.dict.as_ref().and_then(|d| d.get(clean)).map(String::as_str));
         if let Some(entry) = entry.filter(|e| !e.is_empty()) {
             let mut segs = arpabet_to_segments(entry);

@@ -5,7 +5,7 @@
 //! next note (melisma), as in vocaloid editors.
 
 use crate::anatomy::human::BodyMix;
-use super::english::js_is_space;
+use super::english::{is_tr_alpha, is_turkish_word, js_is_space, tr_lowercase};
 use super::planner::is_vowel;
 use super::{Segment, Syllable};
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 // English onsets (IPA), longest first matters only for the search below
 #[rustfmt::skip]
 const ONSETS: &[&str] = &[
-    "p", "b", "t", "d", "k", "g", "f", "v", "θ", "ð", "s", "z", "ʃ", "ʒ", "h", "m", "n", "l", "ɹ", "w", "j", "tʃ", "dʒ",
+    "p", "b", "t", "d", "k", "g", "f", "v", "θ", "ð", "s", "z", "ʃ", "ʒ", "h", "m", "n", "l", "ɹ", "ɾ", "ɰ", "w", "j", "tʃ", "dʒ",
     "pl", "bl", "kl", "gl", "fl", "sl", "pɹ", "bɹ", "tɹ", "dɹ", "kɹ", "gɹ", "fɹ", "θɹ", "ʃɹ",
     "sp", "st", "sk", "sm", "sn", "sw", "sf", "tw", "kw", "dw", "gw", "θw",
     "pj", "bj", "kj", "gj", "mj", "nj", "fj", "vj", "hj", "lj",
@@ -61,9 +61,11 @@ pub fn syllabify_segments(segs: &[Segment]) -> Vec<SyllableParts> {
 // The spelling is indexed in UTF-16 code units, as the JS string was.
 fn is_spell_vowel(c: u16) -> bool {
     "aeiouy".bytes().any(|v| v as u16 == c)
+        || matches!(c, 0x0131 | 0x00f6 | 0x00fc) // ı, ö, ü
 }
 fn is_spell_vowel_ci(c: u16) -> bool {
     "aeiouyAEIOUY".bytes().any(|v| v as u16 == c)
+        || matches!(c, 0x0131 | 0x0130 | 0x00f6 | 0x00d6 | 0x00fc | 0x00dc) // ı, İ, ö, Ö, ü, Ü
 }
 fn eq_ci(c: u16, lower: u8) -> bool {
     c == lower as u16 || c == lower.to_ascii_uppercase() as u16
@@ -80,14 +82,17 @@ pub fn split_spelling(word: &str, n: usize) -> Vec<String> {
         return vec![word.to_string()];
     }
     let w: Vec<u16> = word.encode_utf16().collect();
-    let lower: Vec<u16> = word.to_lowercase().encode_utf16().collect();
+    let lower: Vec<u16> = tr_lowercase(word).encode_utf16().collect();
+    let is_tr = is_turkish_word(word);
+    // In Turkish, 'y' is always a consonant (/j/), never a vowel!
+    let is_v = |c: u16| if is_tr { c != b'y' as u16 && is_spell_vowel(c) } else { is_spell_vowel(c) };
     // /[aeiouy]+/g on the lowercased word
     let mut groups: Vec<[usize; 2]> = Vec::new();
     let mut i = 0;
     while i < lower.len() {
-        if is_spell_vowel(lower[i]) {
+        if is_v(lower[i]) {
             let s = i;
-            while i < lower.len() && is_spell_vowel(lower[i]) {
+            while i < lower.len() && is_v(lower[i]) {
                 i += 1;
             }
             groups.push([s, i]);
@@ -97,7 +102,7 @@ pub fn split_spelling(word: &str, n: usize) -> Vec<String> {
     }
     let len = w.len();
     // /[^aeiouy]e$/i and /[^aeiouyl]le$/i
-    let silent_e = len >= 2 && eq_ci(w[len - 1], b'e') && !is_spell_vowel_ci(w[len - 2]);
+    let silent_e = !is_tr && len >= 2 && eq_ci(w[len - 1], b'e') && !is_spell_vowel_ci(w[len - 2]);
     let le = len >= 3 && eq_ci(w[len - 1], b'e') && eq_ci(w[len - 2], b'l') && !is_spell_vowel_ci(w[len - 3]) && !eq_ci(w[len - 3], b'l');
     // a final silent e ("like") is not a syllable, but consonant + "le" is ("twin-kle", "lit-tle")
     if groups.len() > 1 && silent_e && !le && groups[groups.len() - 1][0] + 1 == len {
@@ -148,7 +153,7 @@ fn is_lyric_punct(c: char) -> bool {
     matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '\n')
 }
 fn is_word_start(c: char) -> bool {
-    c.is_ascii_alphabetic() || c == '\''
+    is_tr_alpha(c) || c == '\''
 }
 
 /// `text.match(/[A-Za-z'][A-Za-z'\-]*|(?<=\s|^)[~-](?=\s|$)|[.,;:!?\n]/g)`
@@ -179,7 +184,7 @@ fn lyric_tokens(text: &str) -> Vec<String> {
 /// Lyrics text → syllables (needs the pronouncing dictionary for real words).
 pub fn lyrics_to_syllables(text: &str, g2p: &impl WordSource) -> Vec<Syllable> {
     let mut out: Vec<Syllable> = Vec::new();
-    // words, melisma marks and phrase punctuation, in order
+    // Words, melisma marks and phrase punctuation, in order
     let tokens = lyric_tokens(&text.replace('’', "'"));
     for tok in &tokens {
         if tok.chars().count() == 1 && tok.chars().all(is_lyric_punct) {
@@ -199,7 +204,7 @@ pub fn lyrics_to_syllables(text: &str, g2p: &impl WordSource) -> Vec<Syllable> {
         let parts: Vec<&str> = tok.split('-').filter(|p| !p.is_empty()).collect();
         let mut syls: Vec<Syllable> = Vec::new();
         for part in &parts {
-            let sy = syllabify_segments(&g2p.word(&part.to_lowercase(), false));
+            let sy = syllabify_segments(&g2p.word(&tr_lowercase(part), false));
             let spell: Vec<String> = if parts.len() > 1 {
                 let mut v = vec![part.to_string()];
                 v.extend(std::iter::repeat_n("~".to_string(), sy.len().saturating_sub(1)));

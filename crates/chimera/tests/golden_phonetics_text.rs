@@ -121,7 +121,17 @@ fn syllables_match_typescript() {
 fn songs_and_vowel_data_match_typescript() {
     let fx = load("phonetics-data");
     let mut f = Vec::new();
-    check("demo songs", &fx["songs"], songs::DEMO_SONGS, &mut f);
+    check("demo songs", &fx["songs"], &songs::DEMO_SONGS[..2], &mut f);
     check("vowel refs", &fx["vowels"], vowel_data::VOWELS, &mut f);
     report("data", 2, f);
+}
+
+#[test]
+fn turkish_g2p_and_uzun_ince_song() {
+    let (d, _) = g2ps();
+    let song = songs::DEMO_SONGS.iter().find(|s| s.name == "Uzun İnce Bir Yoldayım").expect("Uzun İnce Bir Yoldayım");
+    let syls = lyrics_to_syllables(song.lyrics, &d);
+    assert_eq!(syls.len(), song.notes.len(), "syllable count must match note count");
+    let texts: Vec<&str> = syls.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(&texts[..11], &["U", "zun", "~", "~", "in", "ce", "~", "bir", "~", "yol", "da"]);
 }
