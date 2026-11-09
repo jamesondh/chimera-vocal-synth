@@ -66,3 +66,69 @@ Per the hill-climb workflow the blessed golden files were restored after checks;
 they are intentionally out of date on this experiment branch. The paired release
 bench was 25.2% baseline → 25.0% with the source at male 2× oversampling. CSD,
 TSP, Whisper and human listening were not run for this targeted SenseVoice task.
+
+## Score-first follow-up (2026-11-09, `sibilant-score`)
+
+No sound change was retained. This run used the release CLI built from `d16f95d`,
+explicit /Cɑ/ syllables on one 100 BPM note, and the unchanged eight-shuffle
+SenseVoice sibilant probe (544 syllables, both bodies). The fricative window was
+120–30 ms before the vowel beat; affricates used 80–10 ms. Levels are RMS dBFS;
+peaks are the strongest 250 Hz spectral bin between 1 and 10 kHz. The reproduced
+baseline confusion counts differ from the earlier study's counts (for example
+c→ch 38 here versus 47 there), so all comparisons below use this run's own
+baseline and identical shuffle seeds.
+
+| Baseline / final | Male level / peak kHz | Female level / peak kHz |
+|---|---:|---:|
+| s | −29.2 / 3.375 | −37.5 / 3.625 |
+| ʃ | −32.3 / 2.125 | −40.1 / 2.125 |
+| ʂ | −38.8 / 2.125 | −45.3 / 2.125 |
+| ɕ | −28.8 / 2.625 | −38.9 / 3.125 |
+| f | −36.7 / 4.625 | −46.8 / 5.125 |
+| ts | −27.1 / 3.625 | −35.4 / 3.875 |
+| tʂ | −37.9 / 2.125 | −43.7 / 2.625 |
+| tɕ | −27.1 / 2.625 | −37.1 / 3.125 |
+
+The baseline sibilant probe scored 41.9/36.8% (male/female). Its named initial
+confusions were c→ch 38, f→sh 8, s→sh 10, z→zh 5, q→t 16, and sh→ch 4.
+The English Harvard baseline scored 66.2/68.1%; its phoneme confusions included
+SH→F 4, S→F 10, DH→L 10, and 12 dropped SH phonemes.
+
+| Trial (all reverted) | Acoustic effect | Sibilant probe male/female | c→ch / f→sh / s→sh / q→t |
+|---|---|---:|---:|
+| **Score:** retroflex jaw 0.35, calibrated | ʂ male +3.8 dB, female +0.2; tʂ male +6.9 | 40.8/36.4% | 38 / 10 / 10 / 20 |
+| **Score:** retroflex area 0.15→0.10 cm² | ʂ −0.5/−0.3 dB | Not judged; level moved away from target | — |
+| **Score:** affricate closure 55→40% | Release level nearly flat | 42.6/37.1% | 37 / 6 / 7 / 12; q→p 3→10 |
+| **Score:** retroflex tip x 5.45→5.65 cm, calibrated | ʂ +10.8/+9.0 dB; tʂ +12.2/+10.3 | 38.6/36.8% | 39 / 10 / 4 / 22 |
+| **Score:** /ts/ closure and release jaw 0.30 | ts peak 3.625→3.875 kHz male; level −0.5 dB | 40.4/37.9% | 37 / 7 / 10 / 18 |
+| **Score:** /s/ tip x 6.30→6.50 cm, calibrated | s peak 3.375→4.375 kHz; ts peak likewise | 41.2/37.9% | 38 / 11 / 8 / 19 |
+| **Engine:** long-jet injection +0.6 cm maximum | ʂ +2.9/+2.2 dB; short jets flat | 39.7/36.8% | 36 / 10 / 8 / 22 |
+| **Engine:** long-jet injection +1.0 cm maximum | ʂ +5.0/+2.2 dB; short jets flat | 42.6/37.5% | 38 / 11 / 11 / 27 |
+| **Score:** /ɕ/ tip x 5.85→5.95 cm, calibrated | tɕ male peak 2.625→3.625 kHz; female level +3.2 dB | 36.8/38.2% | 37 / 11 / 9 / 14 |
+
+Other measured score checks: ʂ tip x 5.55 cm left it at −36.9/−45.2 dB,
+while x 5.60 cm already jumped to −27.9/−36.4 dB. Raising voiceless
+fricative abduction 0.30→0.40 lifted levels only 0.2–0.7 dB with no peak
+movement. Raising aspirated affricate abduction 0.36→0.50 lifted releases
+only 0.1–0.3 dB. For ʃ, jaw 0.20 and 0.50 gave −32.9/−40.6 and
+−31.8/−42.4 dB respectively; area 0.25 and 0.15 cm² gave −33.6/−41.3
+and −32.2/−39.9 dB. None met the level target in both bodies, so they were
+reverted before recognition.
+
+The same generated-table calibration was run after every area or tip-position
+trial. It measures the minimum airway area, not telemetry's section means.
+At x 5.55→5.60 cm the retroflex calibrated ttY jumps from 9.740 to 9.622,
+and the dominant noise node moves forward; that makes output level sensitive
+to a tiny score change. A source-position model that distributes turbulence
+smoothly across adjacent branches is a better next experiment than another
+phoneme-specific gain. It must be judged on c→ch and q→t, which stayed bad or
+worsened in the gain trials.
+
+The paired default-poem guard for the rejected +1.0 cm engine trial was:
+Mandarin 30.9/30.9→29.1/30.3% and Korean 58.8/56.6→60.6/57.2%; Mandarin
+sh→f stayed 6 and q→t rose 7→8. The /ɕ/ score trial's male real sibilant
+line worsened 26.5→35.3% despite its male scrambled improvement. These are
+counterevidence to keeping either change. The ASR runs are one melody and one
+recognizer; CSD, TSP, Whisper, and listening were not run. Since every sound
+edit was reverted, no golden re-bless, Rust sound tests, Bun tests, or bench
+claim applies to this follow-up.

@@ -1419,3 +1419,12 @@ velum-port sizes were reverted after the nasal probe worsened. The source passed
 golden bless twice, normal Rust and Bun tests, and the paired bench; the golden
 files were restored as this batch's workflow requires. CSD, TSP, Whisper and
 human listening were not run for the targeted task.
+
+The score-first follow-up on `sibilant-score` is in the same study. It measured
+jaw, calibrated gap and place, affricate closure timing, and glottal abduction
+before another geometry-driven engine source position trial. None survived the
+fixed Mandarin confusion pairs; the stronger engine trial also worsened the
+Korean guard. Moving /ʂ/'s tip only 0.05 cm crossed a discrete source-node
+boundary and raised its level about 9–11 dB without fixing c→ch or q→t; the
+next lead is a smooth, distributed source position rather than a gain increase.
+No sound edit or golden fixture was committed in the follow-up.
