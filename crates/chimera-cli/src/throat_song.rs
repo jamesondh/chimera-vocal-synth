@@ -59,6 +59,8 @@ struct Phrase {
     notes: Vec<(usize, Option<f64>)>,
     lungs: f64,
     pressure: f64,
+    /// silence before this breath (s): the singer listens before breathing in
+    rest: f64,
 }
 
 fn parse_song(text: &str) -> Result<Vec<Phrase>, String> {
@@ -84,6 +86,7 @@ fn parse_song(text: &str) -> Result<Vec<Phrase>, String> {
             notes: Vec::new(),
             lungs: 3.5,
             pressure: 12.0,
+            rest: 0.0,
         };
         for tok in it {
             if let Some((k, v)) = tok.split_once('=') {
@@ -93,7 +96,8 @@ fn parse_song(text: &str) -> Result<Vec<Phrase>, String> {
                 match k {
                     "lungs" => p.lungs = v,
                     "pressure" => p.pressure = v,
-                    _ => return Err(err(format!("unknown option {k:?} (lungs, pressure)"))),
+                    "rest" => p.rest = v.max(0.0),
+                    _ => return Err(err(format!("unknown option {k:?} (lungs, pressure, rest)"))),
                 }
             } else {
                 let (n, d) = tok.split_once(':').ok_or_else(|| {
@@ -300,6 +304,7 @@ pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
 
     let mut air = 0.0; // litres in the lungs above the floor the singer stops at
     for (k, p) in song.iter().enumerate() {
+        run.run_for(p.rest)?;
         // inhale: refill to this breath's capacity
         let t_in = ((p.lungs - air) / INHALE_RATE).clamp(0.45, 1.5);
         run.voice.set_source(&SourcePatch {
@@ -378,11 +383,12 @@ pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         let used = run.spent;
         air -= used;
         println!(
-            "breath {} (line {}, {} {} Hz): inhale {} s, sang {} s, air {} of {} L, mean flow {} mL/s, ended by {}",
+            "breath {} (line {}, {} {} Hz): at {} s, inhale {} s, sang {} s, air {} of {} L, mean flow {} mL/s, ended by {}",
             k + 1,
             p.line,
             p.style,
             fixed(p.f0, 1),
+            fixed(start, 1),
             fixed(t_in, 2),
             fixed(sang, 1),
             fixed(used, 2),

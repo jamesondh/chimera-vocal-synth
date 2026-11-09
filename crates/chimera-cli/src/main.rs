@@ -37,7 +37,7 @@ usage: chimera <command> [args] [--float]
                  [--bright 0.6] [--vib 8] [--vib-rate 6.5]  (a drone singing a harmonic melody)
   throat song    <song.txt> <out> [--tele voice.tele] [--epi 0.9]
                  (one line per breath: style drone harmonic:secs … [harmonic:*] [lungs=3.5]
-                 [pressure=12]; a phrase lasts until the score or the simulated air runs out)
+                 [pressure=12] [rest=0]; a phrase lasts until the score or the simulated air runs out)
   calibrate vowels     [male|female|child|all] [--out file]
   calibrate consonants [--out file]
 
