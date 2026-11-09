@@ -2,7 +2,8 @@
  * An alien's head in the side view: the human outlines (profile.ts) reshaped, and the parts no
  * human has. The default alien is homesick and old: a domed cranium, big eyes and a long wrinkled
  * neck (the throat setting stretches it). Its organs show when it has them: the throat sac
- * swelling with its breath, and the crest arching back over the skull.
+ * swelling with its breath, the crest arching back over the skull, and its other mouths as faint
+ * copies of the first's tract set back into the head.
  * Everything is in body cm, like the profile it changes.
  */
 import type { AlienShape } from "../../wasm/types.ts";
@@ -96,4 +97,11 @@ export function crest(model: VoiceModel, size: number): Vec[][] {
       return { x: p.x - (dy / n) * half * sgn, y: p.y + (dx / n) * half * sgn };
     });
   return [side(1), side(-1)];
+}
+
+/** where each of an alien's other mouths is drawn, from the first's (body cm): back into the head
+ * and a little up, as if seen through it */
+export function mouthOffsets(model: VoiceModel, a: AlienShape): Vec[] {
+  const k = model.tract.scale;
+  return Array.from({ length: Math.max(0, Math.round(a.mouths) - 1) }, (_, i) => ({ x: -1.6 * (i + 1) * k, y: 0.6 * (i + 1) * k }));
 }

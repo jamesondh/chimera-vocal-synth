@@ -18,7 +18,7 @@ import { beam, beamPts, chaikin, dot, handle, label, ring, seg, type Pt } from "
 import { buildProfile, Gaze, jawFn, VIEW as VIEW_HUMAN, type Profile } from "./profile.ts";
 import { drawReadouts, type Slot } from "./readouts.ts";
 import { Expression } from "./expression.ts";
-import { alienProfile, alienView, crest, neckWrinkles, throatSac } from "./alien.ts";
+import { alienProfile, alienView, crest, mouthOffsets, neckWrinkles, throatSac } from "./alien.ts";
 
 export type { Slot } from "./readouts.ts";
 
@@ -309,7 +309,7 @@ export class AnatomyRenderer {
     // skin, airway walls, teeth, folds
     line(puffed(G.skinLower), V.blue, 1.7, { hot: true });
     line(puffed(G.skinUpper), V.blue, 1.7, { hot: true });
-    if (model.alien) this.drawAlien(ctx, model, model.alien, tele);
+    if (model.alien) this.drawAlien(ctx, model, model.alien, f, puffed, tele);
     line(G.outerWall, V.blue, 1.4, { hot: true });
     line(f.inner, V.blue, 1.3, { alpha: 0.9 });
     line(G.glottisWall, V.blue, 1.2, { alpha: 0.8 });
@@ -393,8 +393,17 @@ export class AnatomyRenderer {
   }
 
   /** an alien's wrinkles and organs (see alien.ts) */
-  private drawAlien(ctx: CanvasRenderingContext2D, model: VoiceModel, al: NonNullable<VoiceModel["alien"]>, tele: TelemetryMessage | null): void {
+  private drawAlien(ctx: CanvasRenderingContext2D, model: VoiceModel, al: NonNullable<VoiceModel["alien"]>, f: HumanFrame, puffed: (v: Vec[]) => Vec[], tele: TelemetryMessage | null): void {
     const line = (v: Vec[], color: string, w: number, o: { alpha?: number; hot?: boolean; close?: boolean } = {}) => beamPts(ctx, v.map((p) => this.P(p)), color, w, o);
+    // the other mouths: faint copies of the tract, tongue and lips, set back into the head
+    for (const [i, d] of mouthOffsets(model, al).entries()) {
+      const o = 0.42 - 0.1 * i;
+      const mv = (v: Vec[]) => v.map((p) => ({ x: p.x + d.x, y: p.y + d.y }));
+      line(mv(f.inner), V.blue, 1, { alpha: o });
+      line(mv(f.tongue), V.green, 1, { alpha: o });
+      line(mv(puffed(f.upperLip)), V.pink, 1.1, { alpha: o * 1.3 });
+      line(mv(puffed(f.lowerLip)), V.pink, 1.1, { alpha: o * 1.3 });
+    }
     for (const w of neckWrinkles(model)) line(w, V.blueMid, 0.9, { alpha: 0.8 });
     if (al.sac > 0) line(throatSac(model, al.sac, tele ? Math.min(1, tele.t.gate) : 0), V.blueMid, 1.2, { close: true });
     if (al.crest > 0) for (const s of crest(model, al.crest)) line(s, V.blueMid, 1.2);

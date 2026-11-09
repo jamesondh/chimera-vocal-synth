@@ -22,7 +22,7 @@ export function AlienPanel() {
           </Chip>
         ))}
       </div>
-      <p className="alien-blurb">{p ? p.blurb : "Your own alien: shape it with the Alien body and Organs pages."}</p>
+      <p className="alien-blurb">{p ? p.blurb : "Your own alien: shape it with the Alien body, Organs and Mouths pages."}</p>
       {p && (
         <Chip
           toggle={false}
@@ -61,6 +61,14 @@ export function useAlienPages(): EncoderPage[] {
         { label: "2nd voicebox", value: a.twin, min: 0, max: 1, onChange: on("twin"), format: pct },
         { label: "Interval", value: a.interval, min: -24, max: 24, onChange: (v) => on("interval")(Math.round(v)), format: semis },
         { label: "Crest", value: a.crest, min: 0, max: 1, onChange: on("crest"), format: pct },
+      ],
+    },
+    {
+      name: "Mouths",
+      encoders: [
+        { label: "Mouths", value: a.mouths, min: 1, max: 2, onChange: (v) => on("mouths")(Math.round(v)), format: (v) => ({ value: String(Math.round(v)), unit: "" }) },
+        // with one mouth, the second's interval shows as off
+        { label: "2nd mouth", value: a.mouth2, min: -24, max: 24, onChange: (v) => on("mouth2")(Math.round(v)), format: (v) => (Math.round(a.mouths) >= 2 ? semis(v) : { value: "Off", unit: "" }) },
       ],
     },
   ];
