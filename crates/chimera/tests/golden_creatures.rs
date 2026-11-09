@@ -192,13 +192,19 @@ fn preview_telemetry_serialises_like_typescript() {
         assert_key_order(name, &text, &params);
         seen += 1;
     }
-    assert_eq!(seen, CREATURES.len());
+    // the TypeScript engine's creatures (later ones, such as flatulence, have their own tests)
+    assert_eq!(seen, CREATURES.iter().filter(|c| TS_CREATURES.contains(&c.id)).count());
 }
+
+/// The creatures the TypeScript engine had, which these fixtures record.
+const TS_CREATURES: [&str; 4] = ["songbird", "seal", "alligator", "elephant"];
 
 #[test]
 fn defs_serialise_like_typescript() {
     let u = load("creature-units");
-    let text = serde_json::to_string(&*CREATURES).unwrap();
+    let ts: Vec<&chimera::creatures::CreatureDef> = CREATURES.iter().filter(|c| TS_CREATURES.contains(&c.id)).collect();
+    assert_eq!(ts.len(), TS_CREATURES.len());
+    let text = serde_json::to_string(&ts).unwrap();
     let got: Value = serde_json::from_str(&text).unwrap();
     assert!(same_json(&got, &u["defs"]), "defs differ\n{got}\n{}", u["defs"]);
     assert_key_order("def", &text, &["id", "name", "latin", "group", "blurb", "role", "oversample"]);

@@ -2,6 +2,7 @@
 pub mod alligator;
 pub mod build;
 pub mod elephant;
+pub mod flatus;
 pub mod mammal;
 pub mod seal;
 pub mod songbird;
@@ -14,7 +15,7 @@ pub use voice::{CreatureTelemetry, CreatureVoice};
 use std::sync::LazyLock;
 
 /// Creature registry (built once; [`init`] forces it).
-pub static CREATURES: LazyLock<Vec<CreatureDef>> = LazyLock::new(|| vec![songbird::def(), seal::def(), alligator::def(), elephant::def()]);
+pub static CREATURES: LazyLock<Vec<CreatureDef>> = LazyLock::new(|| vec![songbird::def(), seal::def(), alligator::def(), elephant::def(), flatus::def()]);
 
 pub fn creature_by_id(id: &str) -> Option<&'static CreatureDef> {
     CREATURES.iter().find(|c| c.id == id)
