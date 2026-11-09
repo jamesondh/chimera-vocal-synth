@@ -31,6 +31,9 @@
 //! - **The cheeks.** Beside the verge the cheeks meet or nearly meet: a second pressure-opened
 //!   valve, a LipReed whose mass and stiffness are the first thickness mode of the fat layer
 //!   under the perianal skin (the ischioanal fossa's), about 23 Hz. Spread cheeks leave it open.
+//! - **Mucus.** A wet canal's faces are joined by a liquid bridge after each contact: it seals
+//!   the gap and pulls the faces together until they part by 0.27 mm (Bhattacharya & Siegmund's
+//!   traction–separation law), so each opening starts late and all at once.
 //! - **Radiation.** Through the gluteal cleft, a soft-walled wedge-shaped slot whose gap follows
 //!   the cheek spread, into a baffled radiation load (the body surface around it).
 
@@ -47,6 +50,7 @@ const TONE: usize = 1;
 const GAS: usize = 2;
 const SPREAD: usize = 3;
 const SIZE: usize = 4;
+const MUCUS: usize = 5;
 
 /// Smallest and largest body scale (linear, 1 = adult). The tubes get their section counts at the
 /// smallest, so every size keeps the FDTD's stability limit.
@@ -141,6 +145,19 @@ const CHEEK_LAYER: f64 = 5.0;
 /// 2008, Biorheology 45:677, at 10 rad/s and 37 °C), incompressible.
 const FAT_YOUNG: f64 = 3.0 * 7.5e4;
 
+/// Mucus between the closed faces of the canal. Where the faces touch, a liquid bridge joins
+/// them; while it holds it fills the gap, so no gas passes, and it pulls the parting faces
+/// together by Bhattacharya & Siegmund's (2014, Biomech Model Mechanobiol 14:155)
+/// traction–separation law for the liquid on colliding vocal folds: the traction rises linearly
+/// to the cohesive strength σ₀ at a separation δ₀ = 0.1 mm and falls linearly to nothing at
+/// δf = 0.267 mm, where the bridge breaks (their baseline). It forms again at the next contact.
+/// σ₀ is a control (0: dry); its upper bound, 3 kPa, is the cohesive strength of intestinal
+/// mucus (Mortazavi & Smart 1994), the bound they used.
+const ADHESION_D0: f64 = 0.01;
+const ADHESION_DF: f64 = 0.0267;
+/// dyn/cm² per kPa
+const KPA: f64 = 1.0e4;
+
 // ---------------------------------------------------------------- turbulence (calibrated gains)
 
 /// The human voice's glottal aspiration source: gain and band as calibrated there
@@ -204,6 +221,9 @@ pub struct Flatus {
     canal_areas: Vec<f64>,
     noise: [NoiseSpec; 2],
     size: f64,
+    /// mucus cohesive strength (dyn/cm²) and whether a liquid bridge joins the faces
+    adhesion: f64,
+    bonded: bool,
 }
 
 fn create(fs: f64) -> Box<dyn CreatureSim> {
@@ -266,6 +286,8 @@ fn create(fs: f64) -> Box<dyn CreatureSim> {
         canal_areas: vec![upper; canal.n],
         noise: [jet; 2],
         size: 1.0,
+        adhesion: 0.0,
+        bonded: false,
     };
     s.lip.zeta = LIP_ZETA;
     Box::new(s)
@@ -388,6 +410,7 @@ impl CreatureSim for Flatus {
         // the lip: mass per unit area ρ·δ; stiffness passive + the sphincter's short-range
         // stiffness; at rest the tone presses the ring shut with the closing pressure
         let tone = p[TONE] * CMH2O;
+        self.adhesion = js_max(0.0, p[MUCUS]) * KPA;
         let r = RING_RADIUS * s;
         let mass = TISSUE_DENSITY * LIP_THICKNESS * s;
         let k = PASSIVE_STIFFNESS + SRS_GAMMA * tone / r;
@@ -442,8 +465,22 @@ impl CreatureSim for Flatus {
         self.volume = v;
         self.radius = r;
         self.radius_rate = rd;
-        let open = self.lip.next(dp);
-        self.net.set_port_area(self.valve, open);
+        // the mucus bridge: formed at contact, broken past δf; while it holds it seals the gap and
+        // pulls the parting faces together
+        let traction = if self.bonded {
+            let gap = self.lip.opening / self.lip.width;
+            if gap <= ADHESION_D0 { self.adhesion * gap / ADHESION_D0 } else { self.adhesion * (ADHESION_DF - gap) / (ADHESION_DF - ADHESION_D0) }
+        } else {
+            0.0
+        };
+        let open = self.lip.next(dp - traction);
+        let gap = open / self.lip.width;
+        if open <= 0.0 {
+            self.bonded = self.adhesion > 0.0;
+        } else if gap >= ADHESION_DF {
+            self.bonded = false;
+        }
+        self.net.set_port_area(self.valve, if self.bonded { 0.0 } else { open });
         let cheek_open = self.cheeks.next(dpc);
         self.net.set_port_area(self.cheek_port, cheek_open);
         let y = self.net.step();
@@ -514,6 +551,9 @@ pub fn def() -> CreatureDef {
             ParamDef::new("gas", "Gas volume", 10.0, 300.0, 100.0).unit("mL").log().smooth(0.01),
             ParamDef::new("spread", "Cheek spread", 0.0, 1.0, 0.2).smooth(0.3),
             ParamDef::new("size", "Body size", SIZE_MIN, SIZE_MAX, 1.0).smooth(0.3),
+            // the cohesive strength of the mucus between the canal's faces: 0 (dry) to 3 kPa,
+            // intestinal mucus (Mortazavi & Smart 1994, via Bhattacharya & Siegmund 2014)
+            ParamDef::new("mucus", "Mucus adhesion", 0.0, 3.0, 0.0).unit("kPa").smooth(0.05),
         ],
         // Every call sets its controls first, lets them settle (the gas control smooths over 10
         // ms), starts a new event with "!fill" at 0.1 s, then pushes, and holds its controls for

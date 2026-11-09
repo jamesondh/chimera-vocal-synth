@@ -1,7 +1,8 @@
 //! The flatulence creature (docs/flatulence.md): a golden render that must not depend on the block
 //! size, and the physics it is meant to show — continence, the event ending when the gas is gone,
 //! gas conservation, pitch rising with sphincter tone, falling with body size, more gas lasting
-//! longer, and pressed cheeks swinging as a second valve.
+//! longer, pressed cheeks swinging as a second valve, and mucus roughening the sound or holding
+//! the gas.
 mod common;
 use chimera::analysis::pitch::{YinOpts, yin_pitch};
 use chimera::creatures::{CreatureDef, CreatureTelemetry, CreatureVoice, creature_by_id};
@@ -148,6 +149,24 @@ fn more_gas_lasts_longer() {
     assert!(lots > little * 1.5, "30 mL: {little} s, 250 mL: {lots} s");
 }
 
+/// Fraction of the loud 40 ms frames that YIN finds periodic (aperiodicity < 0.3).
+fn periodic_fraction(x: &[f32]) -> f64 {
+    let w: Vec<f64> = x.chunks(480).map(rms).collect();
+    let top = w.iter().cloned().fold(0.0, f64::max);
+    let (mut n, mut p) = (0.0, 0.0);
+    for (i, e) in w.iter().enumerate() {
+        if *e > top * 0.1 && (i + 4) * 480 <= x.len() {
+            let fr: Vec<f64> = x[i * 480..(i + 4) * 480].iter().map(|&v| v as f64).collect();
+            let y = yin_pitch(&fr, FS, YinOpts { min_f0: Some(40.0), max_f0: Some(1500.0), ..Default::default() });
+            n += 1.0;
+            if y.f0 > 0.0 && y.aperiodicity < 0.3 {
+                p += 1.0;
+            }
+        }
+    }
+    p / n
+}
+
 /// The cheeks' gap (cm) over a held event, sampled every block: (smallest, largest).
 fn cheek_gap_range(kv: &[(&str, f64)], sec: f64) -> (f64, f64) {
     let mut v = CreatureVoice::new(def(), FS, &params(kv));
@@ -174,4 +193,26 @@ fn pressed_cheeks_are_parted_by_the_gas_and_spread_cheeks_stay_open() {
     assert!(lo < 0.098 && hi > 0.14, "pressed cheeks: gap {lo}..{hi} cm");
     let (lo, _) = cheek_gap_range(&[("spread", 1.0)], 1.0);
     assert!(lo > 0.5, "spread cheeks closed to {lo} cm");
+}
+
+#[test]
+fn a_wet_canal_is_rougher_and_still_passes_its_gas() {
+    // mucus bridges seal the gap after every contact and let go all at once past 0.27 mm: the
+    // openings come irregularly, and the gas still all leaves
+    let kv = [("tone", 4.0), ("push", 30.0), ("gas", 100.0)];
+    let dry = periodic_fraction(&hold(&kv, 2.0).0);
+    let (out, t) = hold(&[kv[0], kv[1], kv[2], ("mucus", 1.5)], 2.0);
+    let wet = periodic_fraction(&out);
+    assert!(wet < dry - 0.1, "periodic: dry {dry}, wet {wet}");
+    let gas = source(&t, "gas");
+    assert!(gas < 3.0 && (source(&t, "expelled") - (100.0 - gas)).abs() < 8.0, "gas left {gas}");
+}
+
+#[test]
+fn a_wet_seal_holds_what_a_dry_canal_lets_go() {
+    // push 30 against tone 20 passes the gas dry; the strongest mucus bridge (3 kPa ≈ 31 cmH₂O)
+    // holds the 22 cmH₂O left over
+    let (out, t) = hold(&[("tone", 20.0), ("push", 30.0), ("gas", 100.0), ("mucus", 3.0)], 1.0);
+    assert!(rms(&out) < 1e-5, "leaked: rms {}", rms(&out));
+    assert!(source(&t, "gas") > 95.0);
 }
