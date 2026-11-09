@@ -6,6 +6,7 @@ import type { CreatureDef } from "../../wasm/types.ts";
 import { liveTelemetry, previewTelemetry } from "../creatureLive.ts";
 import { TEXT, V, SLOTS, heat, pressureLevel } from "../colors.ts";
 import { beamPts, dot, hfont, label, labelWidth, ring, seg, wrapLabel, type Pt } from "../render/vector.ts";
+import { drawAnorectum, newAnorectumState } from "../render/anorectum.ts";
 
 type P = [number, number];
 
@@ -90,6 +91,7 @@ function fmtParam(v: number, p: CreatureDef["params"][number]): { value: string;
  */
 export function CreatureView() {
   const glyph = useRef<{ peak: Record<string, number>; phase: Record<string, number> }>({ peak: {}, phase: {} });
+  const anorectum = useRef(newAnorectumState());
   const ref = usePhosphor(({ ctx, w, h, dt }) => {
     const st = useStore.getState();
     const def = creatureById(st.creature);
@@ -107,66 +109,71 @@ export function CreatureView() {
     const oy = top + (h - top - slotH) / 2 + ((vis.view.y0 + vis.view.y1) / 2) * sc;
     const S = ([x, y]: P): Pt => [ox + x * sc, oy - y * sc];
 
-    beamPts(ctx, geo.silhouette.map(S), V.blue, 1.7, { hot: true, close: true });
-    for (const part of geo.parts) beamPts(ctx, part.pts.map(S), part.shade > 0.5 ? V.blueMid : V.blueDim, 1, { close: true, alpha: 0.9 });
-
-    // airways: walls at the simulated width (drawn wider than life so narrow tubes stay legible)
-    const exaggerate = vis.tubeScale ?? 1.6;
     const labels: { text: string; x: number; y: number; color: string }[] = [];
-    for (const tg of geo.tubes) {
-      const data = tele.tubes[tg.tube];
-      if (!data) continue;
-      const n = data.areas.length;
-      const half = (k: number) => Math.sqrt(Math.max(0, data.areas[Math.min(n - 1, k)]) / Math.PI) * exaggerate;
-      const frame = (s: number) => {
-        const a = pointAt(tg, Math.max(0, s - 0.02 * tg.length)), b = pointAt(tg, Math.min(tg.length, s + 0.02 * tg.length));
-        const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
-        return { p: pointAt(tg, s), nx: -dy / l, ny: dx / l };
-      };
-      const wallA: Pt[] = [], wallB: Pt[] = [];
-      for (let k = 0; k <= n; k++) {
-        const { p, nx, ny } = frame((k / n) * tg.length);
-        const r = half(k);
-        wallA.push(S([p[0] + nx * r, p[1] + ny * r]));
-        wallB.push(S([p[0] - nx * r, p[1] - ny * r]));
-      }
-      beamPts(ctx, wallA, V.blue, 1.2, { hot: true });
-      beamPts(ctx, wallB, V.blue, 1.2, { hot: true });
-      for (let k = 0; k < n; k++) {
-        const { p, nx, ny } = frame(((k + 0.5) / n) * tg.length);
-        const r = half(k);
-        const lvl = live && st.view.pressure ? Math.pow(pressureLevel(data.rms[k] * 0.6), 0.85) : 0;
-        const [x0, y0] = S([p[0] + nx * r, p[1] + ny * r]), [x1, y1] = S([p[0] - nx * r, p[1] - ny * r]);
-        seg(ctx, x0, y0, x1, y1, live ? heat(lvl) : V.blueDim, 1, { alpha: live ? 0.35 + 0.65 * lvl : 0.6 });
-      }
-      if (tg.label && tg.inView) {
-        const m = S(pointAt(tg, tg.length * 0.5));
-        labels.push({ text: tg.label.toUpperCase(), x: m[0] + 12, y: m[1] - 12, color: TEXT.secondary });
-      }
-    }
-
-    // sound sources: a ring sized by the vibration envelope, ripples paced by the pitch
     const pp = def.params.find((p) => p.role === "pitch");
     const paramValue = (key: string, dflt: number) => (live ? (live.params[key] ?? dflt) : (st.cparams[def.id]?.[key] ?? dflt));
     const pitch = pp ? paramValue(pp.key, pp.default) : 200;
-    const rate = 1.2 + 4.8 * Math.max(0, Math.min(1, Math.log(pitch / 10) / Math.log(900)));
-    (vis.sources ?? []).forEach((s, i) => {
-      const color = SLOTS[i % 4];
-      const raw = Math.max(0, Math.min(1, live?.source[s.key] ?? 0));
-      const pk = Math.max(raw, (glyph.current.peak[s.key] ?? 0) * Math.exp(-dt / 0.18));
-      glyph.current.peak[s.key] = pk;
-      const ph = ((glyph.current.phase[s.key] ?? 0) + dt * rate) % 1;
-      glyph.current.phase[s.key] = ph;
-      const [x, y] = S(s.at);
-      const r0 = 3.5 + 6 * pk;
-      if (pk > 0.04) for (let j = 0; j < 3; j++) {
-        const u = (ph + j / 3) % 1;
-        ring(ctx, x, y, r0 + u * 24, color, 1, { alpha: (1 - u) * Math.min(1, pk * 1.3) * 0.8 });
+    if (def.id === "flatulence") {
+      // an anatomical cutaway of its own (the anorectum is not a tube in a silhouette)
+      labels.push(...drawAnorectum(ctx, S, sc, tele, !!live, dt, anorectum.current));
+    } else {
+      beamPts(ctx, geo.silhouette.map(S), V.blue, 1.7, { hot: true, close: true });
+      for (const part of geo.parts) beamPts(ctx, part.pts.map(S), part.shade > 0.5 ? V.blueMid : V.blueDim, 1, { close: true, alpha: 0.9 });
+
+      // airways: walls at the simulated width (drawn wider than life so narrow tubes stay legible)
+      const exaggerate = vis.tubeScale ?? 1.6;
+      for (const tg of geo.tubes) {
+        const data = tele.tubes[tg.tube];
+        if (!data) continue;
+        const n = data.areas.length;
+        const half = (k: number) => Math.sqrt(Math.max(0, data.areas[Math.min(n - 1, k)]) / Math.PI) * exaggerate;
+        const frame = (s: number) => {
+          const a = pointAt(tg, Math.max(0, s - 0.02 * tg.length)), b = pointAt(tg, Math.min(tg.length, s + 0.02 * tg.length));
+          const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+          return { p: pointAt(tg, s), nx: -dy / l, ny: dx / l };
+        };
+        const wallA: Pt[] = [], wallB: Pt[] = [];
+        for (let k = 0; k <= n; k++) {
+          const { p, nx, ny } = frame((k / n) * tg.length);
+          const r = half(k);
+          wallA.push(S([p[0] + nx * r, p[1] + ny * r]));
+          wallB.push(S([p[0] - nx * r, p[1] - ny * r]));
+        }
+        beamPts(ctx, wallA, V.blue, 1.2, { hot: true });
+        beamPts(ctx, wallB, V.blue, 1.2, { hot: true });
+        for (let k = 0; k < n; k++) {
+          const { p, nx, ny } = frame(((k + 0.5) / n) * tg.length);
+          const r = half(k);
+          const lvl = live && st.view.pressure ? Math.pow(pressureLevel(data.rms[k] * 0.6), 0.85) : 0;
+          const [x0, y0] = S([p[0] + nx * r, p[1] + ny * r]), [x1, y1] = S([p[0] - nx * r, p[1] - ny * r]);
+          seg(ctx, x0, y0, x1, y1, live ? heat(lvl) : V.blueDim, 1, { alpha: live ? 0.35 + 0.65 * lvl : 0.6 });
+        }
+        if (tg.label && tg.inView) {
+          const m = S(pointAt(tg, tg.length * 0.5));
+          labels.push({ text: tg.label.toUpperCase(), x: m[0] + 12, y: m[1] - 12, color: TEXT.secondary });
+        }
       }
-      ring(ctx, x, y, r0, color, 1.5, { hot: true });
-      dot(ctx, x, y, 1.8, color);
-      labels.push({ text: s.label.toUpperCase(), x: x + 14, y: y + 18, color });
-    });
+
+      // sound sources: a ring sized by the vibration envelope, ripples paced by the pitch
+      const rate = 1.2 + 4.8 * Math.max(0, Math.min(1, Math.log(pitch / 10) / Math.log(900)));
+      (vis.sources ?? []).forEach((s, i) => {
+        const color = SLOTS[i % 4];
+        const raw = Math.max(0, Math.min(1, live?.source[s.key] ?? 0));
+        const pk = Math.max(raw, (glyph.current.peak[s.key] ?? 0) * Math.exp(-dt / 0.18));
+        glyph.current.peak[s.key] = pk;
+        const ph = ((glyph.current.phase[s.key] ?? 0) + dt * rate) % 1;
+        glyph.current.phase[s.key] = ph;
+        const [x, y] = S(s.at);
+        const r0 = 3.5 + 6 * pk;
+        if (pk > 0.04) for (let j = 0; j < 3; j++) {
+          const u = (ph + j / 3) % 1;
+          ring(ctx, x, y, r0 + u * 24, color, 1, { alpha: (1 - u) * Math.min(1, pk * 1.3) * 0.8 });
+        }
+        ring(ctx, x, y, r0, color, 1.5, { hot: true });
+        dot(ctx, x, y, 1.8, color);
+        labels.push({ text: s.label.toUpperCase(), x: x + 14, y: y + 18, color });
+      });
+    }
 
     if (st.view.calipers) {
       // place labels, nudging down past any earlier label they would overlap
