@@ -28,7 +28,8 @@ for tests and the `chimera` CLI.
   gestures and prosody, with the gestural score and a consonant chart on screen.
 - **Sing**: piano roll with lyrics per note; consonants land before the beat.
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
-- **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.
+- **Bestiary**: songbird (two-voice syrinx), seal, alligator, elephant, and flatulence (the anal
+  sphincter as a lip reed driven by the rectal gas; [docs/flatulence.md](docs/flatulence.md)).
 - **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.
 
 Male, female and child bodies blend continuously. Everything on screen animates from live
@@ -70,6 +71,8 @@ bun tools/musicxml-to-notes.ts score.mxl P1 --out p1.json   # a score's part →
   Song Dataset.
 - [docs/speech-comparison.md](docs/speech-comparison.md): scoring the speech against real
   speakers, phone by phone (the TSP speech database).
+- [docs/flatulence.md](docs/flatulence.md): flatulence from the anatomy and physics of the
+  anorectum, with every parameter's source, the measurements and the limits.
 - [docs/hill-climb/](docs/hill-climb/): the rules and log for tuning the voice one measured
   step at a time.
 
