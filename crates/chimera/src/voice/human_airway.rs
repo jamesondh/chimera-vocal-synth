@@ -315,7 +315,12 @@ impl HumanAirway {
                     let teeth_i = n_ph_i + js_min((n_or - 2) as f64, js_max(0.0, js_round((f.teeth_s - self.ph_len) / dx_or))) as isize;
                     let tb = to_branch(teeth_i);
                     if tb >= 0 {
-                        list.push(NoiseSpec::new(src as usize, tb as usize, bwd as usize, g.teeth * wt).band(5000.0, 1200.0));
+                        // A short jet carries smaller eddies to the teeth; a longer
+                        // jet loses those fluctuations before impact. The obstacle noise
+                        // band follows travel distance, leaving the tract to form its peaks.
+                        let short = 1.0 - smooth(1.8, 2.4, behind);
+                        list.push(NoiseSpec::new(src as usize, tb as usize, bwd as usize, g.teeth * wt)
+                            .band(5000.0 + 5000.0 * short, 1200.0 + 3500.0 * short));
                     }
                 }
             }
