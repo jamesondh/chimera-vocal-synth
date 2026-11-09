@@ -339,6 +339,16 @@ async function main() {
         await page.locator(".view-toggles .toggle", { hasText: "3D" }).click();
         await check("play (running), 3D", 2500);
         await page.locator(".view-toggles .toggle", { hasText: "3D" }).click();
+        // Alien mode: its screen, its encoder pages, and each alien's head (organs, finger)
+        await mode("alien");
+        await check("play (running), alien", 1200);
+        await pages("play (running), alien");
+        const aliens = page.locator(".alien-presets .chip");
+        for (let i = 1; i < (await aliens.count()); i++) {
+          await aliens.nth(i).click();
+          await check(`play (running), alien ${(await aliens.nth(i).textContent())?.trim()}`, 600);
+        }
+        await mode("male");
       }
       if (m === "speak") {
         // the gestural score with a phrase in it, mid-utterance

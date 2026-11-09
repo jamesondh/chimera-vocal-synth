@@ -6,7 +6,7 @@ import { useStore } from "../store.ts";
 import { useModel } from "../useModel.ts";
 import { VoiceModel } from "../analysis.ts";
 import { TEXT, V } from "../colors.ts";
-import { beam, beamPts, label, seg, type Pt } from "../render/vector.ts";
+import { beam, beamPts, label, labelWidth, seg, type Pt } from "../render/vector.ts";
 
 const FMIN = 60, FMAX = 8000;
 const RANGE = 62; // dB shown
@@ -30,10 +30,21 @@ export function SpectrumView(props: { ring?: boolean }) {
     const dbY = (db: number) => top + (Math.min(0, Math.max(-RANGE, db)) / -RANGE) * (bot - top);
     const tele = engine.latest && sameBody(engine.latest.body, st.body) ? engine.latest : null;
     const f0 = tele && tele.t.voicing > 0.3 ? tele.t.f0 : 0;
+    // the F0 marker and its label, under the axis to its left; an alien can sing below the axis
+    // (FMIN), when the marker waits at its edge and the label, with no room there, goes above the axis
+    const F0_LABEL = { size: 9, ls: 0.12 };
+    const f0x = Math.max(left, fx(f0 || FMIN));
+    const f0Text = `F0 ${Math.round(f0)}`;
+    const f0W = f0 ? labelWidth(ctx, f0Text, F0_LABEL) : 0;
+    const f0Under = f0 > 0 && f0x - 9 - f0W >= 2;
 
     for (const f of [100, 200, 500, 1000, 2000, 5000]) {
       seg(ctx, fx(f), top, fx(f), bot, V.frame, 1);
-      if (!(f0 && Math.abs(fx(f) - fx(f0)) < 40)) label(ctx, f >= 1000 ? `${f / 1000}K` : String(f), fx(f), h - 6, { size: 9, color: TEXT.secondary, align: "center", ls: 0.1 });
+      const text = f >= 1000 ? `${f / 1000}K` : String(f);
+      // a tick label the F0 label would run into gives way to it
+      const half = labelWidth(ctx, text, { size: 9, ls: 0.1 }) / 2 + 3;
+      if (f0Under && fx(f) + half > f0x - 9 - f0W && fx(f) - half < f0x + 5) continue;
+      label(ctx, text, fx(f), h - 6, { size: 9, color: TEXT.secondary, align: "center", ls: 0.1 });
     }
     for (const db of [-20, -40]) {
       seg(ctx, left, dbY(db), right, dbY(db), V.frame, 1, { dash: [2, 4] });
@@ -91,6 +102,9 @@ export function SpectrumView(props: { ring?: boolean }) {
     const env: Pt[] = [];
     for (let i = 0; i < tf.freqs.length; i++) if (tf.freqs[i] >= FMIN && tf.freqs[i] <= FMAX) env.push([fx(tf.freqs[i]), dbY(tf.db[i] - mx)]);
     beamPts(ctx, env, V.amber, 1.5, { hot: true });
+    // an alien's crest packs resonances ≈170 Hz apart: a label that would sit on the one before it
+    // is left out (its marker stays)
+    let lastLabel = -Infinity;
     tf.formants.slice(0, 3).forEach((F, i) => {
       let near = 0;
       for (let k = 0; k < tf.freqs.length; k++) if (Math.abs(tf.freqs[k] - F) < Math.abs(tf.freqs[near] - F)) near = k;
@@ -101,17 +115,21 @@ export function SpectrumView(props: { ring?: boolean }) {
       tri.lineTo(x, y);
       tri.closePath();
       beam(ctx, tri, V.amber, 1.2);
-      label(ctx, `F${i + 1}`, x, y - 12, { size: 10, color: V.amber, align: "center", ls: 0.1 });
+      if (x - lastLabel >= 16) {
+        label(ctx, `F${i + 1}`, x, y - 12, { size: 10, color: V.amber, align: "center", ls: 0.1 });
+        lastLabel = x;
+      }
     });
     if (f0 > 0) {
-      const x = fx(f0);
+      const x = f0x;
       const tri = new Path2D();
       tri.moveTo(x - 5, bot + 9);
       tri.lineTo(x + 5, bot + 9);
       tri.lineTo(x, bot + 1);
       tri.closePath();
       beam(ctx, tri, V.green, 1.2);
-      label(ctx, `F0 ${Math.round(f0)}`, x - 9, bot + 13, { size: 9, color: V.green, align: "right", ls: 0.12 });
+      if (f0Under) label(ctx, f0Text, x - 9, bot + 13, { ...F0_LABEL, color: V.green, align: "right" });
+      else label(ctx, f0Text, x + 9, bot - 6, { ...F0_LABEL, color: V.green, align: "left" });
     }
   });
   return <canvas ref={ref} className="instrument-canvas" aria-label="Output spectrum: harmonics, the vocal tract's resonances and its formants" role="img" />;
