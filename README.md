@@ -13,7 +13,8 @@ for tests and the `chimera` CLI.
   rules and stress rules, no dictionary) or IPA, turned into gestures and prosody, with the
   gestural score and a consonant chart on screen.
 - **Sing**: piano roll with lyrics per note, in English or Turkish; consonants land before the
-  beat. The demo songs include the Kayseri türküsü "Gesi Bağları".
+  beat. The demo songs include two Turkish folk songs: "Gesi Bağları" (Kayseri) and "Atma Beni
+  Yabana" (Trabzon, compiled by Volkan Konak).
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.
 - **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.

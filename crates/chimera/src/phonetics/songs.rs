@@ -44,6 +44,18 @@ mod gesi {
     pub const SOL: f64 = 79.0;
 }
 
+/// Pitches (MIDI) of "Atma Beni Yabana": karar Sol; the score's Si is B♭², two komas (2 × 22.6
+/// cents) under Si.
+mod atma {
+    pub const SOL: f64 = 67.0;
+    pub const LA: f64 = 69.0;
+    pub const SI: f64 = 70.55;
+    pub const DO: f64 = 72.0;
+    pub const RE: f64 = 74.0;
+    pub const MI: f64 = 76.0;
+    pub const FA: f64 = 77.0;
+}
+
 #[rustfmt::skip]
 pub static DEMO_SONGS: &[DemoSong] = &[
     DemoSong {
@@ -106,6 +118,58 @@ pub static DEMO_SONGS: &[DemoSong] = &[
             [gesi::SEGAH, 0.25], [gesi::DO, 0.25], [gesi::DO, 0.25], [gesi::RE, 0.25], [gesi::SEGAH, 0.5],
             [gesi::DO, 0.25], [gesi::RE, 0.25], [gesi::DO, 0.25], [gesi::SEGAH, 0.25], [gesi::LA, 0.25], [gesi::SEGAH, 0.125], [gesi::LA, 0.125],
             [gesi::LA, 0.5], [gesi::LA, 2.0],
+        ],
+        octave: SongOctave { male: -1.0, female: 0.0, child: 0.0 },
+        lang: "tr",
+    },
+    DemoSong {
+        // Trabzon (Maçka, Hamsiköy) türküsü, anonymous (public domain): TRT THM repertoire no. 2907,
+        // from Salih Zeki Bahçekapılı, compiled by Volkan Konak, notated by Yücel Paşmakçı. Its
+        // sung verse, 10/8: two lines, each twice (the second time "Atma" rises out of Do and
+        // the line ends up on Re, into "Al beni"). Ornaments cut to sixteenths, the saz left out.
+        name: "Atma Beni Yabana",
+        bpm: 92.0,
+        lyrics: "Atma - - - be- - - ni yabana - - ben da - bu - - - - - dereliyim - - , \
+                 At- - - ma - - - - be- - - ni yabana - - ben da - bu - - - - dereliyim - - - - , \
+                 Al - - - - be- - - - ni yar ya- - - nına - hiç sor- - ma - - - - nereliyim - - , \
+                 Al - - - - be- - - - - ni - yar - cidelim - - - hiç sor- - ma - - - - nereliyim - .",
+        notes: &[
+            // At-ma be-ni ya-ba-na
+            [atma::SOL, 1.0], [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.25],
+            [atma::DO, 0.25], [atma::SI, 0.25], [atma::DO, 0.5], [atma::DO, 0.75],
+            [atma::RE, 0.25], [atma::MI, 0.25], [atma::MI, 0.25], [atma::FA, 0.25], [atma::RE, 0.25],
+            // ben da bu de-re-li-yim
+            [atma::RE, 0.5], [atma::RE, 0.25], [atma::SI, 0.25],
+            [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::SI, 0.75],
+            [atma::LA, 0.5], [atma::LA, 0.5], [atma::SI, 0.25], [atma::SOL, 0.25], [atma::LA, 0.25], [atma::SOL, 0.25],
+            // At-ma be-ni ya-ba-na, again
+            [atma::DO, 0.25], [atma::RE, 0.5], [atma::DO, 0.25],
+            [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25],
+            [atma::DO, 0.25], [atma::SI, 0.25], [atma::DO, 0.25], [atma::DO, 0.75],
+            [atma::RE, 0.25], [atma::MI, 0.25], [atma::MI, 0.25], [atma::FA, 0.25], [atma::RE, 0.25],
+            // ben da bu de-re-li-yim, up to Re
+            [atma::RE, 0.5], [atma::RE, 0.25], [atma::DO, 0.25],
+            [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.5],
+            [atma::SI, 0.25], [atma::SI, 0.25], [atma::LA, 0.5],
+            [atma::SI, 0.25], [atma::LA, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.5],
+            // Al be-ni yar ya-nı-na
+            [atma::RE, 0.25], [atma::MI, 0.25], [atma::RE, 0.25], [atma::MI, 0.25], [atma::RE, 0.5],
+            [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.25], [atma::SI, 0.5],
+            [atma::SI, 0.5], [atma::SI, 0.25], [atma::DO, 0.25], [atma::LA, 0.25], [atma::SOL, 0.25],
+            [atma::DO, 0.25], [atma::RE, 0.25],
+            // hiç sor-ma ne-re-li-yim
+            [atma::RE, 0.5], [atma::RE, 0.25], [atma::SI, 0.25],
+            [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25],
+            [atma::DO, 0.5], [atma::SI, 0.5], [atma::SI, 0.75], [atma::SOL, 0.25], [atma::LA, 0.25], [atma::SOL, 0.5],
+            // Al be-ni yar ci-de-lim
+            [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25],
+            [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25],
+            [atma::DO, 0.25], [atma::SI, 0.25], [atma::SI, 0.25], [atma::LA, 0.25], [atma::SI, 0.25], [atma::SI, 0.25],
+            [atma::RE, 0.25], [atma::MI, 0.25], [atma::RE, 0.25], [atma::MI, 0.25],
+            // hiç sor-ma ne-re-li-yim, down to the karar
+            [atma::RE, 0.5], [atma::RE, 0.25], [atma::SI, 0.25],
+            [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25], [atma::RE, 0.25], [atma::DO, 0.25],
+            [atma::DO, 0.5], [atma::SI, 0.5], [atma::SI, 0.5], [atma::LA, 0.5], [atma::SOL, 0.75],
         ],
         octave: SongOctave { male: -1.0, female: 0.0, child: 0.0 },
         lang: "tr",

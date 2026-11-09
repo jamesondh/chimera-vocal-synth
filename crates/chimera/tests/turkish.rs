@@ -224,9 +224,11 @@ fn held_notes_and_phrases_in_lyrics() {
 #[test]
 fn turkish_songs_have_a_syllable_for_every_note_and_whole_bars() {
     // name, beats (whole bars), where the phrases end
-    let expect: [(&str, f64, &[usize]); 1] = [
+    let expect: [(&str, f64, &[usize]); 2] = [
         // the two-beat "Of" and five 6/4 bars
         ("Gesi Bağları", 2.0 + 6.0 * 5.0, &[20, 37, 51, 68, 82]),
+        // eight 10/8 bars; a breath after each line
+        ("Atma Beni Yabana", 8.0 * 5.0, &[28, 61, 92, 125]),
     ];
     assert_eq!(DEMO_SONGS.iter().filter(|s| s.lang == "tr").count(), expect.len());
     for (name, beats, ends) in expect {
@@ -248,4 +250,9 @@ fn turkish_songs_have_a_syllable_for_every_note_and_whole_bars() {
     let gesi = text("Gesi Bağları");
     assert_eq!(&gesi[..11], ["Of", "~", "~", "~", "Ge", "si", "bağ", "la", "rın", "da", "do"]);
     assert_eq!([gesi[37].as_str(), gesi[51].as_str(), gesi[82].as_str()], ["mi", "rum", "rum"]);
+    let atma = text("Atma Beni Yabana");
+    assert_eq!(&atma[..10], ["At", "ma", "~", "~", "~", "be", "~", "~", "ni", "ya"]);
+    // the Trabzon "cidelim" (gidelim) on its three notes before the melisma
+    let ci = atma.iter().position(|t| t == "ci").unwrap();
+    assert_eq!(&atma[ci..ci + 4], ["ci", "de", "lim", "~"]);
 }
