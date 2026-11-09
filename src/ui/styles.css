@@ -2865,3 +2865,25 @@ input[type="range"]::-moz-range-thumb {
     padding: 7px 8px 0;
   }
 }
+
+/* ---------- Alien mode: the aliens to meet (in the vowel map's place) */
+.alien-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+}
+.alien-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.alien-blurb {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.alien-panel > .chip {
+  align-self: flex-start;
+}

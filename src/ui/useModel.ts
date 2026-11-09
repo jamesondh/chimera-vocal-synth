@@ -3,6 +3,7 @@ import { VoiceModel } from "./analysis.ts";
 import { useStore } from "./store.ts";
 import { engine } from "../audio/AudioEngine.ts";
 import { bodyKey, type BodyMix } from "./body.ts";
+import type { AlienShape } from "../wasm/engine.ts";
 
 /**
  * Shared main-thread acoustic models, most recent last (rebuilt on body / sample-rate change).
@@ -12,11 +13,11 @@ import { bodyKey, type BodyMix } from "./body.ts";
 const cache = new Map<string, VoiceModel>();
 const KEEP = 8;
 
-export function getModel(body: BodyMix, sampleRate: number): VoiceModel {
-  const key = `${bodyKey(body)}@${sampleRate}`;
+export function getModel(body: BodyMix, sampleRate: number, alien: AlienShape | null = null): VoiceModel {
+  const key = `${bodyKey(body)}@${sampleRate}${alien ? JSON.stringify(alien) : ""}`;
   let m = cache.get(key);
   if (m) cache.delete(key);
-  else m = new VoiceModel(body, sampleRate);
+  else m = new VoiceModel(body, sampleRate, alien);
   cache.set(key, m);
   if (cache.size > KEEP) {
     const [oldest, old] = cache.entries().next().value!;
@@ -28,11 +29,12 @@ export function getModel(body: BodyMix, sampleRate: number): VoiceModel {
 
 export function useModel(): React.MutableRefObject<VoiceModel | null> {
   const body = useStore((s) => s.body);
+  const alien = useStore((s) => s.alien);
   const started = useStore((s) => s.started);
   const ref = useRef<VoiceModel | null>(null);
-  ref.current = getModel(body, started ? engine.sampleRate : 48000);
+  ref.current = getModel(body, started ? engine.sampleRate : 48000, alien);
   useEffect(() => {
-    ref.current = getModel(body, started ? engine.sampleRate : 48000);
-  }, [body, started]);
+    ref.current = getModel(body, started ? engine.sampleRate : 48000, alien);
+  }, [body, started, alien]);
   return ref;
 }

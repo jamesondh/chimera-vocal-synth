@@ -53,6 +53,42 @@ export interface BodyMix {
   child: number;
 }
 
+/**
+ * An alien's reshaping of the body and its extra organs (mirrors the engine's AlienShape; the
+ * human values are 1, except sac, twin and crest 0 and interval 7).
+ */
+export interface AlienShape {
+  /** overall size × (0.6 … 2.5) */
+  size: number;
+  /** throat length × (0.6 … 1.8) */
+  throat: number;
+  /** tongue bulk × (0.85 … 1.2) */
+  tongue: number;
+  /** lip width × (0.5 … 2) */
+  lips: number;
+  /** voice pitch × (0.25 … 4) */
+  pitch: number;
+  /** throat sac 0 … 1 */
+  sac: number;
+  /** second voicebox level 0 … 1 */
+  twin: number;
+  /** second voicebox interval (semitones) */
+  interval: number;
+  /** crest 0 … 1 */
+  crest: number;
+}
+
+export interface AlienPreset {
+  id: string;
+  name: string;
+  blurb: string;
+  shape: AlienShape;
+  source: Partial<VoiceSource>;
+  /** speaking-rate multiplier for its line */
+  rate: number;
+  line: string;
+}
+
 export interface HumanBody {
   name: string;
   /** overall size scale (1 = adult male) */

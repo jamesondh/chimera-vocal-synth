@@ -14,6 +14,9 @@ for tests and the `chimera` CLI.
 - **Sing**: piano roll with lyrics per note; consonants land before the beat.
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.
+- **Alien** (a body beside male, female and child): stretch the human airway past human
+  proportions and add organs no human has (a throat sac, a second voicebox at an interval, a
+  crest), then make it speak or sing. Five aliens to start from, each with a line to say.
 - **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.
 
 Male, female and child bodies blend continuously. Everything on screen animates from live
@@ -36,6 +39,7 @@ Offline renders and measurement:
 
 ```sh
 cargo run --release -p chimera-cli -- render speech|text|song|notes|beatbox|creature|vowels …
+cargo run --release -p chimera-cli -- render text out/home "Home. Go home." male --alien homesick
 cargo run --release -p chimera-cli -- diagnose       # nasal leakage, formants, bandwidths, pitch
 cargo run --release -p chimera-cli -- compare csd    # against a real singer (docs/csd-comparison.md)
 cargo run --release -p chimera-cli -- compare tsp    # against 23 real speakers (docs/speech-comparison.md)

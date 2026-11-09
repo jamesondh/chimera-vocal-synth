@@ -15,9 +15,10 @@ import type { TelemetryMessage } from "../../worklet/protocol.ts";
 import type { VoiceModel } from "../analysis.ts";
 import { V, heat, pressureLevel } from "../colors.ts";
 import { beam, beamPts, chaikin, dot, handle, label, ring, seg, type Pt } from "./vector.ts";
-import { buildProfile, Gaze, jawFn, VIEW, type Profile } from "./profile.ts";
+import { buildProfile, ellipse, Gaze, jawFn, VIEW as VIEW_HUMAN, type Profile } from "./profile.ts";
 import { drawReadouts, type Slot } from "./readouts.ts";
 import { Expression } from "./expression.ts";
+import { alienProfile, alienView, crest, Finger, neckWrinkles, throatSac } from "./alien.ts";
 
 export type { Slot } from "./readouts.ts";
 
@@ -80,6 +81,8 @@ const ECHO_AGES = [0.09, 0.06, 0.03];
 
 /** top of the cranium in body cm (profile.ts's skin outline peaks at 22.9), with a little air */
 const CROWN = 23.4;
+
+const ellipseAt = (c: Vec, r: number) => ellipse(c, r, r, 0, 24);
 
 const smoothstep = (a: number, b: number, x: number): number => {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -153,6 +156,11 @@ export class AnatomyRenderer {
   private lastEcho = -1;
   /** where the eye looks */
   private gaze = new Gaze();
+  /** the part of the body shown (an alien's is bigger, or smaller) */
+  private view = VIEW_HUMAN;
+  private viewKey = "";
+  /** an alien's long finger */
+  private finger = new Finger();
   /** brows, lids and cheeks, from the voice (the view updates it) */
   readonly face = new Expression();
 
@@ -169,9 +177,10 @@ export class AnatomyRenderer {
     // leaving room above and below, where the compact rows ran over the skull.
     this.compact = w < 560;
     const padX = 12, padT = this.compact ? 62 : 8, padB = this.compact ? 92 : 8;
-    // VIEW crops the top of the skull at the canvas edge; with readout rows above the head, the
+    // the view crops the top of the skull at the canvas edge; with readout rows above the head, the
     // whole crown must fit under them, or the cut-off part draws over the readouts
-    const y1 = this.compact ? CROWN : VIEW.y1;
+    const VIEW = this.view;
+    const y1 = this.compact && VIEW === VIEW_HUMAN ? CROWN : VIEW.y1;
     this.scale = Math.max(1, Math.min((w - 2 * padX) / (VIEW.x1 - VIEW.x0), (h - padT - padB) / (y1 - VIEW.y0)));
     // left-aligned when there is room to spare, so the readouts get the space in front of the face
     const spare = w - 2 * padX - (VIEW.x1 - VIEW.x0) * this.scale;
@@ -205,7 +214,8 @@ export class AnatomyRenderer {
   // ------------------------------------------------------------------ geometry
   private geometry(model: VoiceModel, f: HumanFrame, a: HumanArtic): Profile {
     if (this.geo && this.geo.f === f && this.geo.model === model) return this.geo;
-    return (this.geo = buildProfile(model, f, a));
+    const g = buildProfile(model, f, a);
+    return (this.geo = model.alien ? alienProfile(model, g) : g);
   }
 
   /**
@@ -242,6 +252,13 @@ export class AnatomyRenderer {
     opts: { hover: HandleId | null; drag: HandleId | null; dt: number; formants: number[]; slots: Slot[]; info: string[] },
   ): void {
     this.clock += opts.dt;
+    // an alien needs a view of its own size (refit when its shape changes)
+    const viewKey = model.alien ? JSON.stringify(model.alien) + model.tract.scale : "";
+    if (viewKey !== this.viewKey) {
+      this.viewKey = viewKey;
+      this.view = model.alien ? alienView(model, model.alien) : VIEW_HUMAN;
+      this.resize(this.w, this.h);
+    }
     const G = this.geometry(model, f, a);
     const pts = (v: Vec[]) => v.map((p) => this.P(p));
     const line = (v: Vec[], color: string, w: number, o: { alpha?: number; hot?: boolean; close?: boolean } = {}) => beamPts(ctx, pts(v), color, w, o);
@@ -255,7 +272,7 @@ export class AnatomyRenderer {
     const k = model.tract.scale;
     const bulge = puffProfile(f, k, this.face.puff);
     const puffed = (v: Vec[]) => (bulge ? v.map(bulge) : v);
-    line(this.lens(G.eyeC, k, opts.dt), V.blueDim, 0.9, { alpha: 1 - smoothstep(0.45, 0.9, this.face.lid) });
+    line(this.lens(G.eyeC, model.alien ? 1.75 * k : k, opts.dt), V.blueDim, 0.9, { alpha: 1 - smoothstep(0.45, 0.9, this.face.lid) });
     for (const l of eyeFeatures(G.eyeC, k, this.face)) line(l.pts, V.blue, l.w, { alpha: l.alpha });
     for (const v of G.vertebrae) line(v, V.blueDim, 1);
     line(G.cords[0], V.blueDim, 0.8, { alpha: 0.8 });
@@ -296,6 +313,7 @@ export class AnatomyRenderer {
     // skin, airway walls, teeth, folds
     line(puffed(G.skinLower), V.blue, 1.7, { hot: true });
     line(puffed(G.skinUpper), V.blue, 1.7, { hot: true });
+    if (model.alien) this.drawAlien(ctx, model, model.alien, tele, opts.dt);
     line(G.outerWall, V.blue, 1.4, { hot: true });
     line(f.inner, V.blue, 1.3, { alpha: 0.9 });
     line(G.glottisWall, V.blue, 1.2, { alpha: 0.8 });
@@ -376,6 +394,22 @@ export class AnatomyRenderer {
       }
     }
     return values[best] ?? 0;
+  }
+
+  /** an alien's wrinkles, organs and finger (see alien.ts) */
+  private drawAlien(ctx: CanvasRenderingContext2D, model: VoiceModel, al: NonNullable<VoiceModel["alien"]>, tele: TelemetryMessage | null, dt: number): void {
+    const line = (v: Vec[], color: string, w: number, o: { alpha?: number; hot?: boolean; close?: boolean } = {}) => beamPts(ctx, v.map((p) => this.P(p)), color, w, o);
+    const k = model.tract.scale;
+    for (const w of neckWrinkles(model)) line(w, V.blueMid, 0.9, { alpha: 0.8 });
+    if (al.sac > 0) line(throatSac(model, al.sac, tele ? Math.min(1, tele.t.gate) : 0), V.blueMid, 1.2, { close: true });
+    if (al.crest > 0) for (const s of crest(model, al.crest)) line(s, V.blueMid, 1.2);
+    const fg = this.finger.update(model, this.clock, dt);
+    line(Finger.outline(fg.bones, k), V.blue, 1.5, { hot: true, close: true });
+    for (const kn of fg.knuckles) for (let i = -1; i <= 1; i++) line([{ x: kn.x - 0.25 * k, y: kn.y + i * 0.14 * k }, { x: kn.x + 0.25 * k, y: kn.y + i * 0.14 * k + 0.04 * k }], V.blueDim, 0.8);
+    // the tip glows with the sound it makes
+    // (a quiet, breathy alien's output is ≈0.04 rms: that should light it fully)
+    const glow = tele ? Math.min(1, Math.sqrt(tele.t.outRms * 30)) : 0;
+    for (let r = 1; r <= 4; r++) line(ellipseAt(fg.tip, (0.2 + 0.32 * r * glow) * k), V.amber, 1.8 - 0.3 * r, { alpha: (0.2 + 0.8 * glow) / r, hot: glow > 0.15, close: true });
   }
 
   private drawPressure(ctx: CanvasRenderingContext2D, model: VoiceModel, f: HumanFrame, tele: TelemetryMessage): void {

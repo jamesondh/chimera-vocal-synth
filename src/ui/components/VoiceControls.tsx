@@ -1,6 +1,7 @@
 import { useStore } from "../store.ts";
 import { EncoderPages, type EncoderPage } from "./Encoder.tsx";
 import { Chip } from "./Screen.tsx";
+import { useAlienPages } from "./AlienPanel.tsx";
 
 const NOTE = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
 export const noteName = (f: number) => {
@@ -22,6 +23,7 @@ export function VoiceControls() {
   const a = useStore((st) => st.artic);
   const setArtic = useStore((st) => st.setArtic);
   const pages: EncoderPage[] = [
+    ...useAlienPages(),
     {
       name: "Voice",
       encoders: [

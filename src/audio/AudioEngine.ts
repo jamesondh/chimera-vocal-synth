@@ -5,7 +5,7 @@
 import workletUrl from "../worklet/processor.ts?worker&url";
 import { chimeraModule } from "../wasm/chimera.ts";
 import type { ToWorklet, FromWorklet, TelemetryMessage, PlannedMessage, CreatureTelemetryMessage } from "../worklet/protocol.ts";
-import type { BodyMix } from "../wasm/types.ts";
+import type { AlienShape, BodyMix } from "../wasm/types.ts";
 import type { HumanArtic } from "../wasm/types.ts";
 import type { VoiceSource } from "../wasm/types.ts";
 
@@ -213,6 +213,27 @@ export class AudioEngine {
   setBody(body: BodyMix): void {
     this.send({ type: "body", body });
   }
+
+  /**
+   * Reshape the voice as an alien (null: the plain body). Each one rebuilds the airway, so a
+   * slider's stream of changes is thinned to one every 120 ms, the last always delivered.
+   */
+  setAlien(shape: AlienShape | null): void {
+    this.pendingAlien = shape;
+    if (this.alienTimer !== null) return;
+    const send = () => {
+      if (this.pendingAlien === undefined) {
+        this.alienTimer = null;
+        return;
+      }
+      this.send({ type: "alien", shape: this.pendingAlien });
+      this.pendingAlien = undefined;
+      this.alienTimer = setTimeout(send, 120);
+    };
+    send();
+  }
+  private pendingAlien: AlienShape | null | undefined = undefined;
+  private alienTimer: ReturnType<typeof setTimeout> | null = null;
 
   gate(level: number): void {
     this.send({ type: "gate", level });

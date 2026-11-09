@@ -7,7 +7,7 @@
 import { call } from "./chimera.ts";
 import { CREATURE_VISUALS } from "../ui/creatureVisuals.ts";
 import type {
-  ArticKey, ArticSpec, BeatPreset, BodyMix, BeatSound, BeatStep, CreatureDef, CreatureTelemetry, DemoSong, Gesture, HumanArtic, HumanBody,
+  AlienPreset, AlienShape, ArticKey, ArticSpec, BeatPreset, BodyMix, BeatSound, BeatStep, CreatureDef, CreatureTelemetry, DemoSong, Gesture, HumanArtic, HumanBody,
   HumanFrame, Phrase, Plan, Segment, SungNote, Syllable, VoiceSource, VowelRef,
 } from "./types.ts";
 
@@ -27,6 +27,8 @@ interface Catalog {
   demoSongs: DemoSong[];
   vowels: VowelRef[];
   creatures: Omit<CreatureDef, "visual">[];
+  alienHuman: AlienShape;
+  alienPresets: AlienPreset[];
 }
 
 const CATALOG = call<Catalog>("catalog");
@@ -51,6 +53,10 @@ export const DEMO_SONGS: readonly DemoSong[] = CATALOG.demoSongs;
 export const VOWELS: readonly VowelRef[] = CATALOG.vowels;
 /** the creatures, with how each is drawn */
 export const CREATURES: readonly CreatureDef[] = CATALOG.creatures.map((c) => ({ ...c, visual: CREATURE_VISUALS[c.id] }));
+/** the plain body as an alien shape (no change) */
+export const ALIEN_HUMAN: Readonly<AlienShape> = CATALOG.alienHuman;
+/** the aliens, the one Alien mode starts with first */
+export const ALIEN_PRESETS: readonly AlienPreset[] = CATALOG.alienPresets;
 export const creatureById = (id: string): CreatureDef | undefined => CREATURES.find((c) => c.id === id);
 
 // ------------------------------------------------------------------ text → phonemes
@@ -230,8 +236,8 @@ export interface AirwayModel {
   glottisPort: number;
 }
 
-export function airwayModel(body: BodyMix, sampleRate: number): AirwayModel {
-  return call("model", { body, sampleRate });
+export function airwayModel(body: BodyMix, sampleRate: number, alien: AlienShape | null = null): AirwayModel {
+  return call("model", { body, sampleRate, alien });
 }
 
 /** Free a model (its id is invalid afterwards). */

@@ -34,6 +34,7 @@
 
 pub mod api;
 
+use chimera::anatomy::alien::AlienShape;
 use chimera::anatomy::human::{ArticPatch, BodyMix, N_ARTIC};
 use chimera::control::score::{Gesture, Label, N_CONTROL, Targets};
 use chimera::engine::{Engine, MAX_SCHEDULE};
@@ -276,6 +277,21 @@ pub unsafe extern "C" fn engine_set_gate(h: *mut Handle, level: f64) {
 pub unsafe extern "C" fn engine_set_body(h: *mut Handle, female: f64, child: f64) {
     let h = handle!(h);
     h.engine.set_body(BodyMix::new(female, child));
+    h.engine.telemetry(&mut h.tele); // resize the telemetry buffers for the new voice
+}
+
+/// Reshape the voice as an alien from the value area: size, throat, tongue, lips, pitch, sac, twin,
+/// interval, crest (see `AlienShape`; NaN: the human value). All 1/0/7 is the plain body.
+/// Allocates, like `engine_set_body`.
+///
+/// # Safety
+/// `h` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_set_alien(h: *mut Handle) {
+    let h = handle!(h);
+    let v = &h.values;
+    let s = AlienShape { size: v[0], throat: v[1], tongue: v[2], lips: v[3], pitch: v[4], sac: v[5], twin: v[6], interval: v[7], crest: v[8] };
+    h.engine.set_alien(s);
     h.engine.telemetry(&mut h.tele); // resize the telemetry buffers for the new voice
 }
 

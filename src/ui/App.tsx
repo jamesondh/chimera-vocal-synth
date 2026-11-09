@@ -20,6 +20,8 @@ import { playDemo, DEMO_SONGS } from "./singing.ts";
 import type { Mode } from "./store.ts";
 import type { BodyName } from "../worklet/protocol.ts";
 import { BodyPad } from "./components/BodyPad.tsx";
+import { AlienPanel } from "./components/AlienPanel.tsx";
+import { ALIEN_PRESETS } from "../wasm/engine.ts";
 import { bodyLabel, presetOf, PRESETS } from "./body.ts";
 
 // three.js only loads when the 3D view is first shown
@@ -39,6 +41,9 @@ function TopBar() {
   const start = useStore((s) => s.start);
   const body = useStore((s) => s.body);
   const setBody = useStore((s) => s.setBody);
+  const alien = useStore((s) => s.alien !== null);
+  const setAlien = useStore((s) => s.setAlien);
+  const meetAlien = useStore((s) => s.meetAlien);
   const volume = useStore((s) => s.volume);
   const setVolume = useStore((s) => s.setVolume);
   const mode = useStore((s) => s.mode);
@@ -68,14 +73,19 @@ function TopBar() {
       />
       {mode !== "bestiary" && (
         <div className="body-control">
-          <Segmented<BodyName>
+          <Segmented<BodyName | "alien">
             label="Body"
-            value={presetOf(body)}
-            onChange={(b) => setBody(PRESETS[b])}
+            value={alien ? "alien" : presetOf(body)}
+            onChange={(b) => {
+              if (b === "alien") return void (alien || meetAlien(ALIEN_PRESETS[0].id));
+              setAlien(null);
+              setBody(PRESETS[b]);
+            }}
             options={[
               { value: "male", label: "Male" },
               { value: "female", label: "Female" },
               { value: "child", label: "Child" },
+              { value: "alien", label: "Alien" },
             ]}
           />
           <BodyPad />
@@ -167,6 +177,7 @@ function StartPrompt() {
 function LeftScreen() {
   const mode = useStore((s) => s.mode);
   const body = useStore((s) => s.body);
+  const alienName = useStore((s) => (s.alien ? (ALIEN_PRESETS.find((p) => p.id === s.alienId)?.name ?? "custom") : null));
   const threeD = useStore((s) => s.view.threeD);
   const bestiary = mode === "bestiary";
   const Face = threeD ? AnatomyView3D : AnatomyView;
@@ -175,7 +186,7 @@ function LeftScreen() {
       className="left"
       focus
       title={bestiary ? "Creature" : "Vocal tract"}
-      sub={bestiary ? "Airway / live" : `${bodyLabel(body)} / ${threeD ? "3D" : "midsagittal"}`}
+      sub={bestiary ? "Airway / live" : `${alienName ? `Alien ${alienName}` : bodyLabel(body)} / ${threeD ? "3D" : "midsagittal"}`}
       label={bestiary ? "Live creature airway" : "Live vocal tract"}
       tools={<ViewToggles />}
     >
@@ -190,6 +201,8 @@ function LeftScreen() {
 
 function PlayRight() {
   const f0 = useStore((s) => s.source.f0);
+  const alien = useStore((s) => s.alien !== null);
+  const alienName = useStore((s) => ALIEN_PRESETS.find((p) => p.id === s.alienId)?.name ?? "Custom");
   return (
     <div className="right right-play">
       <Screen className="s-tube" title="Tube" sub="Glottis to lips">
@@ -201,9 +214,15 @@ function PlayRight() {
       <Screen className="s-spec" title="Spectrum" sub="Resonances">
         <SpectrumView />
       </Screen>
-      <Screen className="s-vowels" title="Vowels" sub="F1 / F2">
-        <VowelMap />
-      </Screen>
+      {alien ? (
+        <Screen className="s-vowels" title="Alien" sub={alienName}>
+          <AlienPanel />
+        </Screen>
+      ) : (
+        <Screen className="s-vowels" title="Vowels" sub="F1 / F2">
+          <VowelMap />
+        </Screen>
+      )}
       <Screen className="s-voice" title="Voice" tools={<VoiceToggles />}>
         <VoiceControls />
       </Screen>

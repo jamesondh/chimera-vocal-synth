@@ -4,6 +4,7 @@
 //! runs on the audio thread: these calls allocate.
 
 use chimera::airway::frequency::{find_peaks, transfer_function};
+use chimera::anatomy::alien::AlienShape;
 use chimera::anatomy::human::{BodyMix, HumanArtic, HumanFrame};
 use chimera::control::beat_player::BeatPlayer;
 use chimera::creatures::voice::CreatureVoice;
@@ -20,6 +21,7 @@ use std::cell::RefCell;
 struct Model {
     id: usize,
     body: BodyMix,
+    alien: AlienShape,
     fs: f64,
     airway: HumanAirway,
 }
@@ -63,12 +65,13 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
         "model" => {
             // the main-thread mirror of the worklet's airway: same topology and node counts
             let body: BodyMix = arg(req, "body")?;
+            let alien = AlienShape::new(arg::<Option<AlienShape>>(req, "alien")?.unwrap_or_default());
             let fs: f64 = arg(req, "sampleRate")?;
             let m = if fs > 60000.0 { 1.0 } else { 2.0 };
-            let i = match st.models.iter().position(|x| x.body == body && x.fs == fs * m) {
+            let i = match st.models.iter().position(|x| x.body == body && x.alien == alien && x.fs == fs * m) {
                 Some(i) => i,
                 None => {
-                    st.models.push(Model { id: st.next_model, body, fs: fs * m, airway: HumanAirway::new(fs * m, body.body()) });
+                    st.models.push(Model { id: st.next_model, body, alien, fs: fs * m, airway: HumanAirway::with_organs(fs * m, alien.apply(body.body()), alien.organs()) });
                     st.next_model += 1;
                     st.models.len() - 1
                 }
@@ -180,6 +183,8 @@ fn catalog() -> Res {
         "demoSongs": songs::DEMO_SONGS,
         "vowels": vowel_data::VOWELS,
         "creatures": &chimera::creatures::CREATURES[..],
+        "alienHuman": AlienShape::HUMAN,
+        "alienPresets": chimera::anatomy::alien::ALIEN_PRESETS,
     }))
 }
 

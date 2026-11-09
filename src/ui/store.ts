@@ -3,11 +3,11 @@ import { engine } from "../audio/AudioEngine.ts";
 import { DEFAULT_SOURCE, type VoiceSource } from "../wasm/engine.ts";
 import { NEUTRAL, restTip, type HumanArtic } from "../wasm/engine.ts";
 import { defaultF0, PRESETS, sameBody, type BodyMix } from "./body.ts";
-import { creatureById } from "../wasm/engine.ts";
+import { ALIEN_PRESETS, creatureById, type AlienShape } from "../wasm/engine.ts";
 import type { ParamDef } from "../wasm/types.ts";
 import { BEAT_PRESETS, BASS_NOTE, beatReady, parseBeat, type BeatStep } from "../wasm/engine.ts";
 import { singNoteOn, singNoteOff, stopSinging, ensureDictionary } from "./singing.ts";
-import { stopSpeaking } from "./speech.ts";
+import { speakText, stopSpeaking } from "./speech.ts";
 import { connectMidi, disconnectMidi, type MidiStatus } from "./midi.ts";
 
 export type Mode = "play" | "speak" | "sing" | "bestiary" | "beatbox";
@@ -73,6 +73,14 @@ interface State {
   setBody: (b: BodyMix) => void;
   /** show this body without rebuilding the voice yet (a drag in progress; setBody commits it) */
   previewBody: (b: BodyMix) => void;
+  /** the alien reshaping the body (null: the plain body) */
+  alien: AlienShape | null;
+  /** the preset it started from, while unchanged */
+  alienId: string | null;
+  /** reshape the voice (rebuilds its airway); null: back to the plain body */
+  setAlien: (a: AlienShape | null, id?: string | null) => void;
+  /** become this alien preset: its shape and voice, and it says its line */
+  meetAlien: (id: string) => void;
   setSource: (v: Partial<VoiceSource>) => void;
   setArtic: (v: Partial<HumanArtic>, tipFree?: boolean) => void;
   setVolume: (v: number) => void;
@@ -246,6 +254,7 @@ export const useStore = create<State>((set, get) => ({
         const s = get();
         engine.setVolume(s.volume);
         if (!sameBody(s.body, PRESETS.male)) engine.setBody(s.body);
+        if (s.alien) engine.setAlien(s.alien);
         engine.setSource(s.source);
         engine.setArtic(s.artic, s.tipFree);
         if (s.mode === "bestiary") engine.setCreature(s.creature, s.cparams[s.creature]);
@@ -274,6 +283,34 @@ export const useStore = create<State>((set, get) => ({
     engine.setBody(b);
   },
   previewBody: (b) => set({ body: b }),
+  alien: null,
+  alienId: null,
+  setAlien: (a, id = null) => {
+    if (a === null && get().alien === null) return;
+    session++;
+    // as for a body: the new voice starts without the old one's score
+    if (get().mode === "sing") stopSinging();
+    if (get().mode === "speak") stopSpeaking();
+    set({ alien: a, alienId: a ? id : null });
+    engine.setAlien(a);
+  },
+  meetAlien: (id) => {
+    const p = ALIEN_PRESETS.find((x) => x.id === id);
+    if (!p) return;
+    get().setAlien(p.shape, p.id);
+    get().setSource(p.source);
+    const sess = session;
+    void get()
+      .start()
+      .then(async () => {
+        const s = get();
+        // only if nothing has changed the voice since (another alien, a body, a mode)
+        if (!s.started || session !== sess || s.mode === "bestiary" || s.mode === "beatbox") return;
+        set({ hold: false });
+        updateGate(get());
+        await speakText(p.line, { ipa: false, body: s.body, rate: p.rate, f0: s.source.f0 });
+      });
+  },
   setSource: (v) => {
     set((s) => ({ source: { ...s.source, ...v } }));
     engine.setSource(v);
