@@ -22,7 +22,7 @@ usage: chimera <command> [args] [--float]
   render notes   <in.json> <out> [male|female|child] [--artic tracks.json] [--tele voice.tele]
                  (melody file; midi <= 0 is a rest; --artic also writes the articulators at 100 Hz)
   render beatbox [outdir] [preset name | pattern] [male|female|child] [bpm] [bars]
-  render creature [creatureId] [outdir]
+  render creature [creatureId] [outdir] [param=value …] [hold=<s>] [calls=none]
   render vowels  [male|female|child] [out]
   diagnose       [outdir]
   compare csd    [csd-dir] [outdir] [--songs a|b|all|en001a,…] [--body female] [--jobs n]

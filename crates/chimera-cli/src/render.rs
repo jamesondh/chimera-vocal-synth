@@ -697,10 +697,15 @@ pub fn beatbox(ctx: &Ctx, a: &[String]) -> Result<(), String> {
 }
 
 /// A creature's sustained note and calls; level, stability and pitch.
-/// `render creature [creatureId] [outdir]`
+/// `render creature [creatureId] [outdir] [key=value …]`: `key=value` sets a parameter for the
+/// whole render, `hold=<s>` the sustained note's length (1.2 s), `calls=none` skips the calls. Each
+/// part is also written on its own (`<id>-hold.wav`, `<id>-<call>.wav`) and measured: duration,
+/// level, f0 range and spectral centroid.
 pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
-    let id = arg(a, 0, "songbird");
-    let out_dir = arg(a, 1, "out/creatures");
+    let pos: Vec<String> = a.iter().filter(|s| !s.contains('=')).cloned().collect();
+    let opts: Vec<(&str, &str)> = a.iter().filter_map(|s| s.split_once('=')).collect();
+    let id = arg(&pos, 0, "songbird");
+    let out_dir = arg(&pos, 1, "out/creatures");
     let def = creature_by_id(id).ok_or_else(|| {
         format!(
             "unknown creature {id}; have {}",
@@ -711,7 +716,20 @@ pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
                 .join(", ")
         )
     })?;
-    let mut v = CreatureVoice::new(def, FS, &[]);
+    let mut hold = 1.2;
+    let mut with_calls = true;
+    let mut initial: Vec<(usize, f64)> = Vec::new();
+    for (k, v) in &opts {
+        match *k {
+            "hold" => hold = v.parse::<f64>().map_err(|e| format!("hold={v}: {e}"))?,
+            "calls" => with_calls = *v != "none",
+            _ => {
+                let i = def.param_index(k).ok_or_else(|| format!("{id} has no parameter {k}"))?;
+                initial.push((i, v.parse::<f64>().map_err(|e| format!("{k}={v}: {e}"))?));
+            }
+        }
+    }
+    let mut v = CreatureVoice::new(def, FS, &initial);
     let mut out: Vec<f32> = Vec::new();
     let t = Instant::now();
     let render_for =
@@ -731,15 +749,16 @@ pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         v.set_params(&[(k, 0.0)]); // single voice for the pitch check
     }
     v.set_gate(1.0);
-    let sus = render_for(&mut v, &mut out, 1.2);
+    let sus = render_for(&mut v, &mut out, hold);
     v.set_gate(0.0);
-    render_for(&mut v, &mut out, 0.4);
+    let sus_tail = render_for(&mut v, &mut out, 0.4);
+    let mut parts = vec![("hold".to_string(), sus.start..sus_tail.end)];
     if let Some(k) = voices {
         v.set_params(&[(k, 0.5)]);
     }
     let mut pitch_report = String::new();
     if let Some(p) = pitch_param {
-        let s = sus.start + js_round(0.6 * FS) as usize;
+        let s = sus.start + js_round(js_min(0.6, hold * 0.5) * FS) as usize;
         let frame: Vec<f64> = out[s..s + 4096].iter().map(|&x| x as f64).collect();
         let est = yin_pitch(
             &frame,
@@ -757,10 +776,13 @@ pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
             fixed(est.aperiodicity, 2)
         );
     }
-    for call in &def.calls {
-        v.play_call_id(call.id, None, 1.0);
-        let dur = call.keys[call.keys.len() - 1].t + 0.5;
-        render_for(&mut v, &mut out, dur);
+    if with_calls {
+        for call in &def.calls {
+            v.play_call_id(call.id, None, 1.0);
+            let dur = call.keys[call.keys.len() - 1].t + 0.5;
+            let r = render_for(&mut v, &mut out, dur);
+            parts.push((call.id.to_string(), r));
+        }
     }
     let ms = ms_since(t);
     let total = out.len() as f64;
@@ -776,8 +798,78 @@ pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         num(v.fs),
         fixed(peak(&out), 3)
     );
-    println!("  {pitch_report}");
+    if !pitch_report.is_empty() {
+        println!("  {pitch_report}");
+    }
+    for (name, r) in parts {
+        let seg = &out[r];
+        ctx.write_wav(&format!("{out_dir}/{id}-{name}.wav"), seg)?;
+        println!("  {name:>10}: {}", measure(seg, FS));
+    }
     Ok(())
+}
+
+/// Duration, level, f0 and spectral centroid of a rendered sound. The sound is the span of 10 ms
+/// windows within 30 dB of the loudest; f0 is YIN's (40 ms frames, 10 ms hop, aperiodicity < 0.3)
+/// over that span, given as median and 5th–95th percentiles with the fraction of frames periodic;
+/// the centroid is the power spectrum's over the span (4096-point Hann frames).
+pub fn measure(x: &[f32], fs: f64) -> String {
+    use chimera::analysis::fft::{Fft, hann};
+    let win = js_round(0.01 * fs) as usize;
+    let rms: Vec<f64> = x.chunks(win).map(|c| (c.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / c.len() as f64).sqrt()).collect();
+    let top = rms.iter().cloned().fold(0.0, f64::max);
+    if top < 1e-6 {
+        return "silent".to_string();
+    }
+    let on: Vec<usize> = (0..rms.len()).filter(|&i| rms[i] > top * 10f64.powf(-30.0 / 20.0)).collect();
+    let (a, b) = (on[0] * win, ((on[on.len() - 1] + 1) * win).min(x.len()));
+    let span = &x[a..b];
+    let level = (span.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / span.len() as f64).sqrt();
+    let pk = span.iter().fold(0.0f64, |p, v| p.max((*v as f64).abs()));
+    // f0 track
+    let n = js_round(0.04 * fs) as usize;
+    let mut f0s = Vec::new();
+    let mut frames = 0;
+    let mut i = 0;
+    while i + n <= span.len() {
+        let fr: Vec<f64> = span[i..i + n].iter().map(|&v| v as f64).collect();
+        let e = (fr.iter().map(|v| v * v).sum::<f64>() / n as f64).sqrt();
+        if e > top * 0.1 {
+            frames += 1;
+            let p = yin_pitch(&fr, fs, YinOpts { min_f0: Some(30.0), max_f0: Some(2000.0), ..Default::default() });
+            if p.f0 > 0.0 && p.aperiodicity < 0.3 {
+                f0s.push(p.f0);
+            }
+        }
+        i += win;
+    }
+    f0s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let q = |p: f64| f0s[((f0s.len() - 1) as f64 * p).round() as usize];
+    let f0 = if f0s.is_empty() { "f0 none".to_string() } else { format!("f0 {} Hz ({}–{}, {}% periodic)", fixed(q(0.5), 0), fixed(q(0.05), 0), fixed(q(0.95), 0), fixed(100.0 * f0s.len() as f64 / js_max(1.0, frames as f64), 0)) };
+    // centroid
+    let m = 4096;
+    let fft = Fft::new(m);
+    let w = hann(m);
+    let mut pw = vec![0.0f64; m / 2];
+    let mut j = 0;
+    while j + m <= span.len() {
+        let mut re: Vec<f64> = (0..m).map(|k| span[j + k] as f64 * w[k]).collect();
+        let mut im = vec![0.0; m];
+        fft.transform(&mut re, &mut im);
+        for k in 0..m / 2 {
+            pw[k] += re[k] * re[k] + im[k] * im[k];
+        }
+        j += m / 2;
+    }
+    let tot: f64 = pw.iter().sum();
+    let cen = if tot > 0.0 { pw.iter().enumerate().map(|(k, p)| k as f64 * fs / m as f64 * p).sum::<f64>() / tot } else { 0.0 };
+    format!(
+        "{} s, {} dBFS rms (peak {}), {f0}, centroid {} Hz",
+        fixed((b - a) as f64 / fs, 2),
+        fixed(20.0 * log10(level), 1),
+        fixed(pk, 2),
+        fixed(cen, 0)
+    )
 }
 
 /// The calibrated vowels through the real-time voice; LPC formants and YIN f0 from the audio.
