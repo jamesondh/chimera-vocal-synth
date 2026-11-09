@@ -11,6 +11,11 @@
 //!   it (biphonation, as in the songbird's two-sided syrinx). It shares the lungs and the tract.
 //! - **Crest**: a long tube from the top of the throat out through the top of the head, open at its
 //!   end, like a lambeosaur's crest. Its resonances sit under the vowels as a drone.
+//!
+//! Beyond the airway, an alien may have a second whole mouth: a complete voice (lungs, voicebox,
+//! tract and organs) of the same shape at an interval from the first, so one head sings a chord
+//! (four notes with both mouths' second voiceboxes). Every mouth costs a whole voice's CPU, and
+//! two is all that renders in real time in the browser (`MAX_MOUTHS`).
 
 use crate::anatomy::human::HumanBody;
 use crate::math::clamp;
@@ -38,6 +43,10 @@ pub struct AlienShape {
     pub interval: f64,
     /// crest 0 (none) … 1 (longest)
     pub crest: f64,
+    /// whole mouths, each its own voice (1 … `MAX_MOUTHS`, whole numbers)
+    pub mouths: f64,
+    /// the second mouth's interval from the first (semitones, −24 … 24)
+    pub mouth2: f64,
 }
 
 impl Default for AlienShape {
@@ -48,7 +57,11 @@ impl Default for AlienShape {
 
 impl AlienShape {
     /// No change: the human body as it is.
-    pub const HUMAN: AlienShape = AlienShape { size: 1.0, throat: 1.0, tongue: 1.0, lips: 1.0, pitch: 1.0, sac: 0.0, twin: 0.0, interval: 7.0, crest: 0.0 };
+    pub const HUMAN: AlienShape = AlienShape { size: 1.0, throat: 1.0, tongue: 1.0, lips: 1.0, pitch: 1.0, sac: 0.0, twin: 0.0, interval: 7.0, crest: 0.0, mouths: 1.0, mouth2: 12.0 };
+
+    /// The most mouths an alien can have. Each is a whole voice to render: in wasm at 48 kHz one
+    /// takes about a third of real time (Chromium: 34 % for one, 68 % for two, 102 % for three).
+    pub const MAX_MOUTHS: usize = 2;
 
     /// Clamped to the ranges above (non-finite values fall back to human).
     pub fn new(s: AlienShape) -> AlienShape {
@@ -64,6 +77,8 @@ impl AlienShape {
             twin: c(s.twin, 0.0, 1.0, h.twin),
             interval: c(s.interval, -24.0, 24.0, h.interval),
             crest: c(s.crest, 0.0, 1.0, h.crest),
+            mouths: crate::math::js_round(c(s.mouths, 1.0, AlienShape::MAX_MOUTHS as f64, h.mouths)),
+            mouth2: c(s.mouth2, -24.0, 24.0, h.mouth2),
         }
     }
 
@@ -77,6 +92,22 @@ impl AlienShape {
             return body;
         }
         HumanBody { scale: body.scale * self.size, pharynx: body.pharynx * self.throat, tongue_radius: body.tongue_radius * self.tongue, lip_width: body.lip_width * self.lips, ..body }
+    }
+
+    /// How many whole mouths it sings with (1 … `MAX_MOUTHS`).
+    pub fn mouth_count(&self) -> usize {
+        self.mouths as usize
+    }
+
+    /// The extra mouths' intervals from the first (semitones), as many as it has beyond one.
+    pub fn mouth_intervals(&self) -> impl Iterator<Item = f64> {
+        [self.mouth2].into_iter().take(self.mouth_count().saturating_sub(1))
+    }
+
+    /// The shape of the extra mouth at `interval`: this shape with one mouth, transposed (pitch
+    /// clamped to its range, so a mouth two octaves above a high voice stops at 4×).
+    pub fn mouth_shape(&self, interval: f64) -> AlienShape {
+        AlienShape::new(AlienShape { mouths: 1.0, pitch: self.pitch * crate::math::pow(2.0, interval / 12.0), ..*self })
     }
 
     /// The airway's extra organs.
@@ -114,7 +145,12 @@ pub struct AlienPreset {
 }
 
 const fn shape(size: f64, throat: f64, tongue: f64, lips: f64, pitch: f64, sac: f64, twin: f64, interval: f64, crest: f64) -> AlienShape {
-    AlienShape { size, throat, tongue, lips, pitch, sac, twin, interval, crest }
+    AlienShape { size, throat, tongue, lips, pitch, sac, twin, interval, crest, ..AlienShape::HUMAN }
+}
+
+/// `shape` with a second whole mouth at `interval` from the first.
+const fn two_mouths(s: AlienShape, interval: f64) -> AlienShape {
+    AlienShape { mouths: 2.0, mouth2: interval, ..s }
 }
 
 const fn src(pressure: f64, breathiness: f64, tension: f64, fry: f64, roughness: f64, vibrato_depth: f64) -> SourcePatch {
@@ -167,6 +203,15 @@ pub const ALIEN_PRESETS: &[AlienPreset] = &[
         source: src(7.0, 0.25, 0.6, 0.0, 0.15, 30.0),
         rate: 1.3,
         line: "Hello! Hello, friend!",
+    },
+    AlienPreset {
+        id: "quartet",
+        name: "Choir",
+        blurb: "Two whole mouths an octave apart, each with a second voicebox a fifth up: four notes from one head.",
+        shape: two_mouths(shape(1.15, 1.05, 1.0, 1.2, 1.0, 0.0, 0.7, 7.0, 0.0), 12.0),
+        source: src(8.0, 0.18, 0.5, 0.0, 0.1, 35.0),
+        rate: 0.8,
+        line: "We are many. We sing as one.",
     },
 ];
 

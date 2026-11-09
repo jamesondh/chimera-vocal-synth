@@ -34,7 +34,7 @@ usage: chimera <command> [args] [--float]
   calibrate consonants [--out file]
 
 Output names are stems (<out>.wav). --float writes 32-bit float WAVs instead of 16-bit PCM.
---alien <id> renders text and notes as an alien (homesick, choir, bellows, hornhead, pip).
+--alien <id> renders text and notes as an alien (homesick, choir, bellows, hornhead, pip, quartet).
 Calibration writes the tables the engine embeds, in crates/chimera/src/phonetics/.";
 
 /// The output rate of every render.

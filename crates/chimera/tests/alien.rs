@@ -115,3 +115,81 @@ fn out_of_range_shapes_are_clamped() {
     let s = AlienShape::new(AlienShape { size: 0.1, throat: f64::NAN, pitch: 99.0, ..AlienShape::HUMAN });
     assert_eq!((s.size, s.throat, s.pitch), (0.6, 1.0, 4.0));
 }
+
+#[test]
+fn one_mouth_builds_no_other_voice() {
+    assert!(HumanVoice::with_alien(FS, BODY_MALE, AlienShape::HUMAN, 2).mouths.is_empty());
+    let s = AlienShape { mouths: 2.0, ..AlienShape::HUMAN };
+    assert_eq!(HumanVoice::with_alien(FS, BODY_MALE, s, 2).mouths.len(), 1);
+}
+
+#[test]
+fn two_mouths_stay_stable() {
+    let h = AlienShape::HUMAN;
+    for mouth2 in [-24.0, 0.0, 12.0, 24.0] {
+        for size in [0.6, 1.0, 2.5] {
+            for organs in [0.0, 1.0] {
+                let s = AlienShape { size, mouths: 2.0, mouth2, sac: organs, twin: organs, crest: organs, ..h };
+                let (out, voicing) = hold(BODY_MALE, s, &SourcePatch::default());
+                assert_sane(&format!("{s:?}"), &out, voicing);
+            }
+        }
+    }
+}
+
+/// The second mouth's own pitch telemetry sits at its interval from the first's.
+#[test]
+fn each_mouth_sings_at_its_interval() {
+    for semis in [-12.0, 7.0, 19.0] {
+        let s = AlienShape { mouths: 2.0, mouth2: semis, ..AlienShape::HUMAN };
+        let mut v = HumanVoice::with_alien(FS, BODY_MALE, s, 2);
+        v.set_source(&SourcePatch { f0: Some(150.0), vibrato_depth: Some(0.0), ..Default::default() });
+        v.set_gate(1.0);
+        let mut out = vec![0f32; 24000];
+        for c in out.chunks_mut(128) {
+            v.render(c);
+        }
+        let mut t = VoiceTelemetry::default();
+        v.telemetry(&mut t);
+        let f1 = t.f0;
+        assert!((f1 - 150.0).abs() < 3.0, "first mouth f0 {f1}");
+        v.mouths[0].telemetry(&mut t);
+        let want = f1 * 2f64.powf(semis / 12.0);
+        assert!((t.f0 / want - 1.0).abs() < 0.02, "mouth at {semis} st: f0 {} (want {want:.1})", t.f0);
+        assert!(t.voicing > 0.5, "mouth at {semis} st not voicing");
+    }
+}
+
+/// Power at `f` (Goertzel).
+fn power_at(x: &[f32], f: f64) -> f64 {
+    let c = 2.0 * (2.0 * std::f64::consts::PI * f / FS).cos();
+    let (mut s1, mut s2) = (0.0, 0.0);
+    for v in x {
+        let s0 = *v as f64 + c * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    (s1 * s1 + s2 * s2 - c * s1 * s2) / (x.len() as f64).powi(2)
+}
+
+/// A second mouth a fifth up puts its fundamental in the spectrum, where one mouth has nothing.
+#[test]
+fn a_second_mouth_adds_its_fundamental() {
+    let src = SourcePatch { vibrato_depth: Some(0.0), ..Default::default() };
+    let h = AlienShape::HUMAN;
+    let (one, _) = hold(BODY_MALE, h, &src);
+    let (two, voicing) = hold(BODY_MALE, AlienShape { mouths: 2.0, mouth2: 7.0, ..h }, &src);
+    assert_sane("two mouths", &two, voicing);
+    let fifth = 112.0 * 2f64.powf(7.0 / 12.0);
+    let (p1, p2) = (power_at(&one, fifth), power_at(&two, fifth));
+    assert!(p2 > 30.0 * p1, "fifth at {fifth:.1} Hz: one mouth {p1:.2e}, two {p2:.2e}");
+    // and the first mouth's fundamental is still there
+    assert!(power_at(&two, 112.0) > 0.1 * power_at(&one, 112.0));
+}
+
+#[test]
+fn the_mouth_count_is_rounded_and_clamped() {
+    let h = AlienShape::HUMAN;
+    let n = |m: f64| AlienShape::new(AlienShape { mouths: m, ..h }).mouth_count();
+    assert_eq!((n(0.0), n(1.4), n(1.6), n(9.0), n(f64::NAN)), (1, 1, 2, AlienShape::MAX_MOUTHS, 1));
+}

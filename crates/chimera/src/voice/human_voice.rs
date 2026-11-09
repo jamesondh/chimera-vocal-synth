@@ -201,7 +201,15 @@ pub struct HumanVoice {
     lim_release: f64,
     /// tissue may compress this far (cm) before the palate stops the articulator
     pub max_penetration: f64,
+    /// an alien's other whole mouths (empty for one mouth): each its own voice at its interval,
+    /// following every command, mixed into this one's output
+    pub mouths: Vec<HumanVoice>,
+    /// the mix's gain, 1/√(mouths), so a chord is about as loud as one voice
+    mouth_gain: f64,
 }
+
+/// Samples mixed per pass when an alien sings with several mouths (a stack buffer).
+const MIX_BLOCK: usize = 128;
 
 impl HumanVoice {
     /// A voice rendering at `fs_out`, simulating at `fs_out · oversample`.
@@ -264,6 +272,8 @@ impl HumanVoice {
             lim_hold_n: crate::math::js_round(0.025 * fs_out) as i64,
             lim_release: exp(-1.0 / (0.2 * fs_out)),
             max_penetration: 0.1,
+            mouths: Vec::new(),
+            mouth_gain: 1.0,
         };
         let x = v.artic.x;
         v.airway.apply(&x, 0.0);
@@ -293,7 +303,25 @@ impl HumanVoice {
             v.output_gain /= v.alien.pitch;
         }
         v.apply_source();
+        // the other mouths: the same shape at their intervals, each wobbling on its own (and at
+        // the same oversampling: at 1× and 48 kHz a small alien's tract blows up)
+        v.mouths = alien
+            .mouth_intervals()
+            .enumerate()
+            .map(|(k, i)| {
+                let mut m = HumanVoice::with_alien(fs_out, body, alien.mouth_shape(i), oversample);
+                m.reseed(200 + k as u32);
+                m
+            })
+            .collect();
+        v.mouth_gain = 1.0 / sqrt(alien.mouth_count() as f64);
         v
+    }
+
+    /// Give the voicebox its own jitter, shimmer and drift (`seed` 0 is a new voice's).
+    pub fn reseed(&mut self, seed: u32) {
+        self.glottis = crate::sources::glottis::ParametricGlottis::with_seed(self.fs, seed);
+        self.apply_source();
     }
 
     /// The defaults the browser uses: male body, 2× oversampling below 60 kHz.
@@ -306,31 +334,49 @@ impl HumanVoice {
             self.artic.tip_free = t;
         }
         self.artic.set_target(values);
+        for m in self.mouths.iter_mut() {
+            m.set_articulation(values, tip_free);
+        }
     }
 
     pub fn set_source(&mut self, values: &SourcePatch) {
         values.apply(&mut self.source);
         self.apply_source();
+        for m in self.mouths.iter_mut() {
+            m.set_source(values);
+        }
     }
 
     /// Add gestures (times on the voice clock).
     pub fn schedule(&mut self, gestures: &[Gesture]) {
         self.score.add_all(gestures);
+        for m in self.mouths.iter_mut() {
+            m.schedule(gestures);
+        }
     }
 
     /// End the open-ended gestures with this tag now (a sung note's key was released).
     pub fn release(&mut self, tag: f64) {
         self.score.release(tag, self.clock);
+        for m in self.mouths.iter_mut() {
+            m.release(tag);
+        }
     }
 
     /// Cancel scheduled gestures (speech stops; the voice returns to the performer's posture).
     pub fn cancel_score(&mut self) {
         self.score.clear();
+        for m in self.mouths.iter_mut() {
+            m.cancel_score();
+        }
     }
 
     /// breath/voice on (1) or off (0); intermediate values scale the pressure
     pub fn set_gate(&mut self, level: f64) {
         self.gate_target = clamp(level, 0.0, 1.5);
+        for m in self.mouths.iter_mut() {
+            m.set_gate(level);
+        }
     }
 
     fn apply_source(&mut self) {
@@ -368,8 +414,33 @@ impl HumanVoice {
         g.effort = clamp((s.pressure.abs() - 3.0) / 10.0, 0.0, 1.0);
     }
 
-    /// Render `out.len()` output samples.
+    /// Render `out.len()` output samples (every mouth's, mixed).
     pub fn render(&mut self, out: &mut [f32]) {
+        if self.mouths.is_empty() {
+            self.render_mouth(out);
+            return;
+        }
+        let mut buf = [0f32; MIX_BLOCK];
+        for chunk in out.chunks_mut(MIX_BLOCK) {
+            self.render_mouth(chunk);
+            let b = &mut buf[..chunk.len()];
+            for m in self.mouths.iter_mut() {
+                m.render_mouth(b);
+                for (o, x) in chunk.iter_mut().zip(b.iter()) {
+                    *o += *x;
+                }
+            }
+            // each mouth has its own limiter; in-phase peaks of the sum get the same soft clip
+            for o in chunk.iter_mut() {
+                let v = *o as f64 * self.mouth_gain;
+                let av = v.abs();
+                *o = if av > 0.85 { js_sign(v) * (0.85 + 0.15 * tanh((av - 0.85) / 0.15)) } else { v } as f32;
+            }
+        }
+    }
+
+    /// Render this mouth alone.
+    fn render_mouth(&mut self, out: &mut [f32]) {
         let m = self.m;
         let lungs = self.airway.lungs;
         let sub_node = self.airway.trachea.last_node();
