@@ -187,3 +187,16 @@ fn a_sung_preposition_without_a_vowel_joins_the_next_word() {
     assert_eq!(ipa(&lyrics_to_syllables("с горы́", &g)[0].onset), "z g");
     assert_eq!(ipa(&lyrics_to_syllables("в ти́хом", &g)[0].onset), "f t j");
 }
+
+#[test]
+fn unstressed_vowels_keep_a_syllable_s_length() {
+    // the duration rules are English's and have no /ɐ/: unstressed vowels came out 40-50 ms,
+    // "Доброе утро" took 0.75 s for five syllables, and Whisper lost whole words
+    let g = EnglishG2P::new();
+    let p = &g.to_phrases("До́брое у́тро")[0];
+    let weak: Vec<f64> = p.segments.iter().filter(|s| s.stress == Some(0)).filter_map(|s| s.dur).collect();
+    assert_eq!(weak.len(), 3);
+    assert!(weak.iter().all(|d| *d >= 0.07), "{weak:?}");
+    // the last one, before a pause, is the longest
+    assert!(weak[2] > weak[0]);
+}

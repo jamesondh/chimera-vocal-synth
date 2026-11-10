@@ -136,7 +136,23 @@ pub fn word_before(input: &str, next: Option<&str>, reduce: bool) -> Vec<Segment
                 'а' | 'я' => "a", 'о' | 'ё' => "o", 'у' | 'ю' => "u",
                 'и' if hard_hiss => "ɨ", 'и' => "i", 'ы' => "ɨ", 'э' | 'е' => "e", _ => unreachable!(),
             };
-            out.push(Segment { stress: Some(u8::from(stressed)), ..Segment::new(ipa) });
+            let mut seg = Segment { stress: Some(u8::from(stressed)), ..Segment::new(ipa) };
+            if weak {
+                // The duration rules are English's (Klatt), and have no /ɐ/: an unstressed
+                // vowel came out at 40–50 ms and the syllable was swallowed. Most Russian
+                // syllables are unstressed, so they get Russian lengths: the one before the
+                // stress is the longest, an open final one is longer again at a phrase's end.
+                let k = positions.iter().position(|&p| p == at).unwrap_or(0);
+                let pretonic = stress.is_some() && positions.get(k + 1).copied() == stress;
+                seg.dur = Some(if last && next.is_none() {
+                    0.12
+                } else if last || pretonic {
+                    0.09
+                } else {
+                    0.07
+                });
+            }
+            out.push(seg);
             continue;
         }
         // -тся, -ться: a long /ts/ and an unstressed vowel
