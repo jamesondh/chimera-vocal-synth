@@ -4,8 +4,9 @@ Fitting the flatulence creature (docs/flatulence.md) to real recordings, and the
 that followed, one at a time, newest last. The tools are in `tools/flatus-fit/` (README there);
 the recordings are listed in `tools/flatus-fit/manifest.json` and are not in the repository.
 
-Final result: median distance 0.67 → 0.53, events close 12 → 34 of 59, recordings reached
-9 → 22 of 31 (experiment 6, with its caveat on level). Every number below comes from the same 59
+Round 1 (experiments 1–6): median distance 0.67 → 0.53, events close 12 → 34 of 59, recordings
+reached 9 → 22 of 31 (with experiment 6's caveat on level). Round 2 (experiments 7–9, the two
+sphincters): median 0.42, 47 of 59 events close, 25 of 31 recordings reached. Every number below comes from the same 59
 events of 31 recordings, the same features and the
 same feature scales (the real events' spread, stored with each fit as `scale`), so the runs
 compare directly. A fit is **close** when its distance is at most 0.54, the median over the real
@@ -140,7 +141,7 @@ same kind of search; the final numbers take each event's best of two searches.
   in 23. The distance is level-free by design (the recordings are uncalibrated), so the fit never
   saw this.
 
-## What still misses (final model)
+## What still missed after round 1 (experiment 6)
 
 Nine recordings are not reached: Authentic Fart (0.93), funny fart (0.76), 2026 Fart (0.74),
 Bathroom Fart (0.69), Human fart.wav (0.86), Homemade fart (0.61), Close recording (0.59), FART - 3
@@ -161,3 +162,115 @@ centroid 0.22 (real lower), 125–250 Hz 0.18 (real less).
   flow in collapsible tubes) instead of an open tube.
 - Level: see experiment 6's caveat. A fit that also matches the level differences between events
   of one recording would need a joint fit per recording; not done.
+
+## 7. The lip's stiffness and mass from the anal canal, not the face (kept)
+
+Second round (branch `flatus-tone`). The user's point: the sphincter behaves very differently
+relaxed and contracted. Before, the lip's stiffness was a borrowed passive stiffness (Ishizaka's
+facial cheek, 3·10⁵ dyn/cm³) plus the muscle's short-range stiffness γ·P/R; its mass 0.7 cm of
+tissue moving as a plate.
+
+- Physical basis, three corrections, each derived (code comments in `flatus.rs`):
+  - **Passive stiffness from the anal canal's measured compliance.** Barostat distension with the
+    balloon's volume checked on MRI in 33 healthy women: past the opening pressure, 0.30 (SD
+    0.18) mL per mmHg over the 3.2 cm canal (Sharma, Feuerhak, Corner, Manduca & Bharucha 2021,
+    Neurogastroenterol Motil 33:e13972), a cross-sectional compliance C_A = 0.094 cm²/mmHg. For a
+    slit passing A = ℓ·h, k = 2ℓ/C_A = 2.8·10⁴ dyn/cm³ (SD range 1.8–7.1·10⁴): a tenth of the
+    face's. Caveats: measured awake (the canal relaxes as it is distended, and the toned muscle's
+    length–tension adds stiffness), quasi-static, and over 0.5–2.2 cm of diameter; Lestar et al.
+    (1989) found passive elements bearing load only beyond 1 cm of distension (anaesthesia with
+    curarisation and a maximal reflex), so at sub-mm gaps the passive part is if anything smaller.
+    I found no anal FLIP or barostat study under anaesthesia with a pressure–area curve. The
+    EndoFLIP studies I read (Luft 2012, Fynne 2013, Sørensen 2014) are of the awake canal and
+    report segment diameters and distensibility, not a compliance in these units; the barostat–MRI
+    study reports one and validates its volumes against images, so it was used.
+  - **Active stiffness for the slit the flow actually passes.** The flow passes a 1 cm slit, but
+    the active stiffness treated the lumen as a circle of the ring's radius. With incompressible
+    tissue between the slit and the ring of radius R, the slit's opening dA widens the ring by
+    dA/2πR; with short-range stiffness dT/T = γ·dR/R and Laplace's P = T/R,
+    k = (γ − 1)·P·ℓ/(πR²): 4.2·P at R = 1.3 cm instead of 18·P.
+  - **The moving mass from incompressibility.** The opened area must be pushed out through every
+    contour around the slit (a two-dimensional source, velocity Ȧ/2πr) out to the ring's height,
+    where the flow becomes three-dimensional: m = ρℓ·ln(4H/ℓ)/π = 0.46 g/cm² (was 0.74). It does
+    not depend on tone: the tissue has to move either way. So relaxed and contracted differ in
+    stiffness and preload, not in mass.
+- Result (one search, library with mucus 0/1.5/3 and size 0.8/1.2, against the same kind of
+  search of experiment 6): median 0.54 → 0.48; close 31 → 37 of 59; recordings reached 20 → 21.
+  Misses: duration 0.32 → 0.39 (real longer), attack 0.37 → 0.28. The softer lip opens wider and
+  empties the pocket faster (the default event 0.40 → 0.16 s); fits at the gas maximum 17 → 28.
+- Kept (it is the measurement the model lacked), and carried into experiment 8 (committed with
+  it, f4d2f85; this intermediate state is not a commit). The low-tone recordings: Bathroom Fart
+  0.69 → 0.58, Human fart.wav 0.89 → 0.77, funny fart 0.76 → 0.74, 2026 Fart 0.76 → 0.80.
+
+## 8. Two sphincters: the internal one's zone with the rectoanal reflex, the external one's ring with activation dynamics (kept)
+
+- Physical basis (sources in `flatus.rs` and docs/flatulence.md):
+  - The canal closes in two places. The internal sphincter's zone (above the intersphincteric
+    groove): the IAS's tone, the anal cushions and the deep external sphincter. The distal ring:
+    the subcutaneous external sphincter alone. Each is a LipReed with experiment 7's mass and
+    stiffness; each muscle ring adds its own short-range stiffness (IAS at R = 0.63 cm).
+  - The resting pressure split (Lestar, Penninckx & Kerremans 1989): EAS 30 %, IAS 55 %, cushions
+    15 %. IAS tone a control (default 37 cmH₂O, 55 % of the median 67 of Luft 2012), cushions
+    10 cmH₂O. The EAS's share at the IAS's level, 17/32, from Cheeney et al.'s (2012) residual
+    pressures during a full reflex (28 mmHg at 1.6 cm less the cushions' 11, against 32 mmHg at
+    0.9 cm).
+  - The rectoanal reflex (Cheeney 2012, high-definition manometry): the nadir's depth
+    1 − exp(−V/27 mL), through 43 % at 15 mL and full from 71 mL; the plateau after it rising
+    linearly from none at 10 mL to the nadir at 115 mL. The latency (5.1 s; Sangwan 1995) is taken
+    as passed: each event starts at the nadir (the gas has been sampled); the IAS recovers towards
+    the remaining volume's plateau at 1/9.5 of its inhibition per second (2.98 mmHg/s against a
+    28 mmHg relaxation in controls; Netinho 2005).
+  - The external sphincter's command is a control ("eas", replacing "tone"), passed through
+    first-order activation dynamics, 10 ms up and 40 ms down (Zajac 1989; Winters 1990). Not
+    measured for the EAS, which is ~80 % slow fibres (Konsten 1993).
+  - The IAS zone's load is the gas's gauge pressure above it (a radial closure: the gas below it
+    presses it open, not shut); the distal ring keeps the pressure difference across it, as
+    before. The 0.75 cm junction between them is one FDTD section, not anatomy.
+- Result (two searches, each with the course stages of experiment 9; here the constant-command
+  stage): one search median 0.44, close 40 of 59, recordings 23 of 31 (experiment 7: 0.48, 37,
+  21); each event's best of the two searches: median 0.43, close 44, recordings 24. Misses (one
+  search): duration 0.39 → 0.25, attack 0.28 → 0.19, periodic 0.25 → 0.24; centroid 0.24 (real
+  lower). Fits at the gas maximum 28 → 23 (best of two: 13). Bathroom Fart reached (0.54), funny
+  fart 0.60, 2026 Fart 0.65, Human fart.wav 0.89 (one search). 32 of 59 best fits relax the
+  external sphincter to ≤ 3 cmH₂O.
+- Level (best of two, with courses): 45 events and 25 recordings close and within 30 dB of the
+  default event's peak (round 1: 32 and 20); within-recording level differences off by a median
+  12 dB (round 1: 12), more than 20 dB in 17 of 89 pairs (round 1: 23).
+- Kept (commit f4d2f85).
+
+## 9. The external sphincter's command as a course during the event (fit protocol; kept, adds little)
+
+- Basis: the voluntary command can change during an event (clench to cut off, relax to let go,
+  squeeze rhythmically), passed through the activation dynamics, so nothing changes faster than
+  muscle can. Nothing shapes the sound itself.
+- Change (`fit.py courses=1`): from each event's best constant fit, a ramp of the command (start
+  and end value, start time, duration; 40 renders), then a modulation around it (0.5–8 Hz, depth
+  up to 60 cmH₂O; 25 renders). The 8 Hz bound is the upper end of voluntary rhythmic movement
+  (an estimate; not measured for the EAS); the activation dynamics attenuate the fast end anyway
+  (−3 dB near 4 Hz for the 40 ms deactivation).
+- Result (one search): constant → with courses: median 0.44 → 0.43; close 40 → 42; recordings
+  23 → 24. The ramp improved 6 events by more than 0.03, the modulation 1 (Yle compilation
+  event 0: 0.29 → 0.22 with ±15 cmH₂O at 4.2 Hz). Best of two searches: constant 44 close, 24
+  recordings; up to a ramp 46, 24; with modulation 47, 25, median 0.43 → 0.42. The one recording
+  the course reaches is the Harley Davidson sputter (fs523930: 0.69 constant, 0.48 with the
+  command quivering ±24 cmH₂O at 3 Hz). Otherwise within the search noise (±3 events), with up
+  to six more parameters per event: the level-free features barely ask for a changing
+  contraction. Kept as an option of the fit; the model's controls are physical either way.
+
+## What still misses (two sphincters)
+
+Final: **median 0.42; 47 of 59 events close; 25 of 31 recordings reached; 45 events at least as
+close as their own nearest other recording** (round 1: 0.53, 34, 22, 32). Not reached: Human
+fart.wav (0.89), Authentic Fart (0.71), FART.aif (0.70; 0.50 in round 1), 2026 Fart (0.64),
+funny fart (0.58), Wet fart tummy rumbles (0.55; 0.54 in round 1). Largest mean misses:
+periodic fraction 0.24 (real more periodic), duration 0.21 (real longer), centroid 0.18 (real
+lower), 2.8 kHz band 0.17 (real less).
+
+- The near-threshold regime that holds clean tones is narrow; away from it the soft closures
+  gape and the flow turns aperiodic. Human fart.wav (63 % periodic) still fits only aperiodic
+  renders.
+- Clean tones above about 200 Hz (2026 Fart, 254 Hz, HNR 17): the contracted closures play
+  160–190 Hz cleanly; higher, irregularly.
+- Leads, not tried: the external sphincter's slower (type I) activation constants; the closure as
+  a collapsible tube (pressure along it, Bernoulli suction in the gap) instead of two lumped
+  valves; a room for the reverberant recordings.
