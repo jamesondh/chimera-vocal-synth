@@ -447,7 +447,20 @@ impl HumanVoice {
             let k2 = self.airway.body.scale * self.airway.body.scale;
             let ab = b[ControlKey::ABDUCTION.index()];
             let ab_act = if ab.weight > 0.0 { js_min(1.0, ab.weight / 2.0) } else { 0.0 };
-            gp.abduction = self.base_abduction + ab.value * ab_act * k2;
+            let source_value = |key: ControlKey, base: f64| {
+                let v = b[key.index()];
+                if v.weight > 0.0 { clamp((base * 0.05 + v.value * v.weight) / (0.05 + v.weight), 0.0, 1.0) } else { base }
+            };
+            let breathiness = source_value(ControlKey::BREATHINESS, self.source.breathiness);
+            let tension = source_value(ControlKey::TENSION, self.source.tension);
+            gp.fry = source_value(ControlKey::FRY, self.source.fry);
+            gp.abduction = (if self.source.voiced { 0.1 * breathiness * breathiness } else { 0.2 + 0.1 * breathiness }) * k2 + ab.value * ab_act * k2;
+            gp.chink = (0.008 + 0.03 * breathiness) * k2;
+            gp.open_quotient = 0.78 - 0.36 * tension;
+            let bright = self.source.brightness - DEFAULT_SOURCE.brightness;
+            let by_tension = 0.4 * tension + 1.375 * js_max(0.0, tension - 0.6);
+            gp.closure_sharpness = clamp(by_tension + 0.8 * bright, 0.0, 1.0);
+            gp.skew = 0.56 + 0.16 * tension + 0.2 * bright;
             let cl = b[ControlKey::CLOSURE.index()];
             gp.closure = js_max(self.base_closure, if cl.weight > 0.0 { cl.value * js_min(1.0, cl.weight / 2.0) } else { 0.0 });
             let br = b[ControlKey::BREATH.index()];
@@ -471,6 +484,13 @@ impl HumanVoice {
             self.artic.step(dt, None, 1.0);
             self.glottis.params.abduction = self.base_abduction;
             self.glottis.params.closure = self.base_closure;
+            self.glottis.params.chink = (0.008 + 0.03 * self.source.breathiness) * self.airway.body.scale * self.airway.body.scale;
+            self.glottis.params.open_quotient = 0.78 - 0.36 * self.source.tension;
+            let bright = self.source.brightness - DEFAULT_SOURCE.brightness;
+            let by_tension = 0.4 * self.source.tension + 1.375 * js_max(0.0, self.source.tension - 0.6);
+            self.glottis.params.closure_sharpness = clamp(by_tension + 0.8 * bright, 0.0, 1.0);
+            self.glottis.params.skew = 0.56 + 0.16 * self.source.tension + 0.2 * bright;
+            self.glottis.params.fry = self.source.fry;
             self.score_f0 = None;
         }
         self.clock += dt;

@@ -10,6 +10,8 @@ pub mod durations;
 pub mod english;
 pub mod inventory;
 pub mod ipa;
+pub mod korean;
+pub mod mandarin;
 pub mod planner;
 pub mod sing;
 pub mod songs;
@@ -33,6 +35,25 @@ pub struct Segment {
     /// word boundary after this segment
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub word_end: Option<bool>,
+    /// a voiceless stop or affricate's aspiration, as its front end decides it (Mandarin and Korean
+    /// contrast it); None: the planner's default, English's rule (aspirated syllable-initially
+    /// before a vowel, not after /s/)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aspirated: Option<bool>,
+    /// how long an aspirated stop or affricate's aspiration lasts (s, voice onset time); None: 50 ms
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vot: Option<f64>,
+    /// Optional syllable sound quality; absent keeps the performer's voice settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phonation: Option<Phonation>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Phonation {
+    Creaky,
+    Tense,
+    Breathy,
 }
 
 impl Segment {
@@ -75,7 +96,7 @@ pub struct Plan {
 }
 
 /// A sung syllable.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Syllable {
     /// lyric text shown on the note
@@ -91,4 +112,36 @@ pub struct Syllable {
     pub word_end: bool,
     /// a breath follows (comma, full stop, line break)
     pub phrase_end: bool,
+    /// pitch bends inside the sung note, as the syllable's front end writes them (a tone, a pitch
+    /// accent, a scoop); none: the note's pitch as written
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pitch: Vec<Bend>,
+    /// breath (lung drive) while the note sounds, relative to the phrase's (a light neutral-tone
+    /// syllable); None: the phrase's
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breath: Option<f64>,
+    /// nasalise this fraction of the vowel before a nasal coda (at most 0.25 s), as Mandarin does;
+    /// None: the song's SongOptions::nasal_lead
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nasal_lead: Option<f64>,
+}
+
+/// Which end of its sung vowel a pitch bend sits at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Edge {
+    Start,
+    End,
+}
+
+/// A bend of the pitch inside a sung note: `st` semitones from the note, at the vowel's start or
+/// end, over `len` of the vowel but at most `max` seconds. The melody stays as written; a bend only
+/// colours the note's start or end (Mandarin's tones, Japanese pitch accent, an English scoop).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Bend {
+    pub at: Edge,
+    pub len: f64,
+    pub max: f64,
+    pub st: f64,
 }

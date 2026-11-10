@@ -85,8 +85,15 @@ describe("wasm engine", () => {
       expect(`${s.name}: ${diff} samples differ`).toBe(`${s.name}: 0 samples differ`);
     }
   }, 120000);
-  test("gesture records are 272 bytes", () => {
-    expect(GESTURE_RECORD).toBe(272);
-    expect(CONTROL_KEYS.length).toBe(22);
+  test("gesture records are 296 bytes", () => {
+    expect(GESTURE_RECORD).toBe(296);
+    expect(CONTROL_KEYS.length).toBe(25);
+    const bytes = new ArrayBuffer(GESTURE_RECORD);
+    writeGestures(bytes, 0, [{ t0: 0, t1: 1, rampIn: 0, rampOut: 0, strength: 1,
+      targets: { fry: 0.5, tension: 0.9, breathiness: 0.7 }, label: "phonation" }], 1);
+    const dv = new DataView(bytes);
+    for (const [key, value] of [["fry", 0.5], ["tension", 0.9], ["breathiness", 0.7]] as const)
+      expect(dv.getFloat64(64 + 8 * CONTROL_KEYS.indexOf(key), true)).toBe(value);
+    expect(dv.getUint8(264)).toBe(9);
   });
 });

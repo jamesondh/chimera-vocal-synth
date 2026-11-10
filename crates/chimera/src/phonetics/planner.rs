@@ -52,8 +52,54 @@ pub fn expand(ipa: &str) -> Option<&'static [&'static str]> {
         "eɪ" => &["e", "i"],
         "oʊ" => &["o", "u"],
         "ɚ" => &["ɝ"],
+        // rising diphthongs: a short close glide into the main vowel (Mandarin's medials: 话 ua,
+        // 天 iɛ, 学 yɛ), written as one nucleus so the glide sings on the beat, inside the note
+        "ia" => &["i", "a"],
+        "iɛ" => &["i", "ɛ"],
+        "iɑ" => &["i", "ɑ"],
+        "iʊ" => &["i", "ʊ"],
+        "ua" => &["u", "a"],
+        "uo" => &["u", "o"],
+        "uɑ" => &["u", "ɑ"],
+        "uə" => &["u", "ə"],
+        "yɛ" => &["y", "ɛ"],
+        "uɔ" => &["u", "ɔ"],
+        // a central start, Mandarin's ou ([əʊ], where English [oʊ] starts nearly at [u])
+        "əʊ" => &["ə", "ʊ"],
+        // triphthongs: a glide into a falling diphthong (Mandarin iao, iou, uai, uei)
+        "iaʊ" => &["i", "a", "ʊ"],
+        "iəʊ" => &["i", "ə", "ʊ"],
+        "uaɪ" => &["u", "a", "ɪ"],
+        "ueɪ" => &["u", "e", "i"],
         _ => return None,
     })
+}
+
+/// A rising nucleus (a rising diphthong or a triphthong): its first part is a short glide.
+pub fn is_rising(ipa: &str) -> bool {
+    matches!(ipa, "ia" | "iɛ" | "iɑ" | "iʊ" | "ua" | "uo" | "uɑ" | "uə" | "yɛ" | "uɔ" | "iaʊ" | "iəʊ" | "uaɪ" | "ueɪ")
+}
+
+/// A rising nucleus's on-glide (its first part), sung short at the note's start.
+pub fn onglide(ipa: &str) -> Option<&'static str> {
+    if is_rising(ipa) { expand(ipa).map(|p| p[0]) } else { None }
+}
+
+/// The vowel a sung note holds: a falling diphthong's first part, a rising nucleus's second, else
+/// the vowel itself.
+pub fn held_vowel(ipa: &str) -> &str {
+    match expand(ipa) {
+        Some(p) if p.len() >= 2 => p[usize::from(is_rising(ipa))],
+        _ => ipa,
+    }
+}
+
+/// What a held note glides off to at its end: a falling diphthong's (or a triphthong's) last part.
+pub fn offglide(ipa: &str) -> Option<&'static str> {
+    match expand(ipa) {
+        Some(p) if p.len() == 3 || (p.len() == 2 && !is_rising(ipa)) => Some(p[p.len() - 1]),
+        _ => None,
+    }
 }
 
 /// The two vowel targets of a diphthong ("aɪ" → ("a", "ɪ")), or None.
@@ -170,6 +216,9 @@ struct Seg<'a> {
     def: Option<PhonemeDef>,
     vowel: Option<ArticPatch>,
     glide_from: bool,
+    aspirated: Option<bool>,
+    vot: Option<f64>,
+    phonation: Option<super::Phonation>,
 }
 
 #[derive(Clone, Copy)]
@@ -194,12 +243,19 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
     for (si, s) in input.iter().enumerate() {
         if let Some(parts) = expand(&s.ipa) {
             let base = durs[si];
+            // shares of the duration: a falling diphthong 55/45, a rising one 30/70, a triphthong 25/45/30
+            let shares: &[f64] = match (parts.len(), is_rising(&s.ipa)) {
+                (2, false) => &[0.55, 0.45],
+                (2, true) => &[0.3, 0.7],
+                (3, _) => &[0.25, 0.45, 0.3],
+                _ => &[1.0],
+            };
             for (i, p) in parts.iter().enumerate() {
-                let dur = if parts.len() > 1 { base * (if i == 0 { 0.55 } else { 0.45 }) } else { base };
-                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0 });
+                let dur = base * shares.get(i).copied().unwrap_or(1.0);
+                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, phonation: if i == usize::from(is_rising(&s.ipa)) { s.phonation } else { None } });
             }
         } else {
-            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false });
+            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, phonation: s.phonation });
         }
     }
     for s in segs.iter_mut() {
@@ -258,6 +314,16 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             stress: if s.vowel.is_some() { Some(s.stress.unwrap_or(0)) } else { None },
             kind: if s.vowel.is_some() { "vowel".to_string() } else { s.def.map_or("?", |d| d.manner.as_str()).to_string() },
         });
+        if let Some(phonation) = s.phonation {
+            let (a, b, target, label) = match phonation {
+                // A short patch near the low point leaves the note's written pitch audible.
+                super::Phonation::Creaky => (t0 + 0.2 * js_min(dur, 0.4), t0 + 0.55 * js_min(dur, 0.4), one(ControlKey::FRY, 0.25), "creaky"),
+                // A fortis consonant stiffens the folds into the following vowel's onset.
+                super::Phonation::Tense => (t0, t1 + 0.08, one(ControlKey::TENSION, 0.95), "tense"),
+                super::Phonation::Breathy => (t0, t1, one(ControlKey::BREATHINESS, 0.7), "breathy"),
+            };
+            gestures.push(Gesture::new(a, b, 0.015, 0.035, 8.0, target).label(label));
+        }
         let Some(def) = s.def.as_ref() else { continue };
         let next_vowel = i < segs.len() - 1 && segs[i + 1].vowel.is_some();
         let prev_seg = if i > 0 { Some(&segs[i - 1]) } else { None };
@@ -308,9 +374,10 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             gestures.push(Gesture::new(t0, t1, 0.012, 0.015, 8.0, one(ControlKey::CLOSURE, 1.0)).label("ʔ"));
         } else if def.voicing == Voicing::Voiceless {
             if def.manner == Manner::Stop || def.manner == Manner::Affricate {
-                // aspirated when syllable-initial before a vowel and not after /s/ (English-like)
-                let aspirated = next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s");
-                let vot = if aspirated { 0.05 / rate } else { 0.012 };
+                // as the front end says; by default English's rule: aspirated when syllable-initial
+                // before a vowel and not after /s/
+                let aspirated = s.aspirated.unwrap_or_else(|| next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s"));
+                let vot = if aspirated { s.vot.unwrap_or(0.05) / rate } else { 0.012 };
                 gestures.push(Gesture::new(t0 + 0.25 * dur, t1 + vot * 0.4, 0.035, if aspirated { 0.045 } else { 0.02 }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration"));
             } else {
                 gestures.push(Gesture::new(t0 - 0.015, t1 + 0.005, 0.03, 0.03, 6.0, one(ControlKey::ABDUCTION, 0.3)).label("voiceless"));

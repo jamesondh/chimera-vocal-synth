@@ -1,5 +1,46 @@
 //! How the human voice's source settings shape the glottis.
 use chimera::voice::human_voice::{HumanVoice, SourcePatch};
+use chimera::control::score::{ControlKey, Gesture, Targets};
+use chimera::phonetics::{Phonation, Segment, Syllable};
+use chimera::phonetics::sing::{SongOptions, SungNote, plan_song};
+use chimera::phonetics::planner::{PlanOptions, plan_utterance};
+
+#[test]
+fn phonation_on_a_diphthong_starts_once() {
+    let seg = Segment { phonation: Some(Phonation::Creaky), ..Segment::new("aɪ") };
+    let plan = plan_utterance(&[seg], &PlanOptions::default());
+    assert_eq!(plan.gestures.iter().filter(|g| g.label_str() == "creaky").count(), 1);
+}
+
+#[test]
+fn a_sung_segments_phonation_field_becomes_a_source_gesture() {
+    let note = SungNote { midi: 60.0, beats: 1.0, syl: Syllable {
+        text: "ka".into(),
+        onset: vec![Segment { phonation: Some(Phonation::Tense), ..Segment::new("k") }],
+        nucleus: Segment::new("a"),
+        ..Default::default()
+    } };
+    let plan = plan_song(&[note], &SongOptions { bpm: 100.0, ..Default::default() });
+    assert!(plan.gestures.iter().any(|g| g.targets.get(ControlKey::TENSION) == Some(0.95)));
+}
+
+#[test]
+fn phonation_gestures_override_and_release_to_the_performers_source() {
+    let mut v = HumanVoice::with_defaults(48000.0);
+    let base = v.glottis.params;
+    v.schedule(&[Gesture::new(0.03, 0.15, 0.005, 0.005, 8.0,
+        Targets::default().with(ControlKey::FRY, 0.8)
+            .with(ControlKey::TENSION, 0.95)
+            .with(ControlKey::BREATHINESS, 0.7))]);
+    v.render(&mut vec![0.0; 4800]);
+    assert!(v.glottis.params.fry > 0.7);
+    assert!(v.glottis.params.closure_sharpness > base.closure_sharpness);
+    assert!(v.glottis.params.chink > base.chink);
+    v.render(&mut vec![0.0; 4800]);
+    assert_eq!(v.glottis.params.fry, base.fry);
+    assert_eq!(v.glottis.params.closure_sharpness, base.closure_sharpness);
+    assert_eq!(v.glottis.params.chink, base.chink);
+}
 
 #[test]
 fn a_pressed_voice_still_closes_abruptly() {

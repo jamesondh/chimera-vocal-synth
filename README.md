@@ -26,7 +26,9 @@ for tests and the `chimera` CLI.
   computer keyboard and Web MIDI.
 - **Speak**: English text (CMUdict with a letter-to-sound fallback) or IPA, turned into
   gestures and prosody, with the gestural score and a consonant chart on screen.
-- **Sing**: piano roll with lyrics per note; consonants land before the beat.
+- **Sing**: piano roll with lyrics per note; consonants land before the beat. Lyrics can be
+  English, Korean or Chinese (Mandarin, as characters or as pinyin with tones), even in one line:
+  each word goes to its language's front end. Other languages can come in as IPA syllables ([docs/language-front-ends.md](docs/language-front-ends.md)).
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.
 - **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.
@@ -68,6 +70,8 @@ bun tools/musicxml-to-notes.ts score.mxl P1 --out p1.json   # a score's part →
   display look.
 - [docs/csd-comparison.md](docs/csd-comparison.md): scoring the voice against the Children's
   Song Dataset.
+- [docs/language-front-ends.md](docs/language-front-ends.md): how lyrics become sung syllables
+  (English, Korean, Mandarin), adding a language, and the scramble test.
 - [docs/speech-comparison.md](docs/speech-comparison.md): scoring the speech against real
   speakers, phone by phone (the TSP speech database).
 - [docs/hill-climb/](docs/hill-climb/): the rules and log for tuning the voice one measured
