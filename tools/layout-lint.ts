@@ -338,14 +338,14 @@ async function main() {
       // 1.2 s in: both heads singing, a word at each mouth
       await check("duet, playing", 1200);
       // a creature show: the drawing, the waterfall and the airway, then the squeak's caption
-      // and, pinned as the video export does, the held note's long caption
+      // and, seeked there, the held note's long caption
       await page.route("**/shows/lint-creature/*", (route) => route.fulfill({ path: `${creatureDir}/${basename(new URL(route.request().url()).pathname)}` }));
       await page.goto(new URL("?show=lint-creature", url).href, { waitUntil: "networkidle" });
       await page.waitForSelector(".duet-creature canvas", { timeout: 15000 });
       await check("creature show", 1000);
       await page.locator(".duet-bar button.primary").click();
       await check("creature show, playing", 600);
-      await page.evaluate(() => ((window as unknown as { __duetTransport: { captureTime: number | null } }).__duetTransport.captureTime = 2.6));
+      await page.locator(".duet-bar input[type=range]").fill("2.6");
       await check("creature show, held note", 600);
     }
     if (!modes.length) {
