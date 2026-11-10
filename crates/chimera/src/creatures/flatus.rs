@@ -5,10 +5,11 @@
 //! ```text
 //!  abdominal push ─┐
 //!   (+ rectal     ▼ (the tissue around the pocket: Rayleigh–Plesset, sample by sample)
-//!    wall recoil) rectal gas pocket ── upper anal canal ── ▷ anal verge ◁ ── margin ── ▷ cheeks ◁ ── gluteal cleft ── air
-//!                 (FDTD tube; its      (IAS zone, opened    (subcutaneous   (slot)    (their contact   (soft-walled slot
-//!                  gas law is the       by the gas)          EAS ring:                 strip: LipReed   between the cheeks,
-//!                  network's own)                            LipReed)                  of fat)          radiating)
+//!    wall recoil) rectal gas pocket ── ▷ IAS zone ◁ ── junction ── ▷ distal ring ◁ ── margin ── ▷ cheeks ◁ ── cleft ── air
+//!                 (FDTD tube; its      (internal sphincter,           (subcutaneous     (slot)   (their contact   (soft-walled
+//!                  gas law is the       cushions, deep EAS:            external          strip:   strip: LipReed   slot between
+//!                  network's own)       LipReed; tone less the         sphincter:        of fat)                   the cheeks,
+//!                                       rectoanal reflex)              LipReed)                                    radiating)
 //! ```
 //!
 //! - **Driving pressure.** The gas pocket is a tube of the airway network, so its gas law is the
@@ -20,13 +21,21 @@
 //!   follow, falls as gas leaves (the recoil term, and the gas law when the walls meet), and the
 //!   event ends when the gas is gone. The same equation gives the pocket its resonance (the
 //!   Minnaert frequency of a bubble in tissue, about 110 Hz at 100 mL).
-//! - **Source.** The closed canal's distal ring is a pressure-controlled, outward-striking valve,
-//!   like a brass player's lips (Fletcher 1993's (+,−) valve): the existing [`LipReed`]. Its mass is
-//!   the tissue ring's, its stiffness the passive tissue's plus the sphincter muscle's short-range
-//!   stiffness, which grows with its tone; its preload is the closing pressure. Pitch and
-//!   squeak-or-rumble come out of those and the airflow; no frequency is set.
+//! - **Two sphincters, two closures.** The canal is shut in two places. Above, the internal
+//!   sphincter (smooth muscle, involuntary tone), the anal cushions and the external sphincter's
+//!   deep part; the rectoanal reflex inhibits the internal sphincter in proportion to the rectal
+//!   distension and lets it recover as the rectum empties. Below, the distal ring, where only the
+//!   external sphincter's subcutaneous part surrounds the canal. The external sphincter is
+//!   striated and voluntary: its command (a control, which calls and the CLI can move during an
+//!   event) reaches it through first-order activation dynamics, so it tightens or lets go no
+//!   faster than muscle can. Each closure is a pressure-opened soft-tissue valve, the engine's
+//!   [`LipReed`]: its mass the tissue its opening displaces (incompressibility), its stiffness the
+//!   relaxed canal's measured compliance plus the contracting muscles' short-range stiffness, its
+//!   preload the closing pressure. Relaxed, a closure is soft and plays low; contracted, it is
+//!   stiff and plays high. Pitch and squeak-or-rumble come out of those and the airflow; no
+//!   frequency is set.
 //! - **Turbulence.** The engine's Reynolds-number noise sources at their calibrated gains: the
-//!   human glottal aspiration source at the valve's jet (same mechanism: a jet from a slit valve
+//!   human glottal aspiration source at each closure's jet (same mechanism: a jet from a slit valve
 //!   into a duct) and the human narrowest-constriction source in the cleft when it is narrow.
 //! - **The cheeks.** Beside the verge the cheeks meet or nearly meet: a second pressure-opened
 //!   valve, a LipReed whose mass and stiffness are the first thickness mode of the fat layer
@@ -41,17 +50,18 @@
 use super::build::{CMH2O, TubeArea, TubeOpts, sections, tube};
 use super::types::{CallDef, CallKey, CreatureDef, CreatureGroup, CreatureSim, GateTimes, ParamDef};
 use crate::airway::network::{AirwayNetwork, NoiseSpec, PortSpec, Tube};
-use crate::math::{PI, cbrt, js_max, js_min, sqrt, tan};
+use crate::math::{PI, cbrt, exp, js_max, js_min, ln, sqrt, tan};
 use crate::physics::WALL_SOFT;
 use crate::sources::valves::LipReed;
 
 // parameter indices (order of `def().params`)
 const PUSH: usize = 0;
-const TONE: usize = 1;
-const GAS: usize = 2;
-const SPREAD: usize = 3;
-const SIZE: usize = 4;
-const MUCUS: usize = 5;
+const EAS: usize = 1;
+const IAS: usize = 2;
+const GAS: usize = 3;
+const SPREAD: usize = 4;
+const SIZE: usize = 5;
+const MUCUS: usize = 6;
 
 /// Smallest and largest body scale (linear, 1 = adult). The tubes get their section counts at the
 /// smallest, so every size keeps the FDTD's stability limit.
@@ -63,43 +73,156 @@ const SIZE_MAX: f64 = 1.25;
 /// Length of the anal canal's high-pressure zone (cm): 3.6 ± 0.1 cm (10th–90th 2.8–4.4) in healthy
 /// women by high-resolution manometry (Noelting et al. 2012, Am J Gastroenterol 107:1530).
 const HPZ_LEN: f64 = 3.6;
-/// Height of the vibrating closure (cm): below the intersphincteric groove, about 1 cm above the
-/// anal verge, only the subcutaneous external sphincter surrounds the canal (standard anatomy; the
-/// height is an anatomy-text figure, not a measurement series). Above it the internal sphincter
-/// relaxes when the rectum distends (rectoanal inhibitory reflex), so gas enters the upper canal
-/// and the remaining closure is this distal ring.
+/// Height of the distal ring (cm): below the intersphincteric groove, about 1 cm above the anal
+/// verge, only the subcutaneous external sphincter surrounds the canal (standard anatomy; the
+/// height is an anatomy-text figure, not a measurement series). Manometry puts the external
+/// sphincter's own pressure peak here, 0.9 cm from the verge (Cheeney et al. 2012, below).
 const VALVE_LEN: f64 = 1.0;
-/// Diameter of the gas-filled upper canal (cm). No measurement of it exists. FLIP planimetry puts
-/// the closed mid canal at about 5 mm (the probe's floor) and the upper canal at 20–24 mm when a
-/// bag distends it (Luft et al. 2012, Tech Coloproctol 16:451); this is their geometric mean.
-const UPPER_CANAL_D: f64 = 1.05;
+/// The space between the internal sphincter's closure and the distal ring (cm). Anatomically the
+/// two closures abut; the airway network needs a node between two valves, and this is the
+/// shortest section that is stable at the smallest body size and a 44.1 kHz output (one section of
+/// at least c/(88.2 kHz·0.93)/0.6 = 0.71 cm). Not anatomy.
+const JUNCTION_LEN: f64 = 0.75;
+/// Height of the internal sphincter's closure (cm): the rest of the high-pressure zone above the
+/// distal ring, where the internal sphincter (inside) and the deep and superficial external
+/// sphincter (outside) surround the canal and the anal cushions line it.
+const IAS_ZONE_LEN: f64 = HPZ_LEN - VALVE_LEN - JUNCTION_LEN;
+/// Diameter of the gas-filled lumen between the two closures (cm). No measurement of it exists.
+/// FLIP planimetry puts the closed mid canal at about 5 mm (the probe's floor) and the upper canal
+/// at 20–24 mm when a bag distends it (Luft et al. 2012, Tech Coloproctol 16:451); this is their
+/// geometric mean.
+const JUNCTION_D: f64 = 1.05;
 /// Length of the closed lumen's slit (cm): the closed canal is a slit or star across its mucosal
 /// core, about 1 cm wide (the core inside the sphincters; see RING_RADIUS). A slit of length ℓ
-/// whose faces part by a gap h passes ℓ·h; a ring opened radially by Δr parts them by 2Δr. Wider
-/// openings unfold the mucosal folds (the canal passes 2–4 cm stool), which a gas jet's sub-mm
-/// gaps don't reach.
+/// whose faces part by a gap h passes ℓ·h. Opening it by a sub-mm gap hardly lengthens its
+/// perimeter (a thin ellipse's perimeter is 2ℓ + O(h²/ℓ)), so the lumen's wall is not stretched:
+/// the tissue around it is pushed outward instead (below). Wider openings unfold the mucosal folds
+/// (the canal passes 2–4 cm stool), which a gas jet's sub-mm gaps don't reach.
 const SLIT_LEN: f64 = 1.0;
 /// Mean radius of the sphincter ring that carries the hoop tension (cm): a mucosal core about 1 cm
 /// across, the internal sphincter 2–3 mm and the external 5–8 mm thick (typical endoanal
 /// ultrasound figures, not checked against one study here); the middle of the external sphincter
 /// sits about 1.3 cm from the axis.
 const RING_RADIUS: f64 = 1.3;
-/// Thickness of tissue moving with the lip (cm): anoderm and submucosa (≈2 mm) and the
-/// subcutaneous external sphincter (≈5 mm) — the ring that opens.
-const LIP_THICKNESS: f64 = 0.7;
+/// Mean radius of the internal sphincter's ring (cm): the mucosal core's 0.5 cm and half the
+/// internal sphincter's 2–3 mm (the same endoanal ultrasound figures).
+const IAS_RADIUS: f64 = 0.63;
+/// Thickness of the ring around the verge (cm): anoderm and submucosa (≈2 mm) and the
+/// subcutaneous external sphincter (≈5 mm). Sets the verge's outer width (the cleft's span).
+const RING_THICKNESS: f64 = 0.7;
 /// Soft-tissue density (g/cm³).
 const TISSUE_DENSITY: f64 = 1.05;
-/// Passive stiffness of the tissue around the lip, per unit area (dyn/cm³): the engine's measured
-/// soft-tissue wall (Ishizaka, French & Flanagan 1975, cheek: skin, fat and a thin muscle sheet,
-/// the closest measured tissue to the perianal skin, fat and sphincter).
-const PASSIVE_STIFFNESS: f64 = WALL_SOFT.stiffness;
+/// The lip's moving mass, from incompressibility. Soft tissue is incompressible at these rates, so
+/// the area A = ℓ·h the gas opens in the lumen is pushed out through every contour around it: at
+/// distance r the tissue moves at Ȧ/2πr (a two-dimensional source), and its kinetic energy per
+/// unit length of canal is ½·ρ·ln(b/a)/(2π)·Ȧ². The inner radius a is the slit's conformal radius
+/// ℓ/4; the outer, b, is where the flow stops being two-dimensional, the height of the closing ring
+/// (beyond it the displaced volume spreads in three dimensions and its energy converges). As the
+/// lip's mass per unit face area (ḧ = 2Δp/m): m = ρ·ℓ·ln(4H/ℓ)/π, 0.46 g/cm² for the 1 cm ring.
+/// (The earlier model let a 7 mm layer move as a plate, 0.74 g/cm²; the cutoff b is good to a
+/// factor of two, which moves m by about ±0.15 g/cm².) The mass is the same relaxed or contracted:
+/// the displaced tissue has to move either way.
+fn lip_mass(height: f64, slit: f64) -> f64 {
+    TISSUE_DENSITY * slit * ln(4.0 * height / slit) / PI
+}
+/// Passive stiffness of the relaxed canal, per unit face area (dyn/cm³), from its measured
+/// pressure–area compliance. Anal balloon distension with a barostat, the balloon's volume checked
+/// on MRI, in 33 healthy women: past the opening pressure the volume grew by 0.30 (SD 0.18) mL per
+/// mmHg over the canal's 3.2 cm (Sharma, Feuerhak, Corner, Manduca & Bharucha 2021,
+/// Neurogastroenterol Motil 33:e13972, Table 1): a cross-sectional compliance C_A = 0.094 cm² per
+/// mmHg. A slit passing A = ℓ·h with h = 2Δr (LipReed's coordinates) has k = dΔp/dΔr = 2ℓ/C_A =
+/// 2.8·10⁴ dyn/cm³ (SD range 1.8–7.1·10⁴), a tenth of the facial cheek's stiffness the model
+/// borrowed before (3·10⁵, Ishizaka et al. 1975). Not a clean passive number: it was measured awake, where the canal also relaxes as it is distended
+/// (opening pressure 49 mmHg against 90 at rest) and the toned muscle's length–tension adds
+/// stiffness. Under anaesthesia with curarisation and a maximal inhibitory reflex, passive
+/// elements bear load only beyond 1 cm of distension (Lestar, Penninckx & Kerremans 1989, Int J
+/// Colorectal Dis 4:118), so at a gas jet's sub-mm gaps the passive part is if anything smaller.
+/// The barostat's quasi-static value is used at acoustic rates; tissue stiffens somewhat with
+/// frequency, not measured for this tissue.
+const PASSIVE_STIFFNESS: f64 = 2.0 * SLIT_LEN / (0.30 / 3.2 / MMHG);
+/// dyn/cm² per mmHg
+const MMHG: f64 = 1333.22;
 /// Short-range stiffness of active muscle in proportion to its force: K = γ·F/l_F with γ = 23.4,
 /// fitted across six cat hindlimb muscles (Cui, Perreault, Maas & Sandercock 2008, J Biomech
-/// 41:1945; after Rack & Westbury 1974). For a ring of hoop tension T = P_close·r opened by Δr
-/// (fibre strain Δr/r), the closing pressure rises by γ·P_close·Δr/r: a radial stiffness
-/// γ·P_close/r per unit area. Short-range stiffness holds for small stretches, of the order of the
-/// lip's motion here (Δr/r ≈ 1–5 %); the sphincter's own γ is not measured.
+/// 41:1945; after Rack & Westbury 1974). The ring of radius R holds the slit shut with hoop tension
+/// T = P·R (P the closing pressure it puts on the lumen). Incompressible tissue between them, the
+/// slit's opening dA = ℓ·dh widens the ring by dR = dA/2πR (fibre strain dA/2πR²), so
+/// dP/dA = (γ − 1)·P/(2πR²) (the −1 is Laplace's: the same tension on a wider ring presses
+/// less), and per unit face area k = 2ℓ·dP/dA = (γ − 1)·P·ℓ/(πR²): 4.2·P for the 1.3 cm
+/// external sphincter. (The earlier model took the ring's radial stiffness γ·P/R, 18·P, which
+/// assumed the lumen a circle of the ring's radius while its flow passed a 1 cm slit.)
+/// Short-range stiffness holds for small stretches, of the order of these (dR/R ≈ 0.1–2 %); the
+/// sphincter's own γ is not measured.
 const SRS_GAMMA: f64 = 23.4;
+/// Active stiffness per unit face area (dyn/cm³) of a ring of radius `r` closing the slit with
+/// pressure `p` (dyn/cm²): see SRS_GAMMA.
+fn active_stiffness(p: f64, r: f64, slit: f64) -> f64 {
+    (SRS_GAMMA - 1.0) * p * slit / (PI * r * r)
+}
+// ---------------------------------------------------------------- the two sphincters
+
+/// The closing pressure at rest, split by its sources. With probes of 0.3–3 cm, conscious and under
+/// anaesthesia with curarisation, and a maximal inhibitory reflex, 21 subjects without anal disease
+/// (Lestar, Penninckx & Kerremans 1989): at rest 30 % of the maximal basal pressure is the
+/// striated (external) sphincter's tonic activity, 45 % the internal sphincter's nerve-driven and
+/// 10 % its myogenic tone, and 15 % the expansion of the haemorrhoidal plexuses, the anal
+/// cushions; the internal sphincter's whole share can be inhibited by a maximal rectoanal reflex.
+/// The anal cushions lie above the dentate line, in the internal sphincter's zone, not in the
+/// distal ring: their pressure closes the upper closure. Their share of a median resting pressure
+/// of 67 cmH₂O (Luft et al. 2012): 10 cmH₂O, held constant (the plexus fills and empties over
+/// seconds, slower than an event).
+const CUSHION_PRESSURE: f64 = 0.15 * 67.0;
+/// The external sphincter's share of the internal sphincter's zone. In high-definition manometry
+/// of the reflex (10 healthy volunteers; Cheeney, Nguyen, Valestin & Rao 2012, Neurogastroenterol
+/// Motil 24:e147) the resting peak, 70–80 mmHg at 1.6 cm from the verge, relaxes by at most 47
+/// mmHg (from 71 mL of rectal distension on), leaving about 28 mmHg there, while the residual peak
+/// moves to the external sphincter at 0.9 cm, 32 mmHg. Of the 28, the cushions' 15 % of 75 mmHg is
+/// 11; the remaining 17 mmHg is the external sphincter's (deep and superficial parts) at the
+/// internal sphincter's level, 0.53 of its pressure on the distal ring.
+const EAS_UPPER_SHARE: f64 = 17.0 / 32.0;
+/// The external sphincter's activation dynamics. A striated muscle's force follows its neural
+/// command through first-order activation dynamics, da/dt = (u − a)/τ, faster rising than
+/// falling: τ = 10 ms activating and 40 ms deactivating, the values of the musculoskeletal
+/// literature (Zajac 1989, Crit Rev Biomed Eng 17:359; Winters 1990; as OpenSim's first-order
+/// activation model takes them), for limb muscles of mixed fibre types. The external anal
+/// sphincter is about 80 % type I (slow) fibres (Konsten, Baeten, Havenith & Soeters 1993, Dis
+/// Colon Rectum 36:559), so its own constants are probably longer; not measured. Isometric, its
+/// closing pressure is proportional to its activation, so the filter acts on the pressure.
+const EAS_TAU_ACT: f64 = 0.010;
+const EAS_TAU_DEACT: f64 = 0.040;
+/// The rectoanal inhibitory reflex: rectal distension inhibits the internal sphincter. In Cheeney et
+/// al.'s (2012) volunteers the anal pressure fell by 20 mmHg at 15 mL and by its most, 47 mmHg, from
+/// 71 mL on (the curve then plateaus): fractions 0.43 and 1 of the internal sphincter's share.
+/// The depth of the reflex's nadir as a fraction, d(V) = 1 − exp(−V/V_c), passes through both with
+/// V_c = 27 mL (d(15) = 0.43, d(71) = 0.93, d(100) = 0.98).
+const RAIR_VC: f64 = 27.0;
+/// After the nadir the sphincter recovers to a plateau that depends on the distension: in the same
+/// study fully at 10 mL, partly at 40 mL, to just above the nadir at 100 mL and not at all at
+/// 160 mL; "linearly related to the volume". The plateau's depth as a fraction of the nadir's:
+/// a line from 0 at 10 mL to 1 at 115 mL.
+const RAIR_PLATEAU: (f64, f64) = (10.0, 115.0);
+/// The time course. The reflex's latency is 5.1 s in healthy controls (60 and 120 mL of air;
+/// Sangwan, Coller, Schoetz, Murray & Roberts 1995, Dis Colon Rectum 38:1281), and the anal
+/// pressure takes a few seconds more to reach its nadir, longer than most events. The model takes
+/// the reflex to have acted before the event: the gas has been sampled (the reflex is the anal
+/// "sampling reflex"; Huizinga et al. 2021, Front Med 8:720558), so each event starts at the
+/// nadir for its volume. From there the sphincter recovers towards the plateau of the remaining
+/// volume at the measured speed: in 13 asymptomatic controls the proximal canal relaxed from 46.0 to
+/// 17.8 mmHg and recovered at 2.98 mmHg/s (Netinho et al. 2005, Arq Gastroenterol 42:19), the
+/// whole relaxation in 9.5 s. As a fraction of the inhibited tone: 1/9.5 per second.
+const RAIR_RECOVERY_RATE: f64 = 2.98 / (46.0 - 17.8);
+
+/// The reflex's nadir depth (fraction of the internal sphincter's tone inhibited) at an adult
+/// rectal volume `v` (mL).
+fn rair_nadir(v: f64) -> f64 {
+    1.0 - exp(-js_max(0.0, v) / RAIR_VC)
+}
+
+/// The reflex's sustained depth at an adult rectal volume `v` (mL).
+fn rair_plateau(v: f64) -> f64 {
+    rair_nadir(v) * js_max(0.0, js_min(1.0, (v - RAIR_PLATEAU.0) / (RAIR_PLATEAU.1 - RAIR_PLATEAU.0)))
+}
+
 /// Damping ratio of the lip. No measurement for anal tissue; 0.1 is Ishizaka & Flanagan's (1972)
 /// for the vibrating vocal-fold mass, the soft-tissue valve whose damping was fitted to data.
 const LIP_ZETA: f64 = 0.1;
@@ -188,10 +311,23 @@ pub struct Flatus {
     net: AirwayNetwork,
     tubes: Vec<(&'static str, Tube)>,
     rectum: Tube,
-    canal: Tube,
+    junction: Tube,
     cleft: Tube,
+    /// the internal sphincter's closure (port and lip) and the distal ring's
+    upper_port: usize,
+    upper: LipReed,
     valve: usize,
     lip: LipReed,
+    /// the lips start at rest at their first control step
+    lips_settled: bool,
+    /// external sphincter: its closing pressure (dyn/cm²), the activation-filtered command, and
+    /// whether it has been set (the muscle starts at its command)
+    eas: f64,
+    eas_set: bool,
+    /// internal sphincter: the fraction of its tone the rectoanal reflex inhibits, and its
+    /// closing pressure (dyn/cm²)
+    rair: f64,
+    ias: f64,
     margin: Tube,
     cheek_port: usize,
     cheeks: LipReed,
@@ -221,8 +357,8 @@ pub struct Flatus {
     expelled: f64,
     rect_areas: Vec<f64>,
     cleft_areas: Vec<f64>,
-    canal_areas: Vec<f64>,
-    noise: [NoiseSpec; 2],
+    junction_areas: Vec<f64>,
+    noise: [NoiseSpec; 3],
     size: f64,
     /// mucus cohesive strength (dyn/cm²) and whether a liquid bridge joins the faces
     adhesion: f64,
@@ -235,19 +371,20 @@ fn create(fs: f64) -> Box<dyn CreatureSim> {
     let n_pocket = sections(fs, pocket_shape(POCKET_FLOOR).0, 2.0, 8.0, 1.0);
     // no yielding wall: the pocket's wall is the Rayleigh–Plesset tissue below
     let rectum = tube(&mut net, "rectum", fs, len0, TubeArea::Uniform(area0), TubeOpts { min: Some(n_pocket as f64), max: Some(n_pocket as f64), ..Default::default() });
-    let canal_len = HPZ_LEN - VALVE_LEN;
-    let n_canal = sections(fs, canal_len * SIZE_MIN, 2.0, 30.0, 1.0);
-    let upper = PI * UPPER_CANAL_D * UPPER_CANAL_D / 4.0;
-    let canal = tube(&mut net, "canal", fs, canal_len, TubeArea::Uniform(upper), TubeOpts { wall: Some(WALL_SOFT), min: Some(n_canal as f64), max: Some(n_canal as f64), ..Default::default() });
+    let lumen = PI * JUNCTION_D * JUNCTION_D / 4.0;
+    // one section: the shortest stable length (JUNCTION_LEN)
+    let junction = tube(&mut net, "junction", fs, JUNCTION_LEN, TubeArea::Uniform(lumen), TubeOpts { wall: Some(WALL_SOFT), min: Some(1.0), max: Some(1.0), ..Default::default() });
     let n_cleft = sections(fs, CLEFT_DEPTH * SIZE_MIN, 2.0, 30.0, 1.0);
     let cleft = tube(&mut net, "cleft", fs, CLEFT_DEPTH, TubeArea::Uniform(1.0), TubeOpts { wall: Some(WALL_SOFT), min: Some(n_cleft as f64), max: Some(n_cleft as f64), ..Default::default() });
     let n_margin = sections(fs, MARGIN_LEN * SIZE_MIN, 2.0, 30.0, 1.0);
     let margin = tube(&mut net, "margin", fs, MARGIN_LEN, TubeArea::Uniform(0.3), TubeOpts { wall: Some(WALL_SOFT), min: Some(n_margin as f64), max: Some(n_margin as f64), ..Default::default() });
-    net.connect(rectum.last_node(), canal.first_node());
+    // the internal sphincter's zone: a slit duct whose gap its lip sets every sample (the slit's
+    // Poiseuille resistance over its height, and the glottis's kinetic coefficients, as below)
+    let upper_port = net.add_port(rectum.last_node(), junction.first_node(), PortSpec::new(0.0, IAS_ZONE_LEN).kinetic(0.37, 1.0).slit(SLIT_LEN));
     // the distal ring: a slit duct of the lip's height whose gap the LipReed sets every sample;
     // Poiseuille slit resistance over its width, and Ishizaka & Flanagan's (1972) entrance and exit
     // kinetic coefficients (0.37 + 1.0), as at the glottis
-    let valve = net.add_port(canal.last_node(), margin.first_node(), PortSpec::new(0.0, VALVE_LEN).kinetic(0.37, 1.0).slit(SLIT_LEN));
+    let valve = net.add_port(junction.last_node(), margin.first_node(), PortSpec::new(0.0, VALVE_LEN).kinetic(0.37, 1.0).slit(SLIT_LEN));
     // the cheeks' strip: a slit across the cleft whose gap the cheeks' LipReed sets every sample
     let cheek_port = net.add_port(margin.last_node(), cleft.first_node(), PortSpec::new(0.3, CHEEK_LEN).kinetic(0.37, 1.0).slit(1.0));
     net.add_radiation(cleft.last_node());
@@ -256,15 +393,25 @@ fn create(fs: f64) -> Box<dyn CreatureSim> {
     // follows at control rate, must not inject −dV/dt a second time; the other tubes change only
     // with body size and cheek spread, slowly
     net.enable_volume_source = false;
-    let jet = NoiseSpec::new(valve, margin.branch(0), canal.branch(canal.n - 2), JET_NOISE.0).band(JET_NOISE.1, JET_NOISE.2);
+    // each closure's jet (the junction has no inner branch: a jet out of one valve is injected at
+    // the other's port)
+    let jet = NoiseSpec::new(valve, margin.branch(0), upper_port, JET_NOISE.0).band(JET_NOISE.1, JET_NOISE.2);
+    let upper_jet = NoiseSpec::new(upper_port, valve, rectum.branch(rectum.n - 2), JET_NOISE.0).band(JET_NOISE.1, JET_NOISE.2);
     let mut s = Flatus {
         net,
-        tubes: vec![("rectum", rectum), ("canal", canal), ("margin", margin), ("cleft", cleft)],
+        tubes: vec![("rectum", rectum), ("junction", junction), ("margin", margin), ("cleft", cleft)],
         rectum,
-        canal,
+        junction,
         cleft,
+        upper_port,
+        upper: LipReed::new(fs),
         valve,
         lip: LipReed::new(fs),
+        lips_settled: false,
+        eas: 0.0,
+        eas_set: false,
+        rair: 0.0,
+        ias: 0.0,
         margin,
         cheek_port,
         cheeks: LipReed::new(fs),
@@ -286,13 +433,14 @@ fn create(fs: f64) -> Box<dyn CreatureSim> {
         expelled: 0.0,
         rect_areas: vec![area0; rectum.n],
         cleft_areas: vec![1.0; cleft.n],
-        canal_areas: vec![upper; canal.n],
-        noise: [jet; 2],
+        junction_areas: vec![lumen; junction.n],
+        noise: [jet, upper_jet, jet],
         size: 1.0,
         adhesion: 0.0,
         bonded: false,
     };
     s.lip.zeta = LIP_ZETA;
+    s.upper.zeta = LIP_ZETA;
     Box::new(s)
 }
 
@@ -313,10 +461,12 @@ impl Flatus {
         self.net.set_tube_targets(self.rectum, &self.rect_areas, Some(len), None);
         self.net.snap_to_targets();
         let p = push + self.recoil(self.volume);
-        for k in self.rectum.first_node()..=self.canal.last_node() {
+        for k in self.rectum.first_node()..=self.rectum.last_node() {
             self.net.p[k] = p;
         }
         self.expelled = 0.0;
+        // the gas has been sampled: the rectoanal reflex is at its nadir for this distension
+        self.rair = rair_nadir(self.volume / (self.size * self.size * self.size));
     }
 }
 
@@ -337,7 +487,7 @@ impl CreatureSim for Flatus {
     fn gain(&self) -> f64 {
         5.5e-7 / 4.0
     }
-    fn control(&mut self, p: &[f64], gate: f64, _dt: f64) {
+    fn control(&mut self, p: &[f64], gate: f64, dt: f64) {
         let s = js_max(SIZE_MIN, js_min(SIZE_MAX, p[SIZE]));
         self.size = s;
         let push = p[PUSH] * CMH2O * gate;
@@ -367,14 +517,14 @@ impl CreatureSim for Flatus {
         let (len, area) = pocket_shape(self.volume);
         self.rect_areas.fill(area);
         self.net.set_tube_targets(self.rectum, &self.rect_areas, Some(len), None);
-        let upper = PI * UPPER_CANAL_D * UPPER_CANAL_D / 4.0 * s * s;
-        self.canal_areas.fill(upper);
-        self.net.set_tube_targets(self.canal, &self.canal_areas, Some((HPZ_LEN - VALVE_LEN) * s), None);
+        let lumen = PI * JUNCTION_D * JUNCTION_D / 4.0 * s * s;
+        self.junction_areas.fill(lumen);
+        self.net.set_tube_targets(self.junction, &self.junction_areas, Some(JUNCTION_LEN * s), None);
         // the cleft: a wedge between the cheeks, gap g(z) = g₀ + 2z·tan(θ/2) at depth z from the
         // anus, across the anal verge's width (the sphincter ring's outer diameter)
         let half = js_max(0.0, js_min(1.0, p[SPREAD])) * CLEFT_SPREAD_MAX;
         let depth = CLEFT_DEPTH * s;
-        let across = 2.0 * (RING_RADIUS + LIP_THICKNESS / 2.0) * s;
+        let across = 2.0 * (RING_RADIUS + RING_THICKNESS / 2.0) * s;
         let n = self.cleft.n;
         let mut narrowest = (0usize, f64::INFINITY);
         for i in 0..n {
@@ -412,35 +562,75 @@ impl CreatureSim for Flatus {
         self.net.set_port_geometry(self.cheek_port, strip, across);
         self.margin_areas.fill((CLEFT_GAP * s + rest) * across);
         self.net.set_tube_targets(self.margin, &self.margin_areas, Some(MARGIN_LEN * s), None);
-        // the lip: mass per unit area ρ·δ; stiffness passive + the sphincter's short-range
-        // stiffness; at rest the tone presses the ring shut with the closing pressure
-        let tone = p[TONE] * CMH2O;
+        // the external sphincter: its closing pressure follows the command through the muscle's
+        // activation dynamics (faster up than down); it starts at its command
+        let command = js_max(0.0, p[EAS]) * CMH2O;
+        if !self.eas_set {
+            self.eas = command;
+            self.eas_set = true;
+        }
+        let tau = if command > self.eas { EAS_TAU_ACT } else { EAS_TAU_DEACT };
+        self.eas += (command - self.eas) * (1.0 - exp(-dt / tau));
+        // the internal sphincter: its tone, less what the rectoanal reflex inhibits; the reflex
+        // recovers towards the plateau of the volume left, at the measured speed
+        let plateau = rair_plateau(self.volume / (s * s * s));
+        if self.rair > plateau {
+            self.rair = js_max(plateau, self.rair - RAIR_RECOVERY_RATE * dt);
+        }
+        self.ias = js_max(0.0, p[IAS]) * CMH2O * (1.0 - self.rair);
         self.adhesion = js_max(0.0, p[MUCUS]) * KPA;
-        let r = RING_RADIUS * s;
-        let mass = TISSUE_DENSITY * LIP_THICKNESS * s;
-        let k = PASSIVE_STIFFNESS + SRS_GAMMA * tone / r;
+        let slit = SLIT_LEN * s;
+        // the distal ring: the subcutaneous external sphincter alone. Mass: the displaced tissue's;
+        // stiffness: the relaxed canal's plus the sphincter's short-range stiffness; at rest its
+        // closing pressure presses the slit shut. The gap h is twice each face's displacement Δr, so
+        // h'' = (2/m)·Δp − ω²(h − h₀) and the rest gap is twice the preload −P/k.
+        let close = self.eas;
+        let k = PASSIVE_STIFFNESS + active_stiffness(close, RING_RADIUS * s, slit);
+        let mass = lip_mass(VALVE_LEN * s, slit);
         let lip = &mut self.lip;
         lip.f = sqrt(k / mass) / (2.0 * PI);
-        // the gap h is twice the ring's radial opening Δr, so h'' = (2/m)·Δp − ω²(h − h₀) and the
-        // rest gap is twice the radial preload −P_close/k
         lip.surface_per_mass = 2.0 / mass;
-        lip.h0 = -2.0 * tone / k;
-        lip.width = SLIT_LEN * s;
-        self.net.set_port_geometry(self.valve, VALVE_LEN * s, SLIT_LEN * s);
-        // turbulence: the valve's jet, and the cleft where it is narrow
-        let mut len = 1;
+        lip.h0 = -2.0 * close / k;
+        lip.width = slit;
+        self.net.set_port_geometry(self.valve, VALVE_LEN * s, slit);
+        // the internal sphincter's zone: closed by the internal sphincter, the anal cushions and
+        // the external sphincter's deep and superficial parts; each muscle ring adds its own
+        // short-range stiffness (the cushions only press)
+        let ext = EAS_UPPER_SHARE * self.eas;
+        let close_u = self.ias + CUSHION_PRESSURE * CMH2O + ext;
+        let k_u = PASSIVE_STIFFNESS + active_stiffness(self.ias, IAS_RADIUS * s, slit) + active_stiffness(ext, RING_RADIUS * s, slit);
+        let mass_u = lip_mass(IAS_ZONE_LEN * s, slit);
+        let up = &mut self.upper;
+        up.f = sqrt(k_u / mass_u) / (2.0 * PI);
+        up.surface_per_mass = 2.0 / mass_u;
+        up.h0 = -2.0 * close_u / k_u;
+        up.width = slit;
+        self.net.set_port_geometry(self.upper_port, IAS_ZONE_LEN * s, slit);
+        if !self.lips_settled {
+            self.lip.settle();
+            self.upper.settle();
+            self.lips_settled = true;
+        }
+        // turbulence: each closure's jet, and the cleft where it is narrow
+        let mut len = 2;
         let w = 1.0 - smooth(CONSTRICTION_FADE.0, CONSTRICTION_FADE.1, narrowest.1);
         if w > 0.0 {
             let i = narrowest.0.min(n - 2);
-            self.noise[1] = NoiseSpec::new(self.cleft.branch(i), self.cleft.branch((i + 1).min(n - 2)), self.cleft.branch(i.saturating_sub(1)), CONSTRICTION_NOISE.0 * w).band(CONSTRICTION_NOISE.1, CONSTRICTION_NOISE.2);
-            len = 2;
+            self.noise[2] = NoiseSpec::new(self.cleft.branch(i), self.cleft.branch((i + 1).min(n - 2)), self.cleft.branch(i.saturating_sub(1)), CONSTRICTION_NOISE.0 * w).band(CONSTRICTION_NOISE.1, CONSTRICTION_NOISE.2);
+            len = 3;
         }
         self.net.set_noise_sources(&self.noise[..len]);
     }
     #[inline]
     fn sample(&mut self) -> f64 {
         let p = &self.net.p;
-        let dp = p[self.canal.last_node()] - p[self.margin.first_node()];
+        let dp = p[self.junction.last_node()] - p[self.margin.first_node()];
+        // the internal sphincter's zone is a radial closure inside the canal: the gas presses its
+        // walls outward from above and, once past, from below as well, so the gas between the
+        // closures doesn't hold it shut (as a brass player's mouthpiece pressure does the lips);
+        // its load is the gas's gauge pressure above it, and it passes gas when that exceeds its
+        // closing pressure, as manometry has it
+        let dpu = p[self.rectum.last_node()];
         let dpc = p[self.margin.last_node()] - p[self.cleft.first_node()];
         let mut pr = 0.0;
         for k in self.rectum.first_node()..=self.rectum.last_node() {
@@ -486,6 +676,8 @@ impl CreatureSim for Flatus {
             self.bonded = false;
         }
         self.net.set_port_area(self.valve, if self.bonded { 0.0 } else { open });
+        let upper_open = self.upper.next(dpu);
+        self.net.set_port_area(self.upper_port, upper_open);
         let cheek_open = self.cheeks.next(dpc);
         self.net.set_port_area(self.cheek_port, cheek_open);
         let y = self.net.step();
@@ -498,7 +690,12 @@ impl CreatureSim for Flatus {
         // the glyph: the gap against a 1 mm reference
         out.push(("sphincter", js_min(1.0, self.lip.opening / (self.lip.width * 0.1))));
         out.push(("gap", self.lip.opening / self.lip.width));
+        out.push(("inner", js_min(1.0, self.upper.opening / (self.upper.width * 0.1))));
+        out.push(("upper", self.upper.opening / self.upper.width));
         out.push(("cheeks", self.cheeks.opening / self.cheeks.width));
+        out.push(("eas", self.eas / CMH2O));
+        out.push(("ias", self.ias / CMH2O));
+        out.push(("rair", self.rair));
         out.push(("pressure", self.p_mean / CMH2O));
         out.push(("gas", self.volume));
         out.push(("flow", self.u_mean));
@@ -513,11 +710,43 @@ fn smooth(e0: f64, e1: f64, x: f64) -> f64 {
     crate::math::smoothstep(e0, e1, x)
 }
 
+/// Let go, then clench: a relaxed external sphincter passes the gas until, at 0.6 s, the command
+/// jumps to a hard squeeze; the muscle follows through its activation dynamics and cuts the flow off,
+/// gas still in the rectum.
+fn clench() -> Vec<CallKey> {
+    let k = CallKey::new;
+    vec![
+        k(0.0, &[("gate", 0.0), ("gas", 300.0), ("eas", 10.0), ("push", 12.0), ("spread", 0.3)]),
+        k(0.1, &[("!fill", 1.0), ("gate", 0.0)]),
+        k(0.12, &[("gate", 1.0)]),
+        k(0.6, &[("eas", 10.0)]),
+        k(0.61, &[("eas", 150.0)]),
+        k(1.3, &[("gate", 1.0), ("eas", 150.0)]),
+        k(1.4, &[("gate", 0.0)]),
+        k(1.9, &[("gate", 0.0)]),
+    ]
+}
+
+/// The external sphincter squeezed and released four times a second (the command alternating
+/// between 5 and 35 cmH₂O, within what its activation follows) while one pocket of gas leaves.
+fn quiver() -> Vec<CallKey> {
+    let k = CallKey::new;
+    let mut keys = vec![k(0.0, &[("gate", 0.0), ("gas", 200.0), ("eas", 5.0), ("push", 10.0), ("spread", 0.3)]), k(0.1, &[("!fill", 1.0), ("gate", 0.0)]), k(0.12, &[("gate", 1.0)])];
+    for i in 0..16 {
+        let t = 0.12 + 0.125 * i as f64;
+        keys.push(k(t, &[("eas", if i % 2 == 0 { 5.0 } else { 35.0 })]));
+    }
+    keys.push(k(2.2, &[("gate", 1.0), ("eas", 5.0)]));
+    keys.push(k(2.3, &[("gate", 0.0)]));
+    keys.push(k(2.8, &[("gate", 0.0)]));
+    keys
+}
+
 /// Five pushes of 0.15 s, 0.25 s apart, on one pocket of gas: the push (a parameter, smoothed like
 /// the muscle) goes on and off while the gate stays open.
 fn staccato() -> Vec<CallKey> {
     let k = CallKey::new;
-    let mut keys = vec![k(0.0, &[("gate", 0.0), ("gas", 200.0), ("tone", 20.0), ("push", 0.0), ("spread", 0.2)]), k(0.1, &[("!fill", 1.0), ("gate", 0.0)]), k(0.12, &[("gate", 1.0)])];
+    let mut keys = vec![k(0.0, &[("gate", 0.0), ("gas", 200.0), ("eas", 20.0), ("push", 0.0), ("spread", 0.2)]), k(0.1, &[("!fill", 1.0), ("gate", 0.0)]), k(0.12, &[("gate", 1.0)])];
     for i in 0..5 {
         let t = 0.15 + 0.4 * i as f64;
         keys.push(k(t, &[("push", 0.0)]));
@@ -548,9 +777,19 @@ pub fn def() -> CreatureDef {
             // intrarectal pressure added by straining: 20 ± 3 mmHg (10th–90th 0.7–47) during
             // simulated evacuation in healthy women under 50 (Noelting et al. 2012)
             ParamDef::new("push", "Abdominal push", 0.0, 80.0, 30.0).unit("cmH₂O").smooth(0.05),
-            // the anal canal's closing pressure: resting 32–133 cmH₂O (median 67), squeeze up to
-            // 252 (Luft et al. 2012); passing gas means relaxing below the push
-            ParamDef::new("tone", "Sphincter tone", 2.0, 150.0, 20.0).unit("cmH₂O").smooth(0.05),
+            // the voluntary command to the external sphincter, as the closing pressure it makes
+            // once the muscle has followed (activation dynamics in the simulation, so the control
+            // itself is not smoothed): 0 fully relaxed; its tonic share of a resting pressure is
+            // about 30 % (Lestar et al. 1989), some 20–30 cmH₂O; squeezing adds 25–200 (median 92;
+            // Luft et al. 2012), the top of the range the highest squeeze there (252 cmH₂O).
+            // Passing gas means relaxing it below the push.
+            ParamDef::new("eas", "External sphincter (voluntary)", 0.0, 250.0, 20.0).unit("cmH₂O").smooth(0.001),
+            // the internal sphincter's tone before the rectoanal reflex inhibits it: 55 % of the
+            // resting pressure (Lestar et al. 1989), 37 cmH₂O of a median 67 (range 32–133; Luft et
+            // al. 2012). 0 is a sphincter fully relaxed by the coloanal reflex, which relaxes both
+            // sphincters when a colonic pressure wave brings gas into the rectum (Huizinga et al.
+            // 2021).
+            ParamDef::new("ias", "Internal sphincter tone", 0.0, 80.0, 37.0).unit("cmH₂O").smooth(0.3),
             // gas in the rectum at the start of an event: 476–1491 mL a day in 24-h collections
             // (Tomlin, Lowis & Read 1991, Gut 32:665), passed in some ten to twenty events
             ParamDef::new("gas", "Gas volume", 10.0, 300.0, 100.0).unit("mL").log().smooth(0.01),
@@ -570,22 +809,24 @@ pub fn def() -> CreatureDef {
                 "Squeak",
                 "Little gas, a tight sphincter, cheeks together: the push only just opens it",
                 None,
-                vec![k(0.0, &[("gate", 0.0), ("gas", 20.0), ("tone", 40.0), ("push", 42.0), ("spread", 0.0)]), k(0.1, &[("!fill", 1.0), ("gate", 0.0)]), k(0.12, &[("gate", 1.0)]), k(1.3, &[("gate", 1.0)]), k(1.4, &[("gate", 0.0)]), k(1.9, &[("gate", 0.0)])],
+                vec![k(0.0, &[("gate", 0.0), ("gas", 20.0), ("eas", 40.0), ("push", 50.0), ("spread", 0.0)]), k(0.1, &[("!fill", 1.0), ("gate", 0.0)]), k(0.12, &[("gate", 1.0)]), k(1.3, &[("gate", 1.0)]), k(1.4, &[("gate", 0.0)]), k(1.9, &[("gate", 0.0)])],
             ),
             CallDef::new(
                 "rumble",
                 "Rumble",
                 "Plenty of gas, a relaxed sphincter, a gentle steady push",
                 None,
-                vec![k(0.0, &[("gate", 0.0), ("gas", 300.0), ("tone", 5.0), ("push", 8.0), ("spread", 0.3)]), k(0.1, &[("!fill", 1.0), ("gate", 0.0)]), k(0.12, &[("gate", 1.0)]), k(3.1, &[("gate", 1.0)]), k(3.2, &[("gate", 0.0)]), k(3.7, &[("gate", 0.0)])],
+                vec![k(0.0, &[("gate", 0.0), ("gas", 300.0), ("eas", 5.0), ("push", 8.0), ("spread", 0.3)]), k(0.1, &[("!fill", 1.0), ("gate", 0.0)]), k(0.12, &[("gate", 1.0)]), k(3.1, &[("gate", 1.0)]), k(3.2, &[("gate", 0.0)]), k(3.7, &[("gate", 0.0)])],
             ),
             CallDef::new("staccato", "Staccato", "One pocket of gas let out in five pushes", None, staccato()),
+            CallDef::new("clench", "Clench", "Let go, then clench the external sphincter to cut it off", None, clench()),
+            CallDef::new("quiver", "Quiver", "The external sphincter squeezed and released four times a second", None, quiver()),
             CallDef::new(
                 "leak",
                 "Slow leak",
                 "Relaxed, cheeks spread, a gentle push",
                 None,
-                vec![k(0.0, &[("gate", 0.0), ("gas", 80.0), ("tone", 4.0), ("push", 4.0), ("spread", 1.0)]), k(0.1, &[("!fill", 1.0), ("gate", 0.0)]), k(0.12, &[("gate", 1.0)]), k(3.1, &[("gate", 1.0)]), k(3.2, &[("gate", 0.0)]), k(3.7, &[("gate", 0.0)])],
+                vec![k(0.0, &[("gate", 0.0), ("gas", 80.0), ("eas", 4.0), ("push", 6.0), ("spread", 1.0)]), k(0.1, &[("!fill", 1.0), ("gate", 0.0)]), k(0.12, &[("gate", 1.0)]), k(3.1, &[("gate", 1.0)]), k(3.2, &[("gate", 0.0)]), k(3.7, &[("gate", 0.0)])],
             ),
         ],
         events: vec!["fill"],

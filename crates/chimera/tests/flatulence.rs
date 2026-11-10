@@ -1,8 +1,10 @@
 //! The flatulence creature (docs/flatulence.md): a golden render that must not depend on the block
 //! size, and the physics it is meant to show — continence, the event ending when the gas is gone,
-//! gas conservation, pitch rising with sphincter tone, falling with body size, more gas lasting
-//! longer, pressed cheeks flapping as a second valve and sputtering near threshold, and mucus
-//! roughening the sound or holding the gas.
+//! gas conservation, pitch rising with the external sphincter's contraction and falling with body
+//! size, a relaxed sphincter playing low, a clench cutting the flow off no faster than muscle
+//! activates, the rectoanal reflex opening the internal sphincter's zone with distension, more gas
+//! lasting longer, pressed cheeks flapping as a second valve and sputtering near threshold, and
+//! mucus roughening the sound or holding the gas.
 mod common;
 use chimera::analysis::pitch::{YinOpts, yin_pitch};
 use chimera::creatures::{CreatureDef, CreatureTelemetry, CreatureVoice, creature_by_id};
@@ -110,7 +112,7 @@ fn golden_session_in_any_block_size() {
 #[test]
 fn a_closed_sphincter_holds_the_gas() {
     // continence: a closing pressure above the push and the rectal recoil keeps the canal shut
-    let (out, t) = hold(&[("tone", 80.0), ("push", 30.0), ("gas", 100.0)], 1.0);
+    let (out, t) = hold(&[("eas", 80.0), ("push", 30.0), ("gas", 100.0)], 1.0);
     assert!(rms(&out) < 1e-5, "leaked: rms {}", rms(&out));
     assert!(source(&t, "expelled").abs() < 0.1);
     assert!(source(&t, "gas") > 95.0);
@@ -118,7 +120,7 @@ fn a_closed_sphincter_holds_the_gas() {
 
 #[test]
 fn the_event_ends_when_the_gas_is_gone_and_conserves_it() {
-    let (out, t) = hold(&[("tone", 20.0), ("push", 30.0), ("gas", 100.0)], 2.0);
+    let (out, t) = hold(&[("eas", 20.0), ("push", 30.0), ("gas", 100.0)], 2.0);
     let n = out.len();
     let early = rms(&out[..n / 4]);
     let late = rms(&out[n * 3 / 4..]);
@@ -133,19 +135,32 @@ fn the_event_ends_when_the_gas_is_gone_and_conserves_it() {
 }
 
 #[test]
-fn pitch_rises_with_tone_and_falls_with_size() {
-    let lax = f0(&hold(&[("tone", 10.0), ("push", 25.0)], 1.5).0);
-    let tight = f0(&hold(&[("tone", 50.0), ("push", 65.0)], 1.5).0);
-    assert!(tight > lax * 1.3, "tone 10: {lax} Hz, tone 50: {tight} Hz");
-    let small = f0(&hold(&[("size", 0.7)], 1.5).0);
-    let large = f0(&hold(&[("size", 1.2)], 1.5).0);
+fn a_relaxed_sphincter_holds_a_clean_low_tone_and_a_contracted_one_plays_higher() {
+    // the lip's stiffness is the relaxed canal's (measured compliance) plus the contracting
+    // muscle's short-range stiffness. Relaxed, just opened by the gas, it holds a clean tone below
+    // the old model's 160 Hz floor (the recordings' clean tones are at 93–142 Hz); contracted, it
+    // plays higher. Internal sphincter relaxed and cheeks spread, so the ring is the closure.
+    let (relaxed, _) = hold(&[("eas", 5.0), ("push", 4.0), ("ias", 0.0), ("spread", 1.0)], 2.5);
+    let lax = f0(&relaxed);
+    let periodic = periodic_fraction(&relaxed);
+    assert!(lax < 140.0 && periodic > 0.8, "relaxed: {lax} Hz, {periodic} periodic");
+    let tight = f0(&hold(&[("eas", 40.0), ("push", 31.0), ("ias", 0.0), ("spread", 1.0)], 2.0).0);
+    assert!(tight > lax * 1.25, "relaxed (5 cmH₂O): {lax} Hz, contracted (40): {tight} Hz");
+}
+
+#[test]
+fn pitch_falls_with_size() {
+    let kv = |s: f64| [("eas", 40.0), ("push", 31.0), ("ias", 0.0), ("spread", 1.0), ("size", s)];
+    let small = f0(&hold(&kv(0.7), 2.0).0);
+    let large = f0(&hold(&kv(1.2), 2.0).0);
     assert!(small > large * 1.3, "size 0.7: {small} Hz, size 1.2: {large} Hz");
 }
 
 #[test]
 fn more_gas_lasts_longer() {
-    let little = duration(&hold(&[("gas", 30.0)], 2.0).0);
-    let lots = duration(&hold(&[("gas", 250.0)], 3.0).0);
+    // (internal sphincter relaxed: at 30 mL the reflex leaves a third of its tone, which holds)
+    let little = duration(&hold(&[("gas", 30.0), ("ias", 0.0)], 2.0).0);
+    let lots = duration(&hold(&[("gas", 250.0), ("ias", 0.0)], 3.0).0);
     assert!(lots > little * 1.5, "30 mL: {little} s, 250 mL: {lots} s");
 }
 
@@ -205,7 +220,7 @@ fn pressed_cheeks_flap_and_spread_cheeks_stay_open() {
 fn just_above_threshold_pressed_cheeks_sputter() {
     // a push only just able to part the sphincter and the cheeks lets the gas out in puffs, each
     // ended by the cheeks falling shut: seconds long, dozens of puffs a second
-    let kv = [("spread", 0.0), ("tone", 20.0), ("push", 10.0), ("gas", 100.0)];
+    let kv = [("spread", 0.0), ("eas", 10.0), ("push", 8.0), ("gas", 100.0), ("ias", 0.0)];
     let (out, _) = hold(&kv, 8.0);
     let d = duration(&out);
     let (_, _, shut) = cheek_gaps(&kv, d);
@@ -215,22 +230,82 @@ fn just_above_threshold_pressed_cheeks_sputter() {
 #[test]
 fn a_wet_canal_is_rougher_and_still_passes_its_gas() {
     // mucus bridges seal the gap after every contact and let go all at once past 0.27 mm: the
-    // openings come irregularly, and the gas still all leaves
+    // openings come irregularly, and the gas still leaves (most of it: once the emptying rectum's
+    // recoil has fallen, the bridge holds the rest; what left is what the pocket lost)
     // (cheeks spread, so that the puffs are the mucus's)
-    let kv = [("tone", 4.0), ("push", 30.0), ("gas", 100.0), ("spread", 1.0)];
-    let dry = periodic_fraction(&hold(&kv, 2.0).0);
-    let (out, t) = hold(&[kv[0], kv[1], kv[2], kv[3], ("mucus", 1.5)], 2.0);
+    let kv = [("eas", 5.0), ("push", 8.0), ("gas", 100.0), ("spread", 1.0), ("ias", 0.0)];
+    let dry = periodic_fraction(&hold(&kv, 3.0).0);
+    let (out, t) = hold(&[kv[0], kv[1], kv[2], kv[3], kv[4], ("mucus", 1.0)], 4.0);
     let wet = periodic_fraction(&out);
     assert!(wet < dry - 0.1, "periodic: dry {dry}, wet {wet}");
     let gas = source(&t, "gas");
-    assert!(gas < 3.0 && (source(&t, "expelled") - (100.0 - gas)).abs() < 8.0, "gas left {gas}");
+    assert!(gas < 50.0 && (source(&t, "expelled") - (100.0 - gas)).abs() < 8.0, "gas left {gas}, expelled {}", source(&t, "expelled"));
 }
 
 #[test]
 fn a_wet_seal_holds_what_a_dry_canal_lets_go() {
-    // push 30 against tone 20 passes the gas dry; the strongest mucus bridge (3 kPa ≈ 31 cmH₂O)
+    // push 30 against an external sphincter at 20 passes the gas dry; the strongest mucus bridge (3 kPa ≈ 31 cmH₂O)
     // holds the 22 cmH₂O left over
-    let (out, t) = hold(&[("tone", 20.0), ("push", 30.0), ("gas", 100.0), ("mucus", 3.0)], 1.0);
+    let (out, t) = hold(&[("eas", 20.0), ("push", 30.0), ("gas", 100.0), ("mucus", 3.0)], 1.0);
     assert!(rms(&out) < 1e-5, "leaked: rms {}", rms(&out));
     assert!(source(&t, "gas") > 95.0);
+}
+
+/// Held event with the given controls for `before` s, then `change` applied, then `after` s more;
+/// returns per-block (time, telemetry source values) after the change.
+fn change_mid_event(kv: &[(&str, f64)], before: f64, change: &[(&str, f64)], after: f64) -> Vec<(f64, Vec<(&'static str, f64)>)> {
+    let mut v = CreatureVoice::new(def(), FS, &params(kv));
+    let mut t = v.new_telemetry();
+    v.set_gate(1.0);
+    let mut buf = vec![0.0f32; 128];
+    for _ in 0..(before * FS / 128.0) as usize {
+        v.render(&mut buf);
+    }
+    v.set_params(&params(change));
+    let mut out = Vec::new();
+    for i in 0..(after * FS / 128.0) as usize {
+        v.render(&mut buf);
+        v.telemetry(&mut t);
+        out.push(((i + 1) as f64 * 128.0 / FS, t.source.clone()));
+    }
+    out
+}
+
+fn get(s: &[(&'static str, f64)], k: &str) -> f64 {
+    s.iter().find(|(n, _)| *n == k).unwrap().1
+}
+
+#[test]
+fn a_clench_cuts_the_flow_off_no_faster_than_muscle() {
+    // plenty of gas, flowing at 60 ms; then the command jumps to a hard squeeze. The sphincter's
+    // pressure follows through the activation dynamics (τ 10 ms), so it is not there at once, but
+    // within a few time constants it shuts the ring and the flow stops with gas left.
+    let kv = [("eas", 20.0), ("push", 30.0), ("gas", 300.0), ("spread", 1.0)];
+    let trace = change_mid_event(&kv, 0.06, &[("eas", 200.0)], 0.3);
+    let first = &trace[0].1;
+    assert!(get(first, "flow") > 50.0, "not flowing before the clench: {} mL/s", get(first, "flow"));
+    // after one block (2.7 ms) the pressure has risen by well under its whole jump
+    assert!(get(first, "eas") < 5.0 + 0.4 * 195.0, "the sphincter jumped: {} cmH₂O after 2.7 ms", get(first, "eas"));
+    let shut = trace.iter().find(|(_, s)| get(s, "gap") <= 0.0 && get(s, "flow").abs() < 5.0).map(|(t, _)| *t);
+    let shut = shut.expect("the clench never stopped the flow");
+    assert!(shut > 0.004 && shut < 0.06, "flow stopped {shut} s after the clench");
+    // and stays stopped
+    assert!(trace.iter().filter(|(t, _)| *t > shut + 0.03).all(|(_, s)| get(s, "gap") <= 0.0), "reopened after the clench");
+    let left = get(&trace[trace.len() - 1].1, "gas");
+    assert!(left > 50.0, "only {left} mL held back");
+}
+
+#[test]
+fn rectal_distension_opens_the_internal_sphincter_zone() {
+    // the rectoanal reflex: the same rectal pressure (push + the wall's recoil = 22 cmH₂O, the
+    // external sphincter relaxed) passes gas from a distended rectum (150 mL: the internal
+    // sphincter inhibited) and not from a nearly empty one (20 mL: half its tone left)
+    let recoil = |v: f64| v * 1333.22 / 11.0 / 980.665;
+    let full = |sec| hold(&[("eas", 0.0), ("gas", 150.0), ("push", 22.0 - recoil(150.0))], sec).1;
+    let low = hold(&[("eas", 0.0), ("gas", 20.0), ("push", 22.0 - recoil(20.0))], 1.0).1;
+    assert!(source(&full(1.0), "expelled") > 30.0, "150 mL: expelled {}", source(&full(1.0), "expelled"));
+    assert!(source(&low, "expelled") < 0.5, "20 mL: expelled {}", source(&low, "expelled"));
+    // the internal sphincter's pressure at the start: nearly all inhibited at 150 mL, half at 20
+    let early = full(0.02);
+    assert!(source(&early, "ias") < 1.0 && source(&low, "ias") > 15.0, "internal sphincter: {} at 150 mL, {} at 20 mL (cmH₂O)", source(&early, "ias"), source(&low, "ias"));
 }

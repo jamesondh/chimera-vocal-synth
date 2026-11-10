@@ -411,7 +411,7 @@ impl CreatureVoice {
         CreatureTelemetry {
             params: Vec::with_capacity(self.def.params.len()),
             tubes: self.sim.tubes().iter().map(|(name, t)| TubeTelemetry { name, areas: Vec::with_capacity(t.n), rms: Vec::with_capacity(t.n) }).collect(),
-            source: Vec::with_capacity(8),
+            source: Vec::with_capacity(16),
             ..Default::default()
         }
     }
