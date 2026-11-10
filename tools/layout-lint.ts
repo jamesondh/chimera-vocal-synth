@@ -2,7 +2,7 @@
  * Layout lint: a smoke test of the layout. Loads every mode at phone, tablet and desktop sizes in
  * headless Chromium, before and after audio starts, then some alternate states (every encoder page,
  * every creature, the 3D face, a phrase being spoken) and the duet page (`?show=`, with a short
- * duet it renders first), and fails on mistakes screenshot reviews kept missing:
+ * duet and a short creature show it renders first), and fails on mistakes screenshot reviews kept missing:
  *
  *  - overlap     two pieces of text or controls drawn over each other (DOM text, buttons, inputs,
  *                dials, and text drawn on canvases, which the page reports by wrapping fillText)
@@ -255,6 +255,20 @@ function makeDuet(dir: string): void {
   writeFileSync(`${dir}/show.json`, JSON.stringify({ title: "A duet with a title long enough to need trimming", audio: "low.wav", bpm: 120, voices }));
 }
 
+/** A creature show (two calls and a held note with a caption long enough to need trimming),
+ *  rendered by the CLI now and served at shows/lint-creature/ by the lint itself. */
+function makeCreatureShow(dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  const events = [
+    { at: 0.1, call: "squeak" },
+    { at: 2.1, hold: 0.8, params: { gas: 150, eas: 8, push: "0:15,0.5:40" }, caption: "A held push with a caption long enough to need trimming", hint: "The push rises from 15 to 40 cmH₂O over half a second while the sphincters stay relaxed" },
+  ];
+  writeFileSync(`${dir}/script.json`, JSON.stringify({ creature: "flatulence", tail: 0.2, events }));
+  const r = Bun.spawnSync(["cargo", "run", "--quiet", "--release", "-p", "chimera-cli", "--", "render", "creature-show", `${dir}/script.json`, `${dir}/show`, "--tele", `${dir}/show.ctele`]);
+  if (r.exitCode) throw new Error(`rendering the lint creature show: ${r.stderr.toString()}`);
+  writeFileSync(`${dir}/show.json`, JSON.stringify({ title: "Flatulence: a creature show with a title long enough to need trimming", audio: "show.wav", creature: "flatulence", tele: "show.ctele" }));
+}
+
 async function main() {
   const out = arg("out") ?? "out/layout";
   rmSync(out, { recursive: true, force: true });
@@ -273,8 +287,11 @@ async function main() {
   const viewports = only ? VIEWPORTS.filter((v) => `${v.w}x${v.h}` === only).concat(VIEWPORTS.some((v) => `${v.w}x${v.h}` === only) ? [] : [{ w: +only.split("x")[0], h: +only.split("x")[1] }]) : VIEWPORTS;
   const duet = !onlyMode || onlyMode === "duet";
   const modes = onlyMode ? (onlyMode === "duet" ? [] : [onlyMode]) : MODES;
-  const duetDir = `${out}/duet-show`;
-  if (duet) makeDuet(duetDir);
+  const duetDir = `${out}/duet-show`, creatureDir = `${out}/creature-show`;
+  if (duet) {
+    makeDuet(duetDir);
+    makeCreatureShow(creatureDir);
+  }
 
   // WebGL for the 3D face: the GPU through Metal on a Mac; elsewhere SwiftShader, which draws on the
   // CPU (it took 6-15x the CPU time on an M4 for the same report, enough to stall the machine)
@@ -320,6 +337,16 @@ async function main() {
       await page.locator(".duet-bar button.primary").click();
       // 1.2 s in: both heads singing, a word at each mouth
       await check("duet, playing", 1200);
+      // a creature show: the drawing, the waterfall and the airway, then the squeak's caption
+      // and, pinned as the video export does, the held note's long caption
+      await page.route("**/shows/lint-creature/*", (route) => route.fulfill({ path: `${creatureDir}/${basename(new URL(route.request().url()).pathname)}` }));
+      await page.goto(new URL("?show=lint-creature", url).href, { waitUntil: "networkidle" });
+      await page.waitForSelector(".duet-creature canvas", { timeout: 15000 });
+      await check("creature show", 1000);
+      await page.locator(".duet-bar button.primary").click();
+      await check("creature show, playing", 600);
+      await page.evaluate(() => ((window as unknown as { __duetTransport: { captureTime: number | null } }).__duetTransport.captureTime = 2.6));
+      await check("creature show, held note", 600);
     }
     if (!modes.length) {
       await page.close();

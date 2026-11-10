@@ -2865,3 +2865,40 @@ input[type="range"]::-moz-range-thumb {
     padding: 7px 8px 0;
   }
 }
+
+/* ---------- a creature show (?show=<id> with "creature"): the drawing large, the readouts beside it */
+.duet-creature {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "main wf" "main airway";
+  gap: 8px;
+  min-height: 0;
+}
+
+.creature-show-main { grid-area: main; }
+.creature-show-wf { grid-area: wf; }
+.creature-show-airway { grid-area: airway; }
+
+.duet-creature .screen-body {
+  min-height: 120px;
+}
+
+.creature-show-main .screen-body {
+  min-height: 260px;
+}
+
+@media (max-width: 720px), (orientation: portrait) {
+  .duet-creature {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-areas: "main" "wf" "airway";
+    gap: 6px;
+  }
+  .duet-creature .screen-body {
+    min-height: 90px;
+  }
+  .creature-show-main .screen-body {
+    min-height: 220px;
+  }
+}

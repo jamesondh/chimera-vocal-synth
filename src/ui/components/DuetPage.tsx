@@ -13,6 +13,11 @@
  * Optional: `bpm` and `downbeat` (s, a bar's first beat) nod the heads on the beat; a voice's
  * `melody` (the melody file it was rendered from) writes its words at its mouth, and the show's
  * `spell` ({"owr": "our"}) writes a syllable spelled for the dictionary as it should read.
+ *
+ * A creature show names the creature and its one recording instead of voices
+ * (`chimera render creature-show … --tele`; see CreatureShow.tsx):
+ *
+ *   { "title": "…", "audio": "show.wav", "creature": "flatulence", "tele": "show.ctele" }
  */
 import { useEffect, useRef, useState } from "react";
 import { AnatomyView3D, type HeadFeed } from "./AnatomyView3D.tsx";
@@ -26,9 +31,12 @@ import type { ViewFlags } from "../render/anatomy.ts";
 import { mouthWords } from "../mouthWords.ts";
 import { V } from "../colors.ts";
 import { g2p } from "../speech.ts";
-import { lyricsToSyllables } from "../../wasm/engine.ts";
+import { creatureById, lyricsToSyllables } from "../../wasm/engine.ts";
 import { sungWords, wordAt, type Melody, type SungWords } from "../../show/words.ts";
 import type { OverlayFn } from "./AnatomyView.tsx";
+import { CreatureShow } from "./CreatureShow.tsx";
+import { CreatureTeleTrack } from "../../show/creatureTele.ts";
+import type { CreatureDef } from "../../wasm/types.ts";
 
 interface ShowFile {
   title: string;
@@ -36,12 +44,16 @@ interface ShowFile {
   bpm?: number;
   downbeat?: number;
   spell?: Record<string, string>;
-  voices: { name: string; tele: string; melody?: string }[];
+  voices?: { name: string; tele: string; melody?: string }[];
+  /** a creature show: the creature's id and its recording */
+  creature?: string;
+  tele?: string;
 }
 
 interface Loaded {
   show: ShowFile;
   voices: { name: string; track: TeleTrack; words: SungWords | null }[];
+  creature?: { def: CreatureDef; track: CreatureTeleTrack; audio: AudioBuffer };
 }
 
 /** the heads as the face screen shows them by default, less the measurement labels */
@@ -75,6 +87,17 @@ export function DuetPage(props: { id: string }) {
     setLoaded(null);
     (async () => {
       const show = (await (await fetchOk(base + "show.json")).json()) as ShowFile;
+      if (show.creature) {
+        const def = creatureById(show.creature);
+        if (!def) throw new Error(`no creature ${show.creature}`);
+        if (!show.audio || !show.tele) throw new Error("a creature show needs audio and tele");
+        const [audio, tele] = await Promise.all([fetchOk(base + show.audio).then((r) => r.arrayBuffer()), fetchOk(base + show.tele).then((r) => r.arrayBuffer())]);
+        const track = new CreatureTeleTrack(tele);
+        if (track.id !== def.id) throw new Error(`${show.tele} is a recording of ${track.id}, not ${def.id}`);
+        await transport.load(audio);
+        if (live) setLoaded({ show, voices: [], creature: { def, track, audio: transport.audio! } });
+        return;
+      }
       if (!show.voices?.length || !show.audio) throw new Error("show.json needs audio and voices");
       const [audio, ...teles] = await Promise.all([fetchOk(base + show.audio).then((r) => r.arrayBuffer()), ...show.voices.map((v) => fetchOk(base + v.tele).then((r) => r.arrayBuffer()))]);
       // the words: syllables as the CLI splits them (the pronouncing dictionary first, as it does)
@@ -123,9 +146,13 @@ export function DuetPage(props: { id: string }) {
         <span className="wordmark">Chimera</span>
         <span className="duet-title">{title}</span>
       </header>
-      <main className="duet-heads" style={{ "--voices": loaded?.voices.length ?? 2 } as React.CSSProperties}>
-        {loaded && transport ? loaded.voices.map((v, i) => <Head key={i} name={v.name} track={v.track} words={v.words} show={loaded.show} transport={transport} facing={i > 0 && i === loaded.voices.length - 1 ? -1 : 1} />) : <p className="duet-msg">Loading the song…</p>}
-      </main>
+      {loaded?.creature && transport ? (
+        <CreatureShow def={loaded.creature.def} track={loaded.creature.track} audio={loaded.creature.audio} transport={transport} />
+      ) : (
+        <main className="duet-heads" style={{ "--voices": loaded?.voices.length ?? 2 } as React.CSSProperties}>
+          {loaded && transport ? loaded.voices.map((v, i) => <Head key={i} name={v.name} track={v.track} words={v.words} show={loaded.show} transport={transport} facing={i > 0 && i === loaded.voices.length - 1 ? -1 : 1} />) : <p className="duet-msg">Loading the show…</p>}
+        </main>
+      )}
       <footer className="duet-bar">
         <button className="primary large" disabled={!loaded} onClick={() => (st.playing ? transport?.pause() : transport?.play())}>
           {st.playing ? "Pause" : st.duration > 0 && st.time >= st.duration - 0.05 ? "Again" : "Play"}

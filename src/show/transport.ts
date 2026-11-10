@@ -41,6 +41,11 @@ export class Transport {
     this.emit();
   }
 
+  /** the decoded track (null until loaded) */
+  get audio(): AudioBuffer | null {
+    return this.buffer;
+  }
+
   get duration(): number {
     return this.buffer?.duration ?? 0;
   }

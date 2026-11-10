@@ -1,19 +1,20 @@
 import { usePhosphor } from "../usePhosphor.ts";
 import { useStore } from "../store.ts";
 import { creatureById } from "../../wasm/engine.ts";
-import { liveTelemetry, previewTelemetry } from "../creatureLive.ts";
+import { liveTelemetry, previewTelemetry, type CreatureFeed } from "../creatureLive.ts";
 import { TEXT, V, heat, pressureLevel } from "../colors.ts";
 import { beam, beamPts, label, type Pt } from "../render/vector.ts";
 
 const a2d = (A: number) => 2 * Math.sqrt(Math.max(0, A) / Math.PI);
 
-/** Each airway tube unrolled into a lane: one ring per section (shared diameter scale), lit by sound pressure. */
-export function CreatureTubes() {
+/** Each airway tube unrolled into a lane: one ring per section (shared diameter scale), lit by
+ *  sound pressure; a `feed` (a show) draws the recorded creature at the show's playhead. */
+export function CreatureTubes(props: { feed?: CreatureFeed }) {
   const ref = usePhosphor(({ ctx, w, h }) => {
     const st = useStore.getState();
-    const def = creatureById(st.creature);
+    const def = props.feed ? props.feed.def : creatureById(st.creature);
     if (!def) return;
-    const live = liveTelemetry(def.id);
+    const live = props.feed ? props.feed.frame().tele : liveTelemetry(def.id);
     const tele = live ?? previewTelemetry(def, st.cparams[def.id]);
     const lanes = def.visual.tubes.filter((t) => tele.tubes[t.tube]);
     if (!lanes.length) return;

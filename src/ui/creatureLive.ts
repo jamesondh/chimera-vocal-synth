@@ -44,3 +44,19 @@ export function useLiveCreature(id: string): CreatureTelemetry | null {
   }, [id]);
   return t;
 }
+
+/** What a show's caption says: the cue's name and a line about it. */
+export interface CreatureCaption {
+  name: string;
+  hint: string;
+}
+
+/**
+ * Where a creature screen reads its creature from instead of the live engine and the store: a
+ * recording replayed at a show's playhead (src/ui/components/CreatureShow.tsx).
+ */
+export interface CreatureFeed {
+  def: CreatureDef;
+  /** the recorded frame for now; `running` false holds the drawing still (paused) */
+  frame(): { tele: CreatureTelemetry; running: boolean; caption: CreatureCaption | null };
+}

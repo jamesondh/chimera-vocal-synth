@@ -4,6 +4,7 @@ import { engine } from "../../audio/AudioEngine.ts";
 import { useStore } from "../store.ts";
 import { TEXT, V, mix } from "../colors.ts";
 import { beam, label, seg } from "../render/vector.ts";
+import { spectrumDb } from "../../show/spectrum.ts";
 
 const FMIN = 60, FMAX = 12000;
 const DB_LO = -100, DB_HI = -30;
@@ -13,37 +14,62 @@ const EVERY = 0.07;
 /** frequency points per slice (log-spaced) */
 const POINTS = 96;
 
+/** A recorded track to show instead of the live output (a show), and the playhead (s). */
+export interface SpectrogramTrack {
+  samples: Float32Array;
+  sampleRate: number;
+  time(): number;
+}
+
+/** dB per bin → the slice's points: the loudest bin in each band, 0..1 over DB_LO..DB_HI */
+function toSlice(bins: Float32Array, binHz: number, slice: Float32Array): void {
+  const n = bins.length;
+  for (let i = 0; i < POINTS; i++) {
+    const f0 = FMIN * Math.pow(FMAX / FMIN, i / POINTS), f1 = FMIN * Math.pow(FMAX / FMIN, (i + 1) / POINTS);
+    let db = -Infinity;
+    for (let k = Math.max(1, Math.floor(f0 / binHz)); k <= Math.min(n - 1, Math.ceil(f1 / binHz)); k++) db = Math.max(db, bins[k]);
+    slice[i] = Math.max(0, Math.min(1, (db - DB_LO) / (DB_HI - DB_LO)));
+  }
+}
+
 /**
  * Waterfall spectrogram (as on the Fairlight's 3D page): the last couple of seconds as stacked
  * spectral slices, newest in front in white, older ones behind in fading amber, each slice
- * hiding what is behind it.
+ * hiding what is behind it. Given a `track`, it shows that recording at its playhead instead,
+ * slices on a fixed grid of the track's time, so any moment draws the same however it is reached.
  */
-export function Spectrogram() {
-  const st = useRef<{ slices: { t: number; v: Float32Array }[]; bins: Float32Array | null; last: number }>({ slices: [], bins: null, last: -Infinity });
+export function Spectrogram(props: { track?: SpectrogramTrack }) {
+  const st = useRef<{ slices: { t: number; v: Float32Array }[]; bins: Float32Array | null; last: number; cache: Map<number, Float32Array> }>({ slices: [], bins: null, last: -Infinity, cache: new Map() });
   const ref = usePhosphor(({ ctx, w, h, now }) => {
     const s = st.current;
     const an = engine.analyserFast;
-    const started = useStore.getState().started;
+    const track = props.track;
+    const started = track ? true : useStore.getState().started;
     // slices are timestamped, so a slow or hidden tab doesn't stretch "the last two seconds"
-    const t = now / 1000, span = SLICES * EVERY;
-    if (t - s.last > span) {
+    const t = track ? track.time() : now / 1000, span = SLICES * EVERY;
+    if (track) {
+      const k1 = Math.floor(t / EVERY + 1e-6);
+      const keep = new Map<number, Float32Array>();
+      s.slices = [];
+      for (let k = Math.max(0, k1 - SLICES); k <= k1; k++) {
+        let v = s.cache.get(k);
+        if (!v) toSlice(spectrumDb(track.samples, Math.round(k * EVERY * track.sampleRate)), track.sampleRate / 2048, (v = new Float32Array(POINTS)));
+        keep.set(k, v);
+        s.slices.push({ t: k * EVERY, v });
+      }
+      s.cache = keep;
+    } else if (t - s.last > span) {
       s.slices = [];
       s.last = t - EVERY;
     }
-    if (t - s.last >= EVERY) {
+    if (!track && t - s.last >= EVERY) {
       s.last = t;
       const slice = new Float32Array(POINTS);
       if (an && started) {
         const n = an.frequencyBinCount;
         if (!s.bins || s.bins.length !== n) s.bins = new Float32Array(n);
         an.getFloatFrequencyData(s.bins as Float32Array<ArrayBuffer>);
-        const binHz = engine.sampleRate / an.fftSize;
-        for (let i = 0; i < POINTS; i++) {
-          const f0 = FMIN * Math.pow(FMAX / FMIN, i / POINTS), f1 = FMIN * Math.pow(FMAX / FMIN, (i + 1) / POINTS);
-          let db = -Infinity;
-          for (let k = Math.max(1, Math.floor(f0 / binHz)); k <= Math.min(n - 1, Math.ceil(f1 / binHz)); k++) db = Math.max(db, s.bins[k]);
-          slice[i] = Math.max(0, Math.min(1, (db - DB_LO) / (DB_HI - DB_LO)));
-        }
+        toSlice(s.bins, engine.sampleRate / an.fftSize, slice);
       }
       s.slices.push({ t, v: slice });
     }

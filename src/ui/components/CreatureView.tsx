@@ -3,7 +3,7 @@ import { usePhosphor } from "../usePhosphor.ts";
 import { useStore } from "../store.ts";
 import { creatureById } from "../../wasm/engine.ts";
 import type { CreatureDef } from "../../wasm/types.ts";
-import { liveTelemetry, previewTelemetry } from "../creatureLive.ts";
+import { liveTelemetry, previewTelemetry, type CreatureFeed } from "../creatureLive.ts";
 import { TEXT, V, SLOTS, heat, pressureLevel } from "../colors.ts";
 import { beamPts, dot, hfont, label, labelWidth, ring, seg, wrapLabel, type Pt } from "../render/vector.ts";
 import { drawAnorectum, newAnorectumState } from "../render/anorectum.ts";
@@ -87,19 +87,25 @@ function fmtParam(v: number, p: CreatureDef["params"][number]): { value: string;
  * The creature as a vector drawing, in the language of the human face: the outline in bright blue,
  * tissue dimmer, airway walls at the simulated width with cross-section rungs lit by sound
  * pressure, sound sources as rings in slot colours with ripples paced by the pitch, and the first
- * four parameters as readouts across the bottom.
+ * four parameters as readouts across the bottom. Given a `feed` (a show), it draws the recorded
+ * creature at the show's playhead instead, with the cue's name and hint as the caption.
  */
-export function CreatureView() {
+export function CreatureView(props: { feed?: CreatureFeed }) {
   const glyph = useRef<{ peak: Record<string, number>; phase: Record<string, number> }>({ peak: {}, phase: {} });
   const anorectum = useRef(newAnorectumState());
-  const ref = usePhosphor(({ ctx, w, h, dt }) => {
+  const ref = usePhosphor(({ ctx, w, h, dt: frameDt }) => {
     const st = useStore.getState();
-    const def = creatureById(st.creature);
+    const feed = props.feed;
+    const def = feed ? feed.def : creatureById(st.creature);
     if (!def) return;
     const vis = def.visual;
     const geo = geometry(def);
-    const live = liveTelemetry(def.id);
+    const rec = feed?.frame();
+    // a show's frame counts as live (the creature sounding), its drawing still while paused
+    const live = rec ? rec.tele : liveTelemetry(def.id);
     const tele = live ?? previewTelemetry(def, st.cparams[def.id]);
+    const view = rec ? { pressure: true, calipers: true } : st.view;
+    const dt = rec && !rec.running ? 0 : frameDt;
     // a narrow screen (a phone) stacks the title and status, and puts the readouts two by two
     const compact = w < 560;
     const top = compact ? 96 : 64, slotH = compact ? 132 : Math.min(118, h * 0.2);
@@ -144,7 +150,7 @@ export function CreatureView() {
         for (let k = 0; k < n; k++) {
           const { p, nx, ny } = frame(((k + 0.5) / n) * tg.length);
           const r = half(k);
-          const lvl = live && st.view.pressure ? Math.pow(pressureLevel(data.rms[k] * 0.6), 0.85) : 0;
+          const lvl = live && view.pressure ? Math.pow(pressureLevel(data.rms[k] * 0.6), 0.85) : 0;
           const [x0, y0] = S([p[0] + nx * r, p[1] + ny * r]), [x1, y1] = S([p[0] - nx * r, p[1] - ny * r]);
           seg(ctx, x0, y0, x1, y1, live ? heat(lvl) : V.blueDim, 1, { alpha: live ? 0.35 + 0.65 * lvl : 0.6 });
         }
@@ -175,7 +181,7 @@ export function CreatureView() {
       });
     }
 
-    if (st.view.calipers) {
+    if (view.calipers) {
       // place labels, nudging down past any earlier label they would overlap
       ctx.font = hfont(10);
       const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
@@ -196,10 +202,16 @@ export function CreatureView() {
     // like a map's title: the name, the latin name, and what it is doing
     label(ctx, fit(ctx, def.name.toUpperCase(), w - 32, compact ? 18 : 24, 0.18), 16, compact ? 30 : 34, { size: compact ? 18 : 24, color: TEXT.primary, ls: 0.18 });
     label(ctx, fit(ctx, def.latin.toUpperCase(), w - 34, 10, 0.16), 18, compact ? 48 : 54, { size: 10, color: TEXT.secondary, ls: 0.16 });
-    const state = live ? (live.call ? (def.calls.find((c) => c.id === live.call)?.name ?? live.call) : live.gate > 0.05 ? "Sustaining" : "At rest") : "Not started";
+    const state = rec?.caption?.name ?? (live ? (live.call ? (def.calls.find((c) => c.id === live.call)?.name ?? live.call) : live.gate > 0.05 ? "Sustaining" : "At rest") : "Not started");
     const pitchText = pp ? (() => { const f = fmtParam(pitch, pp); return `${f.value} ${f.unit}`.trim().toUpperCase(); })() : "";
     if (compact) {
-      label(ctx, `${state.toUpperCase()}${pitchText ? "   " + pitchText : ""}`, 18, 70, { size: 11, color: V.amber, ls: 0.14 });
+      label(ctx, fit(ctx, `${state.toUpperCase()}${pitchText ? "   " + pitchText : ""}`, w - 34, 11, 0.14), 18, 70, { size: 11, color: V.amber, ls: 0.14 });
+    } else if (rec) {
+      // a show's caption: larger, with the cue's hint under it, both clear of the title
+      const room = w - 48 - Math.max(labelWidth(ctx, def.name.toUpperCase(), { size: 24, ls: 0.18 }), labelWidth(ctx, def.latin.toUpperCase(), { size: 10, ls: 0.16 }));
+      label(ctx, fit(ctx, state.toUpperCase(), room, 18, 0.16), w - 16, 32, { size: 18, color: V.amber, align: "right", ls: 0.16 });
+      const hint = rec.caption?.hint;
+      if (hint) label(ctx, fit(ctx, hint.toUpperCase(), room, 10, 0.12), w - 16, 52, { size: 10, color: V.amber, align: "right", ls: 0.12, alpha: 0.8 });
     } else {
       label(ctx, state.toUpperCase(), w - 16, 30, { size: 13, color: V.amber, align: "right", ls: 0.16 });
       if (pitchText) label(ctx, pitchText, w - 16, 50, { size: 11, color: V.amber, align: "right", ls: 0.12, alpha: 0.8 });
