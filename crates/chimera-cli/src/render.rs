@@ -730,13 +730,7 @@ pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
             _ => {
                 let i = def.param_index(k).ok_or_else(|| format!("{id} has no parameter {k}"))?;
                 if v.contains(':') {
-                    let mut keys = Vec::new();
-                    for g in v.split(',') {
-                        let (t, x) = g.split_once(':').ok_or_else(|| format!("{k}={v}: keys are t:v"))?;
-                        let t = t.parse::<f64>().map_err(|e| format!("{k}={v}: {e}"))?;
-                        let x = x.parse::<f64>().map_err(|e| format!("{k}={v}: {e}"))?;
-                        keys.push((t, x));
-                    }
+                    let keys = parse_course(k, v)?;
                     initial.push((i, keys[0].1));
                     courses.push((i, keys));
                 } else {
@@ -841,8 +835,20 @@ pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// A parameter's course `t:v,t:v,…` (seconds, values) as keys.
+pub(crate) fn parse_course(k: &str, v: &str) -> Result<Vec<(f64, f64)>, String> {
+    let mut keys = Vec::new();
+    for g in v.split(',') {
+        let (t, x) = g.split_once(':').ok_or_else(|| format!("{k}={v}: keys are t:v"))?;
+        let t = t.trim().parse::<f64>().map_err(|e| format!("{k}={v}: {e}"))?;
+        let x = x.trim().parse::<f64>().map_err(|e| format!("{k}={v}: {e}"))?;
+        keys.push((t, x));
+    }
+    Ok(keys)
+}
+
 /// A course's value at `t`: linear between its keys, held outside them.
-fn course_at(keys: &[(f64, f64)], t: f64) -> f64 {
+pub(crate) fn course_at(keys: &[(f64, f64)], t: f64) -> f64 {
     if t <= keys[0].0 {
         return keys[0].1;
     }

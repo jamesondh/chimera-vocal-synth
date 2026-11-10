@@ -428,3 +428,26 @@ fn render_notes_tele_records_the_live_telemetry_without_changing_the_sound() {
     let a_lip = artic["frames"][96][lip].as_f64().unwrap(); // 0.96 s = 60 tele hops
     assert!((at(60, 11 + lip) as f64 - a_lip).abs() < 1e-3, "lipAp {} vs {a_lip}", at(60, 11 + lip));
 }
+
+#[test]
+fn render_creature_show_writes_the_same_wav_and_telemetry_every_time() {
+    let script = tmp("creature-show.json");
+    std::fs::write(
+        &script,
+        r#"{"creature": "flatulence", "tail": 0.1, "events": [{"at": 0.1, "call": "squeak"},
+            {"at": 2.1, "hold": 0.5, "params": {"gas": 150, "eas": "0:5,0.3:5,0.32:150"}, "caption": "Clench"}]}"#,
+    )
+    .unwrap();
+    let (a, b) = (tmp("cshow-a"), tmp("cshow-b"));
+    let stdout = chimera(&["render", "creature-show", &script, &a, "--tele", &format!("{a}.ctele")]);
+    chimera(&["render", "creature-show", &script, &b, "--tele", &format!("{b}.ctele")]);
+    // the hold's cue ends 0.5 s after its breath closes (2.1 + 0.1 + 0.5 + 0.5), then the tail
+    assert!(stdout.contains("3.30 s") && stdout.contains("Squeak") && stdout.contains("Clench"), "{stdout}");
+    let read = |p: String| std::fs::read(p).unwrap();
+    assert!(read(format!("{a}.wav")) == read(format!("{b}.wav")), "the sound differs between runs");
+    let t = read(format!("{a}.ctele"));
+    assert!(t == read(format!("{b}.ctele")), "the telemetry differs between runs");
+    assert_eq!(&t[..4], b"CHCT");
+    let frames = u32::from_le_bytes(t[16..20].try_into().unwrap()) as usize;
+    assert_eq!(frames, 1 + 3300 * 48 / 768);
+}
