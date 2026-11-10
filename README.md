@@ -9,9 +9,11 @@ for tests and the `chimera` CLI.
 
 - **Play**: drag the tongue, lips and jaw in a live cutaway of the head; vowel pad, encoders,
   computer keyboard and Web MIDI.
-- **Speak**: English text (CMUdict with a letter-to-sound fallback) or IPA, turned into
-  gestures and prosody, with the gestural score and a consonant chart on screen.
-- **Sing**: piano roll with lyrics per note; consonants land before the beat.
+- **Speak**: English text (CMUdict with a letter-to-sound fallback), Mandarin (characters or
+  pinyin, with lexical tones and tone sandhi) or IPA, turned into gestures and prosody, with the
+  gestural score and a consonant chart on screen.
+- **Sing**: piano roll with lyrics per note (English, or Mandarin one character per note);
+  consonants land before the beat.
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.
 - **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.
@@ -35,7 +37,7 @@ The AudioWorklet needs a secure context, so open it on localhost or over HTTPS (
 Offline renders and measurement:
 
 ```sh
-cargo run --release -p chimera-cli -- render speech|text|song|notes|beatbox|creature|vowels …
+cargo run --release -p chimera-cli -- render speech|text|mandarin|song|notes|beatbox|creature|vowels …
 cargo run --release -p chimera-cli -- diagnose       # nasal leakage, formants, bandwidths, pitch
 cargo run --release -p chimera-cli -- compare csd    # against a real singer (docs/csd-comparison.md)
 cargo run --release -p chimera-cli -- compare tsp    # against 23 real speakers (docs/speech-comparison.md)
@@ -63,5 +65,6 @@ Agents: see [AGENTS.md](AGENTS.md).
 ## License
 
 [MIT](LICENSE). Bundled third-party files keep their own licenses: the CMU Pronouncing
-Dictionary ([public/data/CMUDICT-LICENSE.txt](public/data/CMUDICT-LICENSE.txt)) and the fonts
+Dictionary ([public/data/CMUDICT-LICENSE.txt](public/data/CMUDICT-LICENSE.txt)), the Mandarin
+pinyin data ([public/data/MANDARIN-LICENSE.txt](public/data/MANDARIN-LICENSE.txt)) and the fonts
 ([public/fonts/](public/fonts/)).

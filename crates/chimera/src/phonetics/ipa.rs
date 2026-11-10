@@ -1,4 +1,5 @@
-//! IPA string → segments (stress ˈ ˌ, length ː, tie bars, affricates, diphthongs, word gaps).
+//! IPA string → segments (stress ˈ ˌ, length ː, aspiration ʰ, tie bars, affricates, diphthongs,
+//! word gaps).
 
 use super::Segment;
 use serde::Deserialize;
@@ -6,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 const VOWEL_CHARS: &str = "iyɨʉɯuɪʏʊeøɘɵɤoəɛœɜɞʌɔæɐaɶɑɒɝɚ";
-const MULTI: [&str; 10] = ["tʃ", "dʒ", "ts", "dz", "pf", "aɪ", "aʊ", "ɔɪ", "eɪ", "oʊ"];
-const ALIASES: [(&str, &str); 9] = [("t͡ʃ", "tʃ"), ("d͡ʒ", "dʒ"), ("t͡s", "ts"), ("d͡z", "dz"), ("ɡ", "g"), ("ʧ", "tʃ"), ("ʤ", "dʒ"), ("r̥", "r"), ("ɐ̯", "ɐ")];
+const MULTI: [&str; 12] = ["tʃ", "dʒ", "ts", "dz", "pf", "tɕ", "ʈʂ", "aɪ", "aʊ", "ɔɪ", "eɪ", "oʊ"];
+const ALIASES: [(&str, &str); 11] = [("t͡ʃ", "tʃ"), ("d͡ʒ", "dʒ"), ("t͡s", "ts"), ("d͡z", "dz"), ("t͡ɕ", "tɕ"), ("ʈ͡ʂ", "ʈʂ"), ("ɡ", "g"), ("ʧ", "tʃ"), ("ʤ", "dʒ"), ("r̥", "r"), ("ɐ̯", "ɐ")];
 
 
 fn known() -> &'static HashSet<&'static str> {
@@ -57,6 +58,14 @@ pub fn tokenize_ipa(input: &str) -> Vec<Segment> {
             }
             if ch == ',' || ch == '|' {
                 out.push(Segment { ipa: "_".into(), dur: Some(0.16), ..Default::default() });
+            }
+            i += 1;
+            continue;
+        }
+        // aspiration: marks the stop or affricate before it (an unmarked one follows the English rule)
+        if ch == 'ʰ' {
+            if let Some(last) = out.last_mut() {
+                last.aspirated = Some(true);
             }
             i += 1;
             continue;
