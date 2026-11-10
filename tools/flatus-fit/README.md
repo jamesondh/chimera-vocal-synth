@@ -14,7 +14,8 @@ python3 -I tools/flatus-fit/fetch.py tools/flatus-fit/manifest.json $D/raw $D/wa
 python3 -I tools/flatus-fit/events.py tools/flatus-fit/manifest.json $D/wav $D/events.json $D/clips
 python3 -I tools/flatus-fit/library.py $D/lib.json $D/tmp                       # ~6 min
 python3 -I tools/flatus-fit/fit.py $D/events.json $D/lib.json $D/fit.json $D/tmp   # ~15 min
-python3 -I tools/flatus-fit/report.py $D/fit.json [$D/fit-before.json …]
+python3 -I tools/flatus-fit/merge.py $D/fit-best.json $D/fit.json $D/fit2.json   # searches of one model
+python3 -I tools/flatus-fit/report.py $D/fit-before.json $D/fit-best.json [--recordings]
 python3 -I tools/flatus-fit/compare.py $D/fit.json $D/clips $D/compare.png $D/tmp [event …]
 ```
 
@@ -27,5 +28,6 @@ python3 -I tools/flatus-fit/compare.py $D/fit.json $D/clips $D/compare.png $D/tm
 - `fit.py`: per event, the nearest library renders, then Nelder–Mead over the controls and the
   push's timing. Pass `scale=<file>` (a JSON list) to reuse the feature scales of an earlier run;
   they come from the real events only, so they are the same for every model version.
-- `report.py`: the per-event table, the counts of close events and reached recordings, and the
+- `merge.py`: each event's best of several searches of the same model (different libraries).
+- `report.py`: the per-event table (or per recording), the counts of close events and reached recordings, and the
   features that miss most.

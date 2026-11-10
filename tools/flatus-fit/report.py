@@ -1,6 +1,9 @@
 """Summarise one or more fit files (fit.py) as a markdown table.
 
-    python3 -I report.py <fit.json> [<fit2.json> …]
+    python3 -I report.py <fit.json> [<fit2.json> …] [--recordings]
+
+`--recordings` prints one row per recording instead (its best-fitting event in the last run).
+A fit file may hold several searches of the same model: `merge.py`.
 
 The threshold for "close" is the median, over the real events, of each event's distance to the
 nearest event of another recording: a fit counts as close when the model is at least as near
@@ -29,8 +32,27 @@ def fmt_params(f):
     return s
 
 
+def by_recording(runs, thr):
+    fits = [{f["id"]: f for f in r["fits"]} for r in runs]
+    recs = {}
+    for f in runs[-1]["fits"]:
+        if f["rec"] not in recs or f["d"] < recs[f["rec"]]["d"]:
+            recs[f["rec"]] = f
+    head = "| Recording | " + " | ".join(f"best d ({i})" for i in range(len(runs))) + " | best event, fit (last) | misses (last) |"
+    print(head)
+    print("|" + "---|" * (head.count("|") - 1))
+    for rec, last in recs.items():
+        ds = [min(f["d"] for f in fs.values() if f["rec"] == rec) for fs in fits]
+        mark = ["**%.2f**" % d if d <= thr else "%.2f" % d for d in ds]
+        print(f"| {rec} | " + " | ".join(mark) + f" | {last['id']}: {fmt_params(last)} | {misses(last)} |")
+
+
 def main():
-    runs = [json.load(open(p)) for p in sys.argv[1:]]
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    runs = [json.load(open(p)) for p in args]
+    if "--recordings" in sys.argv:
+        by_recording(runs, float(np.median(list(runs[0]["nn"].values()))))
+        return
     nn = runs[0]["nn"]
     thr = float(np.median(list(nn.values())))
     fits = [{f["id"]: f for f in r["fits"]} for r in runs]
