@@ -1,8 +1,8 @@
 //! The flatulence creature (docs/flatulence.md): a golden render that must not depend on the block
 //! size, and the physics it is meant to show — continence, the event ending when the gas is gone,
 //! gas conservation, pitch rising with sphincter tone, falling with body size, more gas lasting
-//! longer, pressed cheeks swinging as a second valve, and mucus roughening the sound or holding
-//! the gas.
+//! longer, pressed cheeks flapping as a second valve and sputtering near threshold, and mucus
+//! roughening the sound or holding the gas.
 mod common;
 use chimera::analysis::pitch::{YinOpts, yin_pitch};
 use chimera::creatures::{CreatureDef, CreatureTelemetry, CreatureVoice, creature_by_id};
@@ -167,41 +167,59 @@ fn periodic_fraction(x: &[f32]) -> f64 {
     p / n
 }
 
-/// The cheeks' gap (cm) over a held event, sampled every block: (smallest, largest).
-fn cheek_gap_range(kv: &[(&str, f64)], sec: f64) -> (f64, f64) {
+/// The cheeks' gap (cm) over a held event, sampled every block: smallest, largest, and how many
+/// times it fell shut after being open.
+fn cheek_gaps(kv: &[(&str, f64)], sec: f64) -> (f64, f64, usize) {
     let mut v = CreatureVoice::new(def(), FS, &params(kv));
     let mut t = v.new_telemetry();
     v.set_gate(1.0);
     let mut buf = vec![0.0f32; 128];
-    let (mut lo, mut hi) = (f64::INFINITY, 0.0f64);
+    let (mut lo, mut hi, mut shut, mut was_open) = (f64::INFINITY, 0.0f64, 0, false);
     for _ in 0..(sec * FS / 128.0) as usize {
         v.render(&mut buf);
         v.telemetry(&mut t);
         let g = source(&t, "cheeks");
         lo = lo.min(g);
         hi = hi.max(g);
+        if g > 0.0 {
+            was_open = true;
+        } else if was_open {
+            shut += 1;
+            was_open = false;
+        }
     }
-    (lo, hi)
+    (lo, hi, shut)
 }
 
 #[test]
-fn pressed_cheeks_are_parted_by_the_gas_and_spread_cheeks_stay_open() {
-    // the cheeks are a second valve: pressed (1 mm apart at rest) the gas parts them by half as
-    // much again and they swing back past their rest gap (a valve only pushed open would stay
-    // above it); spread wide they stay open whatever the flow
-    let (lo, hi) = cheek_gap_range(&[("spread", 0.0)], 1.0);
-    assert!(lo < 0.098 && hi > 0.14, "pressed cheeks: gap {lo}..{hi} cm");
-    let (lo, _) = cheek_gap_range(&[("spread", 1.0)], 1.0);
+fn pressed_cheeks_flap_and_spread_cheeks_stay_open() {
+    // the cheeks are a second valve: pressed, they touch; the gas parts them and they fall shut
+    // behind each puff. Spread wide they stay open whatever the flow.
+    let (_, hi, shut) = cheek_gaps(&[("spread", 0.0)], 1.0);
+    assert!(hi > 0.05 && shut >= 3, "pressed cheeks: opened to {hi} cm, fell shut {shut} times");
+    let (lo, _, _) = cheek_gaps(&[("spread", 1.0)], 1.0);
     assert!(lo > 0.5, "spread cheeks closed to {lo} cm");
+}
+
+#[test]
+fn just_above_threshold_pressed_cheeks_sputter() {
+    // a push only just able to part the sphincter and the cheeks lets the gas out in puffs, each
+    // ended by the cheeks falling shut: seconds long, dozens of puffs a second
+    let kv = [("spread", 0.0), ("tone", 20.0), ("push", 10.0), ("gas", 100.0)];
+    let (out, _) = hold(&kv, 8.0);
+    let d = duration(&out);
+    let (_, _, shut) = cheek_gaps(&kv, d);
+    assert!(d > 3.0 && shut as f64 > 15.0 * d, "{d} s, {shut} puffs");
 }
 
 #[test]
 fn a_wet_canal_is_rougher_and_still_passes_its_gas() {
     // mucus bridges seal the gap after every contact and let go all at once past 0.27 mm: the
     // openings come irregularly, and the gas still all leaves
-    let kv = [("tone", 4.0), ("push", 30.0), ("gas", 100.0)];
+    // (cheeks spread, so that the puffs are the mucus's)
+    let kv = [("tone", 4.0), ("push", 30.0), ("gas", 100.0), ("spread", 1.0)];
     let dry = periodic_fraction(&hold(&kv, 2.0).0);
-    let (out, t) = hold(&[kv[0], kv[1], kv[2], ("mucus", 1.5)], 2.0);
+    let (out, t) = hold(&[kv[0], kv[1], kv[2], kv[3], ("mucus", 1.5)], 2.0);
     let wet = periodic_fraction(&out);
     assert!(wet < dry - 0.1, "periodic: dry {dry}, wet {wet}");
     let gas = source(&t, "gas");

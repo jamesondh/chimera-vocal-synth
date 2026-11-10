@@ -30,7 +30,8 @@
 //!   into a duct) and the human narrowest-constriction source in the cleft when it is narrow.
 //! - **The cheeks.** Beside the verge the cheeks meet or nearly meet: a second pressure-opened
 //!   valve, a LipReed whose mass and stiffness are the first thickness mode of the fat layer
-//!   under the perianal skin (the ischioanal fossa's), about 23 Hz. Spread cheeks leave it open.
+//!   under the perianal skin (the ischioanal fossa's), about 23 Hz. Pressed, they touch and the gas
+//!   has to part them; spread cheeks leave it open.
 //! - **Mucus.** A wet canal's faces are joined by a liquid bridge after each contact: it seals
 //!   the gap and pulls the faces together until they part by 0.27 mm (Bhattacharya & Siegmund's
 //!   traction–separation law), so each opening starts late and all at once.
@@ -121,7 +122,9 @@ const TISSUE_VISCOSITY: f64 = 20.0;
 /// people without pilonidal disease (Akinci et al. 2009, Colorectal Dis 11:753), deepening caudally;
 /// at the anus it is not measured. 3 cm, flagged as an estimate.
 const CLEFT_DEPTH: f64 = 3.0;
-/// Residual gap between pressed cheeks (cm): skin and hair don't seal. Not measured; 1 mm.
+/// Residual gap of the cleft and the anal margin with pressed cheeks (cm): the channels that skin
+/// folds and hair leave around the contact. Not measured; 1 mm. (Where the cheeks meet, beside the
+/// verge, pressed cheeks touch: their valve's rest gap is the wedge's alone.)
 const CLEFT_GAP: f64 = 0.1;
 /// Half-angle of the cleft's wedge when fully spread (rad): the cheek surfaces at a right angle.
 const CLEFT_SPREAD_MAX: f64 = PI / 4.0;
@@ -383,13 +386,15 @@ impl CreatureSim for Flatus {
             }
         }
         self.net.set_tube_targets(self.cleft, &self.cleft_areas, Some(depth), None);
-        // the cheeks: at rest their strip's mean gap is the wedge's over it; their layer of fat
+        // the cheeks: at rest their strip's gap is the wedge's mean opening over it, so pressed
+        // cheeks touch and the gas has to part them; the margin keeps the residual channels. Their
+        // layer of fat
         // (over the levator ani) is a mass–spring whose one mass has the layer's first thickness mode,
         // f = c/4L with c = √(E/ρ): stiffness E/L and mass 4ρL/π² per unit area (the gap is
         // twice the surface's displacement). Damping: the layer's Kelvin–Voigt loss with the
         // tissue viscosity above (3μ in extension), ζ = ω·3μ/(2E).
         let strip = CHEEK_LEN * s;
-        let rest = CLEFT_GAP * s + strip * tan(half);
+        let rest = strip * tan(half);
         let layer = CHEEK_LAYER * s;
         let k_c = FAT_YOUNG / layer;
         let m_c = 4.0 * TISSUE_DENSITY * layer / (PI * PI);
@@ -405,7 +410,7 @@ impl CreatureSim for Flatus {
             self.cheeks_settled = true;
         }
         self.net.set_port_geometry(self.cheek_port, strip, across);
-        self.margin_areas.fill(rest * across);
+        self.margin_areas.fill((CLEFT_GAP * s + rest) * across);
         self.net.set_tube_targets(self.margin, &self.margin_areas, Some(MARGIN_LEN * s), None);
         // the lip: mass per unit area ρ·δ; stiffness passive + the sphincter's short-range
         // stiffness; at rest the tone presses the ring shut with the closing pressure
