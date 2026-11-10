@@ -19,16 +19,24 @@ def misses(f, n=3):
     return ", ".join(f"{k} {v[0]:+.1f}" for k, v in t if v[1] * v[0] ** 2 > 0.5)
 
 
+ORDER = ["push", "tone", "eas", "ias", "gas", "spread", "size", "mucus"]
+DIGITS = {"spread": 2, "size": 2, "mucus": 2}
+
+
 def fmt_params(f):
     p = f["params"]
-    s = f"push {p['push']:.0f}, tone {p['tone']:.0f}, gas {p['gas']:.0f}, spread {p['spread']:.2f}, size {p['size']:.2f}"
-    for k in sorted(set(p) - {"push", "tone", "gas", "spread", "size"}):
-        s += f", {k} {p[k]:.2f}"
+    keys = [k for k in ORDER if k in p] + sorted(set(p) - set(ORDER))
+    s = ", ".join(f"{k} {p[k]:.{DIGITS.get(k, 0)}f}" for k in keys)
     pu = f.get("pushes")
     if pu and len(pu) > 1:
         s += f"; {len(pu)} pushes of {pu[0][1] - pu[0][0]:.2f} s every {pu[1][0] - pu[0][0]:.2f} s"
     elif pu:
         s += f"; push {pu[0][1]:.2f} s"
+    c = f.get("course")
+    if c:
+        s += f"; eas {c['e0']:.0f} → {c['e1']:.0f} from {c['t0']:.2f} s over {c['dur']:.2f} s"
+        if c.get("depth"):
+            s += f", ±{c['depth']:.0f} at {c['rate']:.1f} Hz"
     return s
 
 
@@ -77,6 +85,14 @@ def main():
         rc = sum(d <= thr for d in recs.values())
         print(f"run {i}: median d {np.median([f['d'] for f in ev]):.2f}; events close {close}/{len(ev)}; "
               f"events at least as close as their own nearest real neighbour {own}/{len(ev)}; recordings reached {rc}/{len(recs)}")
+        for stage in ("d_const", "d_ramp"):
+            if all(f.get(stage) is not None for f in ev):
+                sd = {f["id"]: f[stage] for f in ev}
+                srec = {}
+                for f in ev:
+                    srec[f["rec"]] = min(srec.get(f["rec"], 9e9), sd[f["id"]])
+                print(f"   best with the command {'constant' if stage == 'd_const' else 'up to a ramp'}: median d {np.median(list(sd.values())):.2f}; events close "
+                      f"{sum(d <= thr for d in sd.values())}/{len(ev)}; recordings reached {sum(d <= thr for d in srec.values())}/{len(srec)}")
         # which features miss most across events (weighted squared z, mean)
         names = runs[i]["names"]
         tot = {k: np.mean([f["terms"][k][1] * f["terms"][k][0] ** 2 for f in ev]) for k in names}

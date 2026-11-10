@@ -10,7 +10,9 @@ BIN = os.environ.get("FLATUS_RENDER") or os.path.join(ROOT, "target", "release",
 # the creature's physical controls and their ranges (crates/chimera/src/creatures/flatus.rs)
 RANGES = {
     "push": (0.0, 80.0),
-    "tone": (2.0, 150.0),
+    "tone": (2.0, 150.0),  # models before the two sphincters (commit c258ac2 and earlier)
+    "eas": (0.0, 250.0),
+    "ias": (0.0, 80.0),
     "gas": (10.0, 300.0),
     "spread": (0.0, 1.0),
     "size": (0.6, 1.25),
@@ -25,12 +27,17 @@ class Renderer:
         self.extra = extra or {}
         self.p = subprocess.Popen([BIN], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
 
-    def render(self, params, pushes=None, secs=8.0):
-        """params: {name: value}; pushes: [(on, off)] in seconds (None: held throughout)."""
+    def render(self, params, pushes=None, secs=8.0, courses=None):
+        """params: {name: value}; pushes: [(on, off)] in seconds (None: held throughout);
+        courses: {name: [(t, value), …]}, a control's course over time (it replaces the value)."""
         args = [self.tmp, f"{secs:.3f}"]
+        courses = courses or {}
         for k, v in {**self.extra, **params}.items():
             lo, hi = RANGES.get(k, (-1e9, 1e9))
-            args.append(f"{k}={min(hi, max(lo, v)):.6g}")
+            if k in courses:
+                args.append(f"{k}=" + ",".join(f"{t:.4f}:{min(hi, max(lo, x)):.5g}" for t, x in courses[k]))
+            else:
+                args.append(f"{k}={min(hi, max(lo, v)):.6g}")
         if pushes:
             args.append("pushes=" + ",".join(f"{a:.4f}:{b:.4f}" for a, b in pushes))
         self.p.stdin.write(" ".join(args) + "\n")
