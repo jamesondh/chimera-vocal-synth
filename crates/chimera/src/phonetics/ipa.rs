@@ -30,6 +30,18 @@ pub fn init() {
 }
 
 pub fn tokenize_ipa(input: &str) -> Vec<Segment> {
+    tokenize(input, &mut Vec::new())
+}
+
+/// Symbols in `input` the tokenizer does not know (and `tokenize_ipa` silently drops), in order,
+/// each once.
+pub fn unknown_ipa(input: &str) -> Vec<String> {
+    let mut unknown = Vec::new();
+    tokenize(input, &mut unknown);
+    unknown
+}
+
+fn tokenize(input: &str, unknown: &mut Vec<String>) -> Vec<Segment> {
     let mut s = nfc(input);
     for (a, b) in ALIASES {
         s = s.replace(a, b);
@@ -93,6 +105,9 @@ pub fn tokenize_ipa(input: &str) -> Vec<Segment> {
             i += 1;
         }
         if !known.contains(tok.as_str()) {
+            if !unknown.contains(&tok) {
+                unknown.push(tok);
+            }
             continue;
         }
         let is_v = tok.chars().next().is_some_and(|c| VOWEL_CHARS.contains(c)) && !super::inventory::consonant_symbols().contains(&tok.as_str());

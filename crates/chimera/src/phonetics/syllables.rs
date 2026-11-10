@@ -3,9 +3,17 @@
 //! onset clusters, and the spelling is split to match for display ("twin-kle").
 //! Typed hyphens force syllable breaks; a lone "-" (or "~") holds the previous vowel onto the
 //! next note (melisma), as in vocaloid editors.
+//! A word between slashes is IPA and skips the dictionary ("/ʂən/", "/ni.xaʊ/"), so lyrics can be
+//! sung in any language the phoneme inventory covers. "." inside it breaks syllables; without
+//! dots, syllables are found from its vowels with the English onset rule.
+//! IPA words are read as narrow transcription, for languages like Mandarin: a voiceless stop or
+//! affricate is unaspirated unless written with ʰ ("/pʰa/" 怕, "/pa/" 爸); the apical vowels of
+//! 四 and 是 (ɿ ʅ ɹ̩ ɻ̩ z̩ ʐ̩) are sung as ɨ; ɚ after a vowel is r-colouring, a ɻ coda (花儿 "/xwaɚ/").
 
 use crate::anatomy::human::BodyMix;
 use super::english::js_is_space;
+use super::inventory::{Manner, Voicing, phoneme};
+use super::ipa::{tokenize_ipa, unknown_ipa};
 use super::planner::is_vowel;
 use super::{Segment, Syllable};
 use serde::{Deserialize, Serialize};
@@ -151,13 +159,21 @@ fn is_word_start(c: char) -> bool {
     c.is_ascii_alphabetic() || c == '\''
 }
 
-/// `text.match(/[A-Za-z'][A-Za-z'\-]*|(?<=\s|^)[~-](?=\s|$)|[.,;:!?\n]/g)`
+/// `text.match(/\/[^\/]*\/|[A-Za-z'][A-Za-z'\-]*|(?<=\s|^)[~-](?=\s|$)|[.,;:!?\n]/g)`
 fn lyric_tokens(text: &str) -> Vec<String> {
     let s: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
     while i < s.len() {
         let c = s[i];
+        if c == '/' {
+            // an IPA word, slashes kept; an unclosed slash is dropped like other stray marks
+            if let Some(len) = s[i + 1..].iter().position(|&x| x == '/') {
+                out.push(s[i..i + len + 2].iter().collect());
+                i += len + 2;
+                continue;
+            }
+        }
         if is_word_start(c) {
             let start = i;
             i += 1;
@@ -172,6 +188,48 @@ fn lyric_tokens(text: &str) -> Vec<String> {
             out.push(c.to_string());
         }
         i += 1;
+    }
+    out
+}
+
+// apical ("buzzed") vowels, written several ways; sung as the nearest vowel the voice has
+const APICAL: [&str; 10] = ["ɿ", "ʅ", "ɹ̩", "ɻ̩", "z̩", "ʐ̩", "ɹ̍", "ɻ̍", "z̍", "ʐ̍"];
+
+fn lyric_ipa_text(ipa: &str) -> String {
+    APICAL.iter().fold(ipa.to_string(), |s, a| s.replace(a, "ɨ"))
+}
+
+/// One piece of an IPA lyric word → segments, read as narrow transcription (see the module doc).
+fn lyric_ipa_segments(piece: &str) -> Vec<Segment> {
+    let mut segs: Vec<Segment> = tokenize_ipa(&lyric_ipa_text(piece)).into_iter().filter(|s| s.ipa != "_").collect();
+    for i in 0..segs.len() {
+        let after_vowel = i > 0 && is_vowel(&segs[i - 1].ipa, BodyMix::MALE);
+        let s = &mut segs[i];
+        if (s.ipa == "ɚ" || s.ipa == "ɝ") && after_vowel {
+            s.ipa = "ɻ".into();
+            s.stress = Some(0);
+            continue;
+        }
+        let unaspirated = phoneme(&s.ipa, BodyMix::MALE)
+            .is_some_and(|d| d.voicing == Voicing::Voiceless && matches!(d.manner, Manner::Stop | Manner::Affricate));
+        if unaspirated && s.aspirated.is_none() {
+            s.aspirated = Some(false);
+        }
+    }
+    segs
+}
+
+/// Symbols in the lyrics' IPA words that no sound in the inventory covers (they would be dropped).
+pub fn unknown_lyric_ipa(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for tok in lyric_tokens(text) {
+        if let Some(ipa) = tok.strip_prefix('/').and_then(|t| t.strip_suffix('/')) {
+            for u in unknown_ipa(&lyric_ipa_text(ipa)) {
+                if !out.contains(&u) {
+                    out.push(u);
+                }
+            }
+        }
     }
     out
 }
@@ -193,6 +251,23 @@ pub fn lyrics_to_syllables(text: &str, g2p: &impl WordSource) -> Vec<Syllable> {
                 let s = Syllable { text: "~".into(), onset: vec![], nucleus: prev.nucleus.clone(), coda: vec![], melisma: Some(true), word_end: prev.word_end, phrase_end: false };
                 out.push(s);
             }
+            continue;
+        }
+        if let Some(ipa) = tok.strip_prefix('/').and_then(|t| t.strip_suffix('/')) {
+            // IPA: no dictionary. "." breaks syllables where the writer says (the onset rule
+            // below is English: "/ni.xaʊ/" must not become nix-aʊ); pauses mean nothing here
+            let mut syls: Vec<Syllable> = ipa
+                .split('.')
+                .flat_map(|piece| syllabify_segments(&lyric_ipa_segments(piece)))
+                .map(|s| {
+                    let text = s.onset.iter().chain([&s.nucleus]).chain(&s.coda).map(|x| x.ipa.as_str()).collect();
+                    Syllable { text, onset: s.onset, nucleus: s.nucleus, coda: s.coda, melisma: None, word_end: false, phrase_end: false }
+                })
+                .collect();
+            if let Some(last) = syls.last_mut() {
+                last.word_end = true;
+            }
+            out.append(&mut syls);
             continue;
         }
         // typed hyphens split syllables explicitly ("ti-ger"); otherwise the dictionary decides
