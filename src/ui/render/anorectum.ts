@@ -2,8 +2,10 @@
  * The flatulence creature as an anatomical cutaway: a coronal section through the anal canal seen
  * from behind, in the style of a surgical anatomy plate drawn on the vector display. The rectal
  * ampulla with its gas pocket (sized by the engine's gas volume, lit by its pressure), the pelvic
- * floor, the internal and external sphincters around the canal (the external one lit by its tone),
- * the vibrating anal verge (its gap from the engine, magnified), the ischioanal fat and the
+ * floor, the internal sphincter (lit by its pressure: what the rectoanal reflex leaves of its tone)
+ * and the external sphincter (lit by its activation) around the canal, the internal sphincter's
+ * zone and the distal ring at the verge each opened by the gas (their gaps from the engine,
+ * magnified), the ischioanal fat and the
  * gluteal cheeks around the cleft (its gap from the engine's cleft areas), with the gas streaming
  * through at the engine's flow.
  *
@@ -18,6 +20,8 @@ type P = [number, number];
 /** the engine's anatomy at body size 1 (crates/chimera/src/creatures/flatus.rs) */
 const HPZ = 3.6;
 const VALVE = 1.0;
+/** the top of the junction between the two closures (VALVE_LEN + JUNCTION_LEN) */
+const JUNCTION_TOP = 1.75;
 const ACROSS = 2 * (1.3 + 0.35);
 /** the verge's gap is a fraction of a millimetre: drawn this many times wider */
 export const GAP_MAGNIFY = 12;
@@ -76,12 +80,16 @@ export function drawAnorectum(ctx: CanvasRenderingContext2D, S: (p: P) => Pt, sc
   const size = prm.size ?? 1;
   const gate = live ? tele.gate : 0;
   const push = (prm.push ?? 0) * gate;
-  const tone = prm.tone ?? 20;
+  // the external sphincter's closing pressure (its activation-filtered command) and the internal
+  // sphincter's (its tone less the reflex's inhibition), from the engine when live
+  const eas = live ? (src.eas ?? prm.eas ?? 20) : (prm.eas ?? 20);
+  const ias = live ? (src.ias ?? 0) : (prm.ias ?? 37);
   const spread = prm.spread ?? 0.2;
   const gas = Math.max(0, src.gas ?? 0);
   const pressure = src.pressure ?? 0;
   const flow = Math.max(0, live ? (src.flow ?? 0) : 0);
   const gap = Math.max(0, live ? (src.gap ?? 0) : 0);
+  const upperGap = Math.max(0, live ? (src.upper ?? 0) : 0);
   const line = (pts: P[], color: string, width: number, alpha = 1, hot = false) => beamPts(ctx, pts.map(S), color, width, { alpha, hot });
 
   // ---- gas pocket: an ellipse of the engine's volume, resting on the anorectal junction
@@ -142,39 +150,51 @@ export function drawAnorectum(ctx: CanvasRenderingContext2D, S: (p: P) => Pt, sc
   }
   put("LEVATOR ANI", S([6.4, top + 3.6]), TEXT.secondary);
 
-  // ---- anal canal: the gas-filled upper canal (engine's area) and the vibrating verge (its gap)
-  const canalA = arr(tele.tubes.canal?.areas);
-  const upperHalf = canalA.length ? Math.sqrt(Math.max(0, canalA[0]) / Math.PI) : 0.5 * size;
+  // ---- anal canal: the internal sphincter's zone and the distal ring, each a slit the gas opens
+  // (their gaps from the engine, magnified), the gas-filled junction between them
+  const junctionA = arr(tele.tubes.junction?.areas);
+  const lumenHalf = junctionA.length ? Math.sqrt(Math.max(0, junctionA[0]) / Math.PI) : 0.5 * size;
   const vergeHalf = Math.min(0.45, (gap * GAP_MAGNIFY) / 2);
+  const zoneHalf = Math.min(0.5, (upperGap * GAP_MAGNIFY) / 2);
   const valveTop = VALVE * size;
+  const jTop = JUNCTION_TOP * size;
+  const upperHalf = 0.5 * size;
   for (const s of [-1, 1]) {
-    line([[s * vergeHalf, 0], [s * vergeHalf, valveTop * 0.9], [s * upperHalf * 0.8, valveTop + 0.2], [s * upperHalf, valveTop + 0.6], [s * upperHalf, top], [s * 1.2, top + 0.3]], V.blue, 1.4, 1, true);
+    line([[s * vergeHalf, 0], [s * vergeHalf, valveTop * 0.9], [s * lumenHalf * 0.8, valveTop + 0.15], [s * lumenHalf * 0.8, jTop - 0.1], [s * zoneHalf, jTop + 0.15], [s * zoneHalf, top - 0.15], [s * 1.2, top + 0.3]], V.blue, 1.4, 1, true);
   }
-  // canal rungs lit by the acoustic pressure, as the other creatures' airways
-  const canalR = arr(tele.tubes.canal?.rms);
-  canalR.forEach((rms, i) => {
-    const y = valveTop + 0.6 + ((i + 0.5) / canalR.length) * (top - valveTop - 0.6);
+  // junction rungs lit by the acoustic pressure, as the other creatures' airways
+  const jR = arr(tele.tubes.junction?.rms);
+  jR.forEach((rms, i) => {
+    const y = valveTop + 0.15 + ((i + 0.5) / jR.length) * (jTop - valveTop - 0.25);
     const lv = live ? Math.pow(pressureLevel(rms * 0.6), 0.85) : 0;
-    const [a, b] = [S([-upperHalf, y]), S([upperHalf, y])];
+    const [a, b] = [S([-lumenHalf * 0.8, y]), S([lumenHalf * 0.8, y])];
     seg(ctx, a[0], a[1], b[0], b[1], live ? heat(lv) : V.blueDim, 1, { alpha: live ? 0.35 + 0.65 * lv : 0.5 });
   });
   putLeft("ANAL CANAL", S([-upperHalf - 1.6, top - 0.6]), TEXT.secondary);
 
-  // internal sphincter: the canal's thickened smooth muscle, ending at the intersphincteric groove
+  // internal sphincter, lit by its pressure (0–60 cmH₂O): the canal's thickened smooth muscle,
+  // ending at the intersphincteric groove, and the anal cushions lining its zone
+  const il = Math.max(0, Math.min(1, ias / 60));
   for (const s of [-1, 1]) {
     const x0 = s * (upperHalf + 0.12), x1 = s * (upperHalf + 0.42);
-    line([[x0, top + 0.2], [x0, valveTop + 0.4], [(x0 + x1) / 2, valveTop + 0.15], [x1, valveTop + 0.4], [x1, top + 0.4]], V.blueMid, 1.1, 0.9);
+    line([[x0, top + 0.2], [x0, jTop], [(x0 + x1) / 2, jTop - 0.25], [x1, jTop], [x1, top + 0.4]], V.blueMid, 1.1, 0.4 + 0.6 * il, il > 0.5);
+    line(soft([[s * (zoneHalf + 0.05), jTop + 0.15], [s * (upperHalf + 0.05), jTop + 0.55], [s * (upperHalf + 0.05), top - 0.55], [s * (zoneHalf + 0.05), top - 0.15]], 1), V.blueDim, 1, 0.8);
   }
   put("INTERNAL SPHINCTER", S([upperHalf + 1.6, top - 0.3]), TEXT.secondary);
+  if (roomy) {
+    const at = S([upperHalf + 1.6, top - 0.95]);
+    const reflex = live && src.rair != null ? ` · REFLEX ${Math.round(src.rair * 100)}%` : "";
+    label(ctx, `${ias.toFixed(0)} CMH₂O${reflex}`, at[0], at[1], { size: 9, color: V.blueMid, ls: 0.12, alpha: 0.85 });
+  }
 
-  // external sphincter (slot 1, lit by its tone): deep and superficial parts beside the internal
-  // one, the subcutaneous ring wrapping the verge below it
-  const tl = Math.max(0, Math.min(1, tone / 100));
-  const eas = SLOTS[1];
+  // external sphincter (slot 1, lit by its activation): deep and superficial parts beside the
+  // internal one, the subcutaneous ring wrapping the verge below it
+  const tl = Math.max(0, Math.min(1, eas / 100));
+  const extS = SLOTS[1];
   for (const s of [-1, 1]) {
     const xi = s * (upperHalf + 0.55), xo = s * (upperHalf + 1.45);
-    line([[xi, top + 0.5], [xo, top + 0.7], [xo, valveTop + 0.6], [xi, valveTop + 0.5]], eas, 1.2, 0.45 + 0.55 * tl, tl > 0.5);
-    line([[xi, top + 0.5], [xi, valveTop + 0.5]], eas, 1, 0.35 + 0.4 * tl);
+    line([[xi, top + 0.5], [xo, top + 0.7], [xo, valveTop + 0.6], [xi, valveTop + 0.5]], extS, 1.2, 0.45 + 0.55 * tl, tl > 0.5);
+    line([[xi, top + 0.5], [xi, valveTop + 0.5]], extS, 1, 0.35 + 0.4 * tl);
     // subcutaneous part: a ring in section around the verge
     const cx = s * (vergeHalf + 0.55), cyy = valveTop * 0.45;
     const sub: P[] = [];
@@ -182,9 +202,13 @@ export function drawAnorectum(ctx: CanvasRenderingContext2D, S: (p: P) => Pt, sc
       const a = (i / 24) * Math.PI * 2;
       sub.push([cx + 0.48 * Math.cos(a), cyy + 0.42 * Math.sin(a)]);
     }
-    line(sub, eas, 1.3, 0.55 + 0.45 * tl, true);
+    line(sub, extS, 1.3, 0.55 + 0.45 * tl, true);
   }
-  put("EXTERNAL SPHINCTER", S([upperHalf + 1.6, valveTop + 1.2]), eas, true);
+  put("EXTERNAL SPHINCTER", S([upperHalf + 1.6, valveTop + 1.2]), extS, true);
+  if (roomy) {
+    const at = S([upperHalf + 1.6, valveTop + 0.55]);
+    label(ctx, `${eas.toFixed(0)} CMH₂O`, at[0], at[1], { size: 9, color: extS, ls: 0.12, alpha: 0.85 });
+  }
 
   // the verge as a source glyph: a ring sized by the opening (slot 1, like the tone that drives it)
   const opening = Math.max(0, Math.min(1, live ? (src.sphincter ?? 0) : 0));

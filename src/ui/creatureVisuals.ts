@@ -77,10 +77,10 @@ export const CREATURE_VISUALS: Record<string, CreatureVisual> = {
     silhouette: [[-1.4, 14], [-3.6, 11], [-4, 7.5], [-3, 4.6], [-6.5, 6], [-10.4, 6.5], [-10.8, 2.5], [-9.8, -2.4], [-6.2, -5], [-2.4, -4.6], [0, -3], [2.4, -4.6], [6.2, -5], [9.8, -2.4], [10.8, 2.5], [10.4, 6.5], [6.5, 6], [3, 4.6], [4, 7.5], [3.6, 11], [1.4, 14]],
     tubes: [
       { tube: "rectum", path: [[0, 10], [0, 3.6]], label: "Rectal gas" },
-      { tube: "canal", path: [[0, 3.6], [0, 1]], label: "Anal canal" },
+      { tube: "junction", path: [[0, 1.75], [0, 1]], label: "Anal canal" },
       { tube: "cleft", path: [[0, 0], [0, -3]], label: "Gluteal cleft" },
     ],
     tubeScale: 1,
-    sources: [{ key: "sphincter", at: [0, 0.45], label: "Anal verge" }],
+    sources: [{ key: "inner", at: [0, 2.7], label: "Internal sphincter" }, { key: "sphincter", at: [0, 0.45], label: "Anal verge" }],
   },
 };

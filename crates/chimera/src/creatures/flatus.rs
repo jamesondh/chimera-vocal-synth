@@ -767,8 +767,8 @@ pub fn def() -> CreatureDef {
         name: "Flatulence",
         latin: "Homo sapiens, flatus ani",
         group: CreatureGroup::Human,
-        blurb: "Rectal gas pushed by the abdomen sets the anal sphincter's outer ring buzzing like a brass player's lips; the gas pocket empties as it plays, and the cleft between the cheeks shapes the sound.",
-        role: "Squeaks to rumbles, from push, sphincter tone, gas and cheek spread",
+        blurb: "Rectal gas pushed by the abdomen opens the anal canal past its two sphincters, the involuntary internal one (relaxed by the rectal distension) and the voluntary external one, whose closures buzz like a brass player's lips: soft and low relaxed, stiff and high contracted; the gas pocket empties as it plays, and the cleft between the cheeks shapes the sound.",
+        role: "Squeaks to rumbles, from push, the two sphincters, gas and cheek spread",
         oversample: 2,
         // the push is the abdominal muscles: force builds and relaxes over about 0.1 s (twitch
         // contraction times of 50–100 ms; an estimate, not measured for straining)
@@ -783,13 +783,13 @@ pub fn def() -> CreatureDef {
             // about 30 % (Lestar et al. 1989), some 20–30 cmH₂O; squeezing adds 25–200 (median 92;
             // Luft et al. 2012), the top of the range the highest squeeze there (252 cmH₂O).
             // Passing gas means relaxing it below the push.
-            ParamDef::new("eas", "External sphincter (voluntary)", 0.0, 250.0, 20.0).unit("cmH₂O").smooth(0.001),
+            ParamDef::new("eas", "Ext. sphincter", 0.0, 250.0, 20.0).unit("cmH₂O").smooth(0.001),
             // the internal sphincter's tone before the rectoanal reflex inhibits it: 55 % of the
             // resting pressure (Lestar et al. 1989), 37 cmH₂O of a median 67 (range 32–133; Luft et
             // al. 2012). 0 is a sphincter fully relaxed by the coloanal reflex, which relaxes both
             // sphincters when a colonic pressure wave brings gas into the rectum (Huizinga et al.
             // 2021).
-            ParamDef::new("ias", "Internal sphincter tone", 0.0, 80.0, 37.0).unit("cmH₂O").smooth(0.3),
+            ParamDef::new("ias", "Int. sphincter", 0.0, 80.0, 37.0).unit("cmH₂O").smooth(0.3),
             // gas in the rectum at the start of an event: 476–1491 mL a day in 24-h collections
             // (Tomlin, Lowis & Read 1991, Gut 32:665), passed in some ten to twenty events
             ParamDef::new("gas", "Gas volume", 10.0, 300.0, 100.0).unit("mL").log().smooth(0.01),
