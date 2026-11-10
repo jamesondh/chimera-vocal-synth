@@ -1,13 +1,15 @@
 /** Main-thread speech planning: text/IPA → phrases → gestural plan → worklet. */
 import type { BodyMix } from "../wasm/types.ts";
-import { EnglishG2P, type Phrase } from "../wasm/engine.ts";
+import { EnglishG2P, MandarinG2P, isMandarin, type Phrase } from "../wasm/engine.ts";
 import { tokenizeIpa } from "../wasm/engine.ts";
 import { planPhrases, type Plan, type Segment } from "../wasm/engine.ts";
 import { engine } from "../audio/AudioEngine.ts";
 import type { Gesture } from "../wasm/types.ts";
-import { wordSpans, type WordSpan } from "./words.ts";
+import { transcribe, wordSpans, type WordSpan } from "./words.ts";
 
 export const g2p = new EnglishG2P();
+export const zh = new MandarinG2P();
+
 
 export interface SpokenPlan {
   plan: Plan;
@@ -47,10 +49,6 @@ export function ipaToPhrases(text: string): Phrase[] {
     .map((p) => ({ segments: tokenizeIpa(p), intonation: "statement" as const, pause: 0.3, words: [] }));
 }
 
-export function transcribe(phrases: { segments: Segment[]; intonation?: string }[]): string {
-  return phrases.map((p) => p.segments.map((s) => (s.stress === 1 ? "ˈ" : s.stress === 2 ? "ˌ" : "") + s.ipa + (s.wordEnd ? " " : "")).join("").trim() + (p.intonation === "question" ? "?" : "")).join(" | ");
-}
-
 export function speakPhrases(phrases: { segments: Segment[]; intonation?: "statement" | "question" | "flat"; pause?: number; words?: string[] }[], o: { body: BodyMix; rate: number; f0: number }): SpokenPlan {
   const plan = planPhrases(phrases, { body: o.body, t0: 0, rate: o.rate, f0: o.f0 });
   const id = engine.schedule({ gestures: plan.gestures.map((g: Gesture) => ({ ...g, targets: { ...g.targets } })), segments: plan.segments, end: plan.end });
@@ -63,7 +61,14 @@ export async function speakText(text: string, o: { ipa: boolean; body: BodyMix; 
   if (!text.trim()) return null;
   let phrases: Phrase[];
   if (o.ipa) phrases = ipaToPhrases(text);
-  else {
+  else if (isMandarin(text)) {
+    try {
+      await zh.load();
+    } catch {
+      // dictionary unavailable: pinyin still works
+    }
+    phrases = zh.toPhrases(text);
+  } else {
     try {
       await g2p.load();
     } catch {

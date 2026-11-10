@@ -8,8 +8,8 @@
  */
 import { create } from "zustand";
 import { engine } from "../audio/AudioEngine.ts";
-import { g2p } from "./speech.ts";
-import { lyricsToSyllables, type Syllable } from "../wasm/engine.ts";
+import { g2p, zh } from "./speech.ts";
+import { isMandarin, lyricsToSyllables, type Syllable } from "../wasm/engine.ts";
 import { planSong, planNoteOn, planNoteOff, planMelisma } from "../wasm/engine.ts";
 import { EXHALE_LABEL } from "../wasm/engine.ts";
 import { DEMO_SONGS } from "../wasm/engine.ts";
@@ -59,24 +59,25 @@ export const useSing = create<SingState>((set, get) => ({
   setLyrics: (text) => {
     stopDemo();
     set({ lyrics: text, syllables: lyricsToSyllables(text), cursor: 0 });
+    if (isMandarin(text)) zh.load().then(rereadLyrics, () => {});
   },
   setCursor: (i) => set({ cursor: Math.max(0, Math.min(i, Math.max(0, get().syllables.length - 1))) }),
   setVibrato: (cents) => set({ vibrato: cents }),
 }));
 
+/** Re-read the lyrics (a dictionary has loaded); the cursor stays. */
+function rereadLyrics(): void {
+  const s = useSing.getState();
+  const syllables = lyricsToSyllables(s.lyrics);
+  useSing.setState({ syllables, cursor: Math.min(s.cursor, Math.max(0, syllables.length - 1)) });
+}
+
 /** Load the pronouncing dictionary, then re-read the lyrics with it (the cursor stays). */
 export function ensureDictionary(): void {
   if (g2p.loaded) return;
-  g2p
-    .load()
-    .then(() => {
-      const s = useSing.getState();
-      const syllables = lyricsToSyllables(s.lyrics);
-      useSing.setState({ syllables, cursor: Math.min(s.cursor, Math.max(0, syllables.length - 1)) });
-    })
-    .catch(() => {
-      // no dictionary: the letter-to-sound rules keep working
-    });
+  g2p.load().then(rereadLyrics, () => {
+    // no dictionary: the letter-to-sound rules keep working
+  });
 }
 
 // ---- live notes

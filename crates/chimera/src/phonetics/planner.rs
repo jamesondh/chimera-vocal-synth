@@ -167,6 +167,8 @@ struct Seg<'a> {
     dur: Option<f64>,
     stress: Option<u8>,
     f0: Option<f64>,
+    aspirated: Option<bool>,
+    tone: Option<u8>,
     def: Option<PhonemeDef>,
     vowel: Option<ArticPatch>,
     glide_from: bool,
@@ -196,10 +198,10 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             let base = durs[si];
             for (i, p) in parts.iter().enumerate() {
                 let dur = if parts.len() > 1 { base * (if i == 0 { 0.55 } else { 0.45 }) } else { base };
-                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0 });
+                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, aspirated: s.aspirated, tone: s.tone, def: None, vowel: None, glide_from: i > 0 });
             }
         } else {
-            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false });
+            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, aspirated: s.aspirated, tone: s.tone, def: None, vowel: None, glide_from: false });
         }
     }
     for s in segs.iter_mut() {
@@ -308,8 +310,9 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             gestures.push(Gesture::new(t0, t1, 0.012, 0.015, 8.0, one(ControlKey::CLOSURE, 1.0)).label("ʔ"));
         } else if def.voicing == Voicing::Voiceless {
             if def.manner == Manner::Stop || def.manner == Manner::Affricate {
-                // aspirated when syllable-initial before a vowel and not after /s/ (English-like)
-                let aspirated = next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s");
+                // as marked (Mandarin contrasts [p pʰ]); else aspirated when syllable-initial before
+                // a vowel and not after /s/ (English-like)
+                let aspirated = s.aspirated.unwrap_or(next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s"));
                 let vot = if aspirated { 0.05 / rate } else { 0.012 };
                 gestures.push(Gesture::new(t0 + 0.25 * dur, t1 + vot * 0.4, 0.035, if aspirated { 0.045 } else { 0.02 }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration"));
             } else {
@@ -355,6 +358,25 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         let hold = if n < v_idx.len() - 1 { js_max(t1, times[v_idx[n + 1]].t0 - 0.03) } else { t1 };
         let mut target: f64;
         let has_f0 = truthy(s.f0);
+        if let Some(tone) = s.tone.filter(|_| !has_f0) {
+            if s.glide_from {
+                continue; // a diphthong's second target: its first carries the syllable's contour
+            }
+            let prev = v_idx[..n].iter().rev().copied().find(|&k| !segs[k].glide_from && segs[k].tone.is_some());
+            let next = v_idx[n + 1..].iter().copied().find(|&k| !segs[k].glide_from);
+            let rhyme_end = times[rhyme_last(&segs, i)].t1;
+            // the pitch moves from one tone to the next during the consonants between them
+            let ramp_in = prev.map_or(0.06, |k| js_max(0.03, t0 - times[rhyme_last(&segs, k)].t1));
+            let ramp_out = next.map_or(0.06, |k| js_max(0.03, times[k].t0 - rhyme_end));
+            let prog = (t0 - o.t0) / total;
+            let mut st = -1.7 * prog; // declination, ~1.7 semitones over the phrase
+            if next.is_none() && o.intonation == Some(Intonation::Question) {
+                st += 3.0;
+            }
+            let levels = tone_contour(tone, prev.and_then(|k| segs[k].tone), next.is_none());
+            tone_gestures(levels, t0, rhyme_end, ramp_in, ramp_out, f0 * crate::math::pow(2.0, st / 12.0), &mut gestures);
+            continue;
+        }
         if has_f0 {
             target = s.f0.unwrap();
         } else {
@@ -436,6 +458,57 @@ fn pre_placed_behind_closure(segs: &[Seg], i: usize) -> bool {
 /// Whether a closure at `front` lies in front of one at `back`.
 fn closes_in_front(front: &str, back: &str) -> bool {
     matches!((place_rank(front), place_rank(back)), (Some(f), Some(b)) if f < b)
+}
+
+/// Semitones per step of Chao's five tone levels (level 3 is the speaker's base pitch): a male
+/// speaker's tonal range is about an octave, so 1–5 spans 10 semitones.
+const CHAO_STEP: f64 = 2.5;
+
+/// A Mandarin tone's pitch targets (Chao levels, spread evenly over the rhyme). Tone 3 is low
+/// (21) except phrase-finally (214); the neutral tone (5) is a short level set by the tone before.
+fn tone_contour(tone: u8, prev: Option<u8>, last: bool) -> &'static [f64] {
+    match tone {
+        1 => &[5.0, 5.0],
+        2 => &[3.0, 5.0],
+        3 if last => &[2.0, 1.0, 4.0],
+        3 => &[2.0, 1.0],
+        4 => &[5.0, 1.0],
+        _ => match prev {
+            Some(1) => &[2.0],
+            Some(2) => &[3.0],
+            Some(3) => &[4.0],
+            Some(4) => &[1.0],
+            _ => &[3.0],
+        },
+    }
+}
+
+/// The last segment of the rhyme whose nucleus is vowel `i`: a diphthong's second target, then a
+/// nasal coda (a nasal not followed by a vowel; one before a vowel is the next syllable's onset).
+fn rhyme_last(segs: &[Seg], i: usize) -> usize {
+    let mut j = i;
+    while j + 1 < segs.len() && segs[j + 1].glide_from {
+        j += 1;
+    }
+    let coda = segs.get(j + 1).and_then(|s| s.def).is_some_and(|d| d.nasal == Some(true)) && segs.get(j + 2).is_none_or(|s| s.vowel.is_none());
+    if coda { j + 1 } else { j }
+}
+
+/// Pitch gestures for a contour over the rhyme [a, b]: each level held for a fifth of the rhyme,
+/// cosine crossfades between them; `ramp_in` / `ramp_out` reach back and on over the consonants
+/// to the neighbouring rhymes, so consecutive tones crossfade there.
+fn tone_gestures(levels: &[f64], a: f64, b: f64, ramp_in: f64, ramp_out: f64, base: f64, out: &mut Vec<Gesture>) {
+    let d = b - a;
+    let h = 0.2 * d;
+    let n = levels.len();
+    let gap = if n > 1 { (d - h * n as f64) / (n - 1) as f64 } else { 0.0 };
+    for (k, &l) in levels.iter().enumerate() {
+        let s0 = a + k as f64 * (h + gap);
+        let s1 = if k == n - 1 { b } else { s0 + h };
+        let r_in = if k == 0 { ramp_in } else { gap };
+        let r_out = if k == n - 1 { ramp_out } else { gap };
+        out.push(Gesture::new(s0, s1, r_in, r_out, 1.0, one(ControlKey::F0, base * crate::math::pow(2.0, (l - 3.0) * CHAO_STEP / 12.0))).label("pitch"));
+    }
 }
 
 /// Ramps of a given pitch (a sung note's) on a segment `dur` long: 60 ms, but at most half the

@@ -1,4 +1,5 @@
-//! IPA string → segments (stress ˈ ˌ, length ː, tie bars, affricates, diphthongs, word gaps).
+//! IPA string → segments (stress ˈ ˌ, length ː, aspiration ʰ, tie bars, affricates, diphthongs,
+//! word gaps).
 
 use super::Segment;
 use serde::Deserialize;
@@ -6,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 const VOWEL_CHARS: &str = "iyɨʉɯuɪʏʊeøɘɵɤoəɛœɜɞʌɔæɐaɶɑɒɝɚ";
-const MULTI: [&str; 10] = ["tʃ", "dʒ", "ts", "dz", "pf", "aɪ", "aʊ", "ɔɪ", "eɪ", "oʊ"];
-const ALIASES: [(&str, &str); 9] = [("t͡ʃ", "tʃ"), ("d͡ʒ", "dʒ"), ("t͡s", "ts"), ("d͡z", "dz"), ("ɡ", "g"), ("ʧ", "tʃ"), ("ʤ", "dʒ"), ("r̥", "r"), ("ɐ̯", "ɐ")];
+const MULTI: [&str; 12] = ["tʃ", "dʒ", "ts", "dz", "pf", "tɕ", "ʈʂ", "aɪ", "aʊ", "ɔɪ", "eɪ", "oʊ"];
+const ALIASES: [(&str, &str); 11] = [("t͡ʃ", "tʃ"), ("d͡ʒ", "dʒ"), ("t͡s", "ts"), ("d͡z", "dz"), ("t͡ɕ", "tɕ"), ("ʈ͡ʂ", "ʈʂ"), ("ɡ", "g"), ("ʧ", "tʃ"), ("ʤ", "dʒ"), ("r̥", "r"), ("ɐ̯", "ɐ")];
 
 
 fn known() -> &'static HashSet<&'static str> {
@@ -29,6 +30,18 @@ pub fn init() {
 }
 
 pub fn tokenize_ipa(input: &str) -> Vec<Segment> {
+    tokenize(input, &mut Vec::new())
+}
+
+/// Symbols in `input` the tokenizer does not know (and `tokenize_ipa` silently drops), in order,
+/// each once.
+pub fn unknown_ipa(input: &str) -> Vec<String> {
+    let mut unknown = Vec::new();
+    tokenize(input, &mut unknown);
+    unknown
+}
+
+fn tokenize(input: &str, unknown: &mut Vec<String>) -> Vec<Segment> {
     let mut s = nfc(input);
     for (a, b) in ALIASES {
         s = s.replace(a, b);
@@ -61,6 +74,14 @@ pub fn tokenize_ipa(input: &str) -> Vec<Segment> {
             i += 1;
             continue;
         }
+        // aspiration: marks the stop or affricate before it (an unmarked one follows the English rule)
+        if ch == 'ʰ' {
+            if let Some(last) = out.last_mut() {
+                last.aspirated = Some(true);
+            }
+            i += 1;
+            continue;
+        }
         if ch == 'ː' || ch == ':' {
             if let Some(last) = out.last_mut() {
                 let first = last.ipa.chars().next();
@@ -84,6 +105,9 @@ pub fn tokenize_ipa(input: &str) -> Vec<Segment> {
             i += 1;
         }
         if !known.contains(tok.as_str()) {
+            if !unknown.contains(&tok) {
+                unknown.push(tok);
+            }
             continue;
         }
         let is_v = tok.chars().next().is_some_and(|c| VOWEL_CHARS.contains(c)) && !super::inventory::consonant_symbols().contains(&tok.as_str());

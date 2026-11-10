@@ -13,6 +13,7 @@ use chimera::creatures::{CREATURES, creature_by_id};
 use chimera::math::{js_max, js_min, js_round, log10};
 use chimera::phonetics::beatbox::{BEAT_PRESETS, BEAT_SOUNDS, BeatStep, beat_ready, parse_beat};
 use chimera::phonetics::english::EnglishG2P;
+use chimera::phonetics::mandarin::MandarinG2P;
 use chimera::phonetics::ipa::tokenize_ipa;
 use chimera::phonetics::planner::{
     PhraseInput, PlanOptions, plan_phrases, plan_utterance, vowel_table,
@@ -22,7 +23,7 @@ use chimera::phonetics::sing::{
     plan_song,
 };
 use chimera::phonetics::songs::DEMO_SONGS;
-use chimera::phonetics::syllables::lyrics_to_syllables;
+use chimera::phonetics::syllables::{lyrics_to_syllables, unknown_lyric_ipa};
 use chimera::phonetics::{Intonation, Plan, Syllable};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
 use std::io::Read;
@@ -35,16 +36,28 @@ fn render_blocks(v: &mut HumanVoice, out: &mut [f32]) {
     }
 }
 
-/// The CMU dictionary (`public/data/cmudict.txt.gz`) loaded into a G2P.
-pub fn g2p() -> Result<EnglishG2P, String> {
-    let path = repo_path("public/data/cmudict.txt.gz");
+/// A gzipped dictionary in `public/data/`, as text.
+fn gunzip(rel: &str) -> Result<String, String> {
+    let path = repo_path(rel);
     let gz = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
     let mut text = String::new();
     flate2::read::GzDecoder::new(&gz[..])
         .read_to_string(&mut text)
         .map_err(|e| format!("{path}: {e}"))?;
+    Ok(text)
+}
+
+/// The CMU dictionary (`public/data/cmudict.txt.gz`) loaded into a G2P.
+pub fn g2p() -> Result<EnglishG2P, String> {
     let mut g = EnglishG2P::new();
-    g.load_dict(&text);
+    g.load_dict(&gunzip("public/data/cmudict.txt.gz")?);
+    Ok(g)
+}
+
+/// The Mandarin dictionary (`public/data/mandarin.txt.gz`) loaded into a G2P.
+pub fn mandarin_g2p() -> Result<MandarinG2P, String> {
+    let mut g = MandarinG2P::new();
+    g.load_dict(&gunzip("public/data/mandarin.txt.gz")?);
     Ok(g)
 }
 
@@ -143,16 +156,28 @@ pub fn text_f0(body_name: &str) -> f64 {
 /// Say `text` the way `render text` does: CMUdict G2P, the phrase planner from t0 = 50 ms, the
 /// body's speaking f0, 300 ms of tail. `chimera compare tsp` measures exactly these renders.
 pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String> {
+    say_phrases(&g.to_phrases(text), body_name)
+}
+
+/// [`say`] for phrases from any front end.
+pub fn say_phrases(phrases: &[chimera::phonetics::english::Phrase], body_name: &str) -> Result<Spoken, String> {
     let b = body(body_name)?;
     let f0 = text_f0(body_name);
-    let phrases = g.to_phrases(text);
     let shown: Vec<String> = phrases
         .iter()
         .map(|p| {
             let s: String = p
                 .segments
                 .iter()
-                .map(|s| format!("{}{}", if s.stress == Some(1) { "ˈ" } else { "" }, s.ipa))
+                .map(|s| {
+                    format!(
+                        "{}{}{}{}",
+                        if s.stress == Some(1) && s.tone.is_none() { "ˈ" } else { "" },
+                        s.ipa,
+                        if s.aspirated == Some(true) { "ʰ" } else { "" },
+                        s.tone.map_or(String::new(), |t| t.to_string())
+                    )
+                })
                 .collect();
             s + if p.intonation == Intonation::Question {
                 "?"
@@ -204,6 +229,18 @@ pub fn text(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         fixed(s.out.len() as f64 / FS, 2),
         fixed(ms, 0)
     );
+    Ok(())
+}
+
+/// Mandarin (characters or pinyin) through the phrase planner. `render mandarin <out> ["你好。"] [body]`
+pub fn mandarin(ctx: &Ctx, a: &[String]) -> Result<(), String> {
+    let name = arg(a, 0, "out/mandarin");
+    let text = arg(a, 1, "你好。");
+    let s = say_phrases(&mandarin_g2p()?.to_phrases(text), arg(a, 2, "male"))?;
+    println!("{}", s.shown);
+    let file = wav_name(name);
+    ctx.write_wav(&file, &s.out)?;
+    println!("wrote {file}  {} s", fixed(s.out.len() as f64 / FS, 2));
     Ok(())
 }
 
@@ -510,7 +547,12 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let vibrato = j["vibrato"].as_f64().unwrap_or(35.0);
     let raw: Vec<[f64; 2]> = serde_json::from_value(j["notes"].clone()).map_err(|e| format!("notes: {e}"))?;
     let g = g2p()?;
-    let syl = lyrics_to_syllables(j["lyrics"].as_str().ok_or("lyrics missing")?, &g);
+    let lyrics = j["lyrics"].as_str().ok_or("lyrics missing")?;
+    let unknown = unknown_lyric_ipa(lyrics);
+    if !unknown.is_empty() {
+        return Err(format!("lyrics: no sound for IPA {}", unknown.join(" ")));
+    }
+    let syl = lyrics_to_syllables(lyrics, &g);
     let sounding = raw.iter().filter(|n| n[0] > 0.0).count();
     if syl.len() != sounding {
         return Err(format!("{} syllables for {sounding} notes: {}", syl.len(),

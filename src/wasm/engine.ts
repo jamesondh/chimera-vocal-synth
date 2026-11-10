@@ -60,6 +60,51 @@ export function tokenizeIpa(text: string): Segment[] {
   return call("tokenizeIpa", { text });
 }
 
+/** A gzipped dictionary as text. */
+async function fetchDictionary(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`dictionary ${res.status}`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  // servers differ: some send Content-Encoding: gzip (already inflated by the browser)
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return new Response(stream).text();
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Mandarin text (characters or pinyin) → phonemes with tones. Characters need the dictionary
+ * (`public/data/mandarin.txt.gz`, fetched on first use); pinyin works without it.
+ */
+export class MandarinG2P {
+  private loading: Promise<void> | null = null;
+
+  load(url = "/data/mandarin.txt.gz"): Promise<void> {
+    this.loading ??= fetchDictionary(url).then(
+      (text) => this.setDictionaryText(text),
+      (e) => {
+        this.loading = null; // allow a retry
+        throw e;
+      },
+    );
+    return this.loading;
+  }
+
+  setDictionaryText(text: string): void {
+    call("zhLoad", { text });
+  }
+
+  toPhrases(text: string): Phrase[] {
+    return call("zhPhrases", { text });
+  }
+}
+
+/** Chinese characters, tone-marked pinyin, or pinyin with tone numbers ("ni3 hao3"). */
+export function isMandarin(text: string): boolean {
+  return call("isMandarin", { text });
+}
+
 /**
  * English text → phonemes: CMUdict once loaded (fetched and gunzipped here, parsed by the
  * engine), letter-to-sound rules until then. One dictionary per page (the engine keeps it).
@@ -75,24 +120,13 @@ export class EnglishG2P {
   /** Load the gzipped dictionary ("word\tPHONES" lines). */
   load(url = "/data/cmudict.txt.gz"): Promise<void> {
     if (this.isLoaded) return Promise.resolve();
-    if (this.loading) return this.loading;
-    this.loading = (async () => {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`dictionary ${res.status}`);
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        // servers differ: some send Content-Encoding: gzip (already inflated by the browser)
-        let text: string;
-        if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
-          const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-          text = await new Response(stream).text();
-        } else text = new TextDecoder().decode(bytes);
-        this.setDictionaryText(text);
-      } catch (e) {
+    this.loading ??= fetchDictionary(url).then(
+      (text) => this.setDictionaryText(text),
+      (e) => {
         this.loading = null; // allow a retry
         throw e;
-      }
-    })();
+      },
+    );
     return this.loading;
   }
 
@@ -112,7 +146,8 @@ export class EnglishG2P {
   }
 }
 
-/** Lyrics → sung syllables, through the page's dictionary (see EnglishG2P). */
+/** Lyrics → sung syllables, through the page's dictionary (see EnglishG2P; Mandarin lyrics,
+ *  one syllable per character, through MandarinG2P's). */
 export function lyricsToSyllables(text: string): Syllable[] {
   return call("lyricsToSyllables", { text });
 }

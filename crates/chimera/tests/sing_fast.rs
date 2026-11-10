@@ -94,3 +94,20 @@ fn a_delayed_cluster_closure_stays_inside_a_short_sung_stop() {
         }
     }
 }
+
+#[test]
+fn a_short_note_keeps_its_vowel() {
+    // a march's quarter beat (108 bpm, 139 ms): at spoken length the onset of Mandarin "xian"
+    // [ɕj] and the coda [n] left [ɛ] ~50 ms of transition; the consonants now shrink so each
+    // vowel keeps at least 45 % of its note
+    let (bpm, beats) = (108.0, 0.25);
+    let syl = chimera::phonetics::mandarin::MandarinG2P::new().lyrics("xian1 de5 xian1 de5 xian1");
+    let notes: Vec<SungNote> = syl.into_iter().map(|s| SungNote { midi: 62.0, beats, syl: s }).collect();
+    let plan = plan_song(&notes, &SongOptions { body: "male".into(), bpm, t0: 0.5, vibrato: 0.0 });
+    let span = beats * 60.0 / bpm;
+    let vowels: Vec<&PlannedSegment> = plan.segments.iter().filter(|s| s.kind == "vowel").collect();
+    assert_eq!(vowels.len(), notes.len());
+    for v in &vowels[..vowels.len() - 1] {
+        assert!(v.t1 - v.t0 >= 0.45 * span - 1e-9, "[{}] {:.0} ms of a {:.0} ms note", v.ipa, (v.t1 - v.t0) * 1000.0, span * 1000.0);
+    }
+}

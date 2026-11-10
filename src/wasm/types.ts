@@ -155,6 +155,10 @@ export interface Segment {
   stress?: number;
   f0?: number;
   wordEnd?: boolean;
+  /** voiceless stop/affricate: aspirated or not (unset: the English rule) */
+  aspirated?: boolean;
+  /** lexical tone of a syllable nucleus (Mandarin 1–4, 5 neutral) */
+  tone?: number;
 }
 
 export interface PlannedSegment {

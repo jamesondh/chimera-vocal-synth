@@ -10,6 +10,7 @@ pub mod durations;
 pub mod english;
 pub mod inventory;
 pub mod ipa;
+pub mod mandarin;
 pub mod planner;
 pub mod sing;
 pub mod songs;
@@ -33,6 +34,12 @@ pub struct Segment {
     /// word boundary after this segment
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub word_end: Option<bool>,
+    /// voiceless stop/affricate: aspirated or not (unset: the English rule, aspirated before a vowel)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aspirated: Option<bool>,
+    /// lexical tone of a syllable nucleus (Mandarin 1–4, 5 neutral): the pitch contour over its rhyme
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tone: Option<u8>,
 }
 
 impl Segment {

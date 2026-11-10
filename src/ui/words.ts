@@ -36,3 +36,17 @@ export function wordSpans(phrases: { segments: Segment[]; words?: string[] }[], 
   }
   return out;
 }
+
+/** Chao tone letters (shown in the transcription) */
+const TONE_LETTERS = ["", "˥", "˧˥", "˨˩˦", "˥˩", ""];
+
+/** Phrases as shown under the text box: IPA with stress marks, aspiration and tone letters. */
+export function transcribe(phrases: { segments: Segment[]; intonation?: string }[]): string {
+  // a tone letter ends its syllable: after the nucleus, or after a nasal coda (a nasal right after
+  // a toned nucleus)
+  const tone = (segs: Segment[], i: number) => {
+    const t = segs[i].tone ?? (/^[nŋ]$/.test(segs[i].ipa) ? segs[i - 1]?.tone : undefined);
+    return t && !(segs[i].tone && /^[nŋ]$/.test(segs[i + 1]?.ipa ?? "")) ? TONE_LETTERS[t] : "";
+  };
+  return phrases.map((p) => p.segments.map((s, i) => (s.tone ? "" : s.stress === 1 ? "ˈ" : s.stress === 2 ? "ˌ" : "") + s.ipa + (s.aspirated ? "ʰ" : "") + tone(p.segments, i) + (s.wordEnd ? " " : "")).join("").trim() + (p.intonation === "question" ? "?" : "")).join(" | ");
+}
