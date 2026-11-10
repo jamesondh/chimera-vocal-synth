@@ -19,9 +19,11 @@ and the CLI) under a React UI. See the README.
 ## Map
 
 - `crates/chimera/`: the engine (no I/O). `crates/chimera-wasm/`: the browser's C ABI.
-  `crates/chimera-cli/`: `chimera render | compare csd | compare tsp | diagnose | calibrate`.
+  `crates/chimera-cli/`: `chimera render | compare csd | compare tsp | diagnose | calibrate`
+  (`render notes --tele` and `render creature-show --tele` record what a show replays).
 - `src/wasm/`: the UI's facade over the engine. `src/worklet/`: the AudioWorklet. `src/ui/`: React
-  and the canvas renderers.
+  and the canvas renderers. `src/show/`: shows (`?show=<id>`, DuetPage.tsx): voices' `.tele` on 3D
+  heads, or a creature's `.ctele` in its Bestiary drawing (CreatureShow.tsx).
 - `tests/`: bun tests on the wasm build. `tools/`: e2e, layout lint, spectrogram, speech judges
   (`asr/` Whisper, `tsp/` the real speakers' data).
 - `docs/`: architecture, the engine contract (`rust-engine.md`), the UI look, the singer and

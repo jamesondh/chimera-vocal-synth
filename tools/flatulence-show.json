@@ -1,0 +1,29 @@
+{
+  "creature": "flatulence",
+  "tail": 0.8,
+  "events": [
+    { "at": 0.5, "call": "squeak" },
+    { "at": 2.8, "call": "rumble" },
+    { "at": 6.9, "call": "staccato" },
+    { "at": 10.1, "call": "clench" },
+    { "at": 12.4, "call": "quiver" },
+    { "at": 15.6, "call": "leak" },
+    {
+      "at": 19.7, "hold": 1.0, "params": { "gas": 300, "eas": 3, "push": 5, "spread": "0:0,0.6:1" },
+      "caption": "Cheeks parting",
+      "hint": "A relaxed leak while the cheeks spread from together to apart"
+    },
+    {
+      "at": 21.7, "hold": 1.2,
+      "params": { "gas": 250, "push": 10, "spread": 0.3, "eas": "0:5,0.15:15,0.3:5,0.45:25,0.6:5,0.75:35,0.9:5,1.05:45,1.2:5" },
+      "caption": "Quiver, deepening",
+      "hint": "The external sphincter squeezed harder each time until it holds"
+    },
+    {
+      "at": 23.9, "hold": 1.0,
+      "params": { "gas": 300, "spread": 0.3, "push": "0:6,0.3:16", "eas": "0:8,0.3:8,0.33:160" },
+      "caption": "Rising push, cut off",
+      "hint": "The push builds, then the external sphincter clamps shut on the gas"
+    }
+  ]
+}

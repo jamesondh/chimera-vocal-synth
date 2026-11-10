@@ -31,7 +31,8 @@ for tests and the `chimera` CLI.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator, elephant, and flatulence (the anal
   canal's two closures, internal and external sphincter, as lip reeds driven by the rectal gas;
   [docs/flatulence.md](docs/flatulence.md)).
-- **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.
+- **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song; a creature show replays a
+  Bestiary creature's scripted calls in its own drawing (`tools/flatulence-show.sh`).
 
 Male, female and child bodies blend continuously. Everything on screen animates from live
 engine state: pressure in the airway, airflow, the vocal folds, spectra and formants.
@@ -52,7 +53,7 @@ The AudioWorklet needs a secure context, so open it on localhost or over HTTPS (
 Offline renders and measurement:
 
 ```sh
-cargo run --release -p chimera-cli -- render speech|text|song|notes|beatbox|creature|vowels …
+cargo run --release -p chimera-cli -- render speech|text|song|notes|beatbox|creature|creature-show|vowels …
 cargo run --release -p chimera-cli -- diagnose       # nasal leakage, formants, bandwidths, pitch
 cargo run --release -p chimera-cli -- compare csd    # against a real singer (docs/csd-comparison.md)
 cargo run --release -p chimera-cli -- compare tsp    # against 23 real speakers (docs/speech-comparison.md)
