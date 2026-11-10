@@ -698,9 +698,12 @@ pub fn beatbox(ctx: &Ctx, a: &[String]) -> Result<(), String> {
 
 /// A creature's sustained note and calls; level, stability and pitch.
 /// `render creature [creatureId] [outdir] [key=value …]`: `key=value` sets a parameter for the
-/// whole render, `hold=<s>` the sustained note's length (1.2 s), `calls=none` skips the calls. Each
-/// part is also written on its own (`<id>-hold.wav`, `<id>-<call>.wav`) and measured: duration,
-/// level, f0 range and spectral centroid.
+/// whole render, `key=t:v,t:v,…` gives it a course over the sustained note instead (seconds from
+/// its start, values; linear between the keys, set every millisecond, as a call's keyframes move
+/// it; e.g. the flatulence creature's `eas=0:5,0.4:5,0.45:150` clenches at 0.4 s), `hold=<s>` the
+/// sustained note's length (1.2 s), `calls=none` skips the calls. Each part is also written on its
+/// own (`<id>-hold.wav`, `<id>-<call>.wav`) and measured: duration, level, f0 range and spectral
+/// centroid.
 pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let pos: Vec<String> = a.iter().filter(|s| !s.contains('=')).cloned().collect();
     let opts: Vec<(&str, &str)> = a.iter().filter_map(|s| s.split_once('=')).collect();
@@ -719,13 +722,26 @@ pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let mut hold = 1.2;
     let mut with_calls = true;
     let mut initial: Vec<(usize, f64)> = Vec::new();
+    let mut courses: Vec<(usize, Vec<(f64, f64)>)> = Vec::new();
     for (k, v) in &opts {
         match *k {
             "hold" => hold = v.parse::<f64>().map_err(|e| format!("hold={v}: {e}"))?,
             "calls" => with_calls = *v != "none",
             _ => {
                 let i = def.param_index(k).ok_or_else(|| format!("{id} has no parameter {k}"))?;
-                initial.push((i, v.parse::<f64>().map_err(|e| format!("{k}={v}: {e}"))?));
+                if v.contains(':') {
+                    let mut keys = Vec::new();
+                    for g in v.split(',') {
+                        let (t, x) = g.split_once(':').ok_or_else(|| format!("{k}={v}: keys are t:v"))?;
+                        let t = t.parse::<f64>().map_err(|e| format!("{k}={v}: {e}"))?;
+                        let x = x.parse::<f64>().map_err(|e| format!("{k}={v}: {e}"))?;
+                        keys.push((t, x));
+                    }
+                    initial.push((i, keys[0].1));
+                    courses.push((i, keys));
+                } else {
+                    initial.push((i, v.parse::<f64>().map_err(|e| format!("{k}={v}: {e}"))?));
+                }
             }
         }
     }
@@ -749,7 +765,23 @@ pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         v.set_params(&[(k, 0.0)]); // single voice for the pitch check
     }
     v.set_gate(1.0);
-    let sus = render_for(&mut v, &mut out, hold);
+    let sus = if courses.is_empty() {
+        render_for(&mut v, &mut out, hold)
+    } else {
+        // the courses, set every millisecond
+        let start = out.len();
+        let tick = js_round(0.001 * FS) as usize;
+        let n = js_round(hold * FS) as usize;
+        out.resize(start + n, 0.0);
+        for (j, block) in out[start..].chunks_mut(tick).enumerate() {
+            let t = (j * tick) as f64 / FS;
+            for (k, keys) in &courses {
+                v.set_params(&[(*k, course_at(keys, t))]);
+            }
+            v.render(block);
+        }
+        start..start + n
+    };
     v.set_gate(0.0);
     let sus_tail = render_for(&mut v, &mut out, 0.4);
     let mut parts = vec![("hold".to_string(), sus.start..sus_tail.end)];
@@ -807,6 +839,19 @@ pub fn creature(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         println!("  {name:>10}: {}", measure(seg, FS));
     }
     Ok(())
+}
+
+/// A course's value at `t`: linear between its keys, held outside them.
+fn course_at(keys: &[(f64, f64)], t: f64) -> f64 {
+    if t <= keys[0].0 {
+        return keys[0].1;
+    }
+    for w in keys.windows(2) {
+        if t < w[1].0 {
+            return w[0].1 + (w[1].1 - w[0].1) * (t - w[0].0) / (w[1].0 - w[0].0).max(1e-9);
+        }
+    }
+    keys[keys.len() - 1].1
 }
 
 /// Duration, level, f0 and spectral centroid of a rendered sound. The sound is the span of 10 ms
