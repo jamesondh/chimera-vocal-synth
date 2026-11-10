@@ -200,3 +200,15 @@ fn unstressed_vowels_keep_a_syllable_s_length() {
     // the last one, before a pause, is the longest
     assert!(weak[2] > weak[0]);
 }
+
+#[test]
+fn a_stressed_y_is_as_long_as_the_other_stressed_vowels() {
+    // the duration table's /ɨ/ is English's reduced vowel (110 ms inherent): "дым" came out with
+    // half the vowel of "дум" and Whisper wrote "дум" for it
+    let g = EnglishG2P::new();
+    let y = |text: &str| g.to_phrases(text)[0].segments.iter().find(|s| s.ipa == "ɨ").unwrap().dur;
+    assert_eq!(y("ды́м"), Some(0.19));
+    assert_eq!(y("ды́м и до́м"), Some(0.12));
+    // sung, the note sets the length
+    assert!(russian::word("дым", false).iter().all(|s| s.ipa != "ɨ" || s.dur.is_none()));
+}

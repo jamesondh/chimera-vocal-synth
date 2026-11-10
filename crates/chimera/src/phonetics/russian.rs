@@ -151,6 +151,10 @@ pub fn word_before(input: &str, next: Option<&str>, reduce: bool) -> Vec<Segment
                 } else {
                     0.07
                 });
+            } else if reduce && ipa == "ɨ" {
+                // The table's /ɨ/ is English's reduced vowel (roses), 110 ms: a stressed ы came
+                // out half as long as у, and "дым" was heard as "дум"
+                seg.dur = Some(if next.is_none() && positions.last() == Some(&at) { 0.19 } else { 0.12 });
             }
             out.push(seg);
             continue;
