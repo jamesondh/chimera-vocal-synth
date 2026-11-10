@@ -8,8 +8,8 @@
  */
 import { create } from "zustand";
 import { engine } from "../audio/AudioEngine.ts";
-import { g2p } from "./speech.ts";
-import { lyricsToSyllables, type Syllable } from "../wasm/engine.ts";
+import { g2p, type Lang } from "./speech.ts";
+import { lyricsToSyllables, turkishLyricsToSyllables, type Syllable } from "../wasm/engine.ts";
 import { planSong, planNoteOn, planNoteOff, planMelisma } from "../wasm/engine.ts";
 import { EXHALE_LABEL } from "../wasm/engine.ts";
 import { DEMO_SONGS } from "../wasm/engine.ts";
@@ -29,12 +29,19 @@ export interface RollNote {
 export const roll: { notes: RollNote[] } = { notes: [] };
 
 export const DEFAULT_LYRICS = "Hello there, I am a voice made of air.";
+/** what the lyrics say first in each language (switching language swaps one for the other) */
+export const DEFAULT_LYRICS_OF: Record<Lang, string> = { en: DEFAULT_LYRICS, tr: "Merhaba, ben havadan yapılmış bir sesim." };
+
+/** Lyrics → syllables in their language (English through the page's dictionary). */
+const syllablesOf = (text: string, lang: Lang): Syllable[] => (lang === "tr" ? turkishLyricsToSyllables(text) : lyricsToSyllables(text));
 
 /** sung when the lyrics are empty */
 const AH: Syllable = { text: "ah", onset: [], nucleus: { ipa: "ɑ", stress: 1 }, coda: [], wordEnd: true, phraseEnd: false };
 
 interface SingState {
   lyrics: string;
+  /** the language the lyrics are read in */
+  lang: Lang;
   syllables: Syllable[];
   /** the syllable the next key sings */
   cursor: number;
@@ -45,12 +52,14 @@ interface SingState {
   /** index of the demo syllable being sung (−1: none yet) */
   demoAt: number;
   setLyrics: (text: string) => void;
+  setLang: (lang: Lang) => void;
   setCursor: (i: number) => void;
   setVibrato: (cents: number) => void;
 }
 
 export const useSing = create<SingState>((set, get) => ({
   lyrics: DEFAULT_LYRICS,
+  lang: "en",
   syllables: lyricsToSyllables(DEFAULT_LYRICS),
   cursor: 0,
   vibrato: 35,
@@ -58,7 +67,15 @@ export const useSing = create<SingState>((set, get) => ({
   demoAt: -1,
   setLyrics: (text) => {
     stopDemo();
-    set({ lyrics: text, syllables: lyricsToSyllables(text), cursor: 0 });
+    set({ lyrics: text, syllables: syllablesOf(text, get().lang), cursor: 0 });
+  },
+  setLang: (lang) => {
+    const s = get();
+    if (lang === s.lang) return;
+    stopDemo();
+    // the other language's opening lyrics give way to this one's
+    const lyrics = s.lyrics === DEFAULT_LYRICS_OF[s.lang] ? DEFAULT_LYRICS_OF[lang] : s.lyrics;
+    set({ lang, lyrics, syllables: syllablesOf(lyrics, lang), cursor: 0 });
   },
   setCursor: (i) => set({ cursor: Math.max(0, Math.min(i, Math.max(0, get().syllables.length - 1))) }),
   setVibrato: (cents) => set({ vibrato: cents }),
@@ -71,6 +88,8 @@ export function ensureDictionary(): void {
     .load()
     .then(() => {
       const s = useSing.getState();
+      // Turkish needs no dictionary: its syllables are already right
+      if (s.lang !== "en") return;
       const syllables = lyricsToSyllables(s.lyrics);
       useSing.setState({ syllables, cursor: Math.min(s.cursor, Math.max(0, syllables.length - 1)) });
     })
@@ -252,7 +271,8 @@ export async function playDemo(name: string, body: BodyMix, ready?: () => Promis
     // letter-to-sound rules
   }
   if (token !== demoToken) return;
-  const syl = lyricsToSyllables(song.lyrics);
+  const lang: Lang = song.lang ?? "en";
+  const syl = syllablesOf(song.lyrics, lang);
   if (!syl.length) return;
   const shift = song.octave[nearestBody(body)] * 12;
   const notes = song.notes.map((n, i) => ({ midi: n[0] + shift, beats: n[1], syl: syl[i % syl.length] }));
@@ -270,7 +290,7 @@ export async function playDemo(name: string, body: BodyMix, ready?: () => Promis
   notes.forEach((n, i) => parent.push(n.syl.melisma && i > 0 ? parent[i - 1] : i));
   const shown = parent.map((p) => written(notes[p].syl));
   demoRun = { id, times, midi: notes.map((n) => n.midi), text: notes.map((n) => n.syl.text), shown, parent, end: plan.end, offset: null };
-  useSing.setState({ lyrics: song.lyrics, syllables: syl, cursor: 0, demo: song.name, demoAt: -1 });
+  useSing.setState({ lyrics: song.lyrics, lang, syllables: syl, cursor: 0, demo: song.name, demoAt: -1 });
 }
 
 function stopDemo(): void {

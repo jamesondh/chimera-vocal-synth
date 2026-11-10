@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store.ts";
-import { speakText, speakPhrases, stopSpeaking, onPlan, currentPlan, spokenWordNow } from "../speech.ts";
+import { speakText, speakPhrases, stopSpeaking, onPlan, currentPlan, spokenWordNow, type Lang } from "../speech.ts";
 import { mouthWords } from "../mouthWords.ts";
 import { tokenizeIpa } from "../../wasm/engine.ts";
 import { Slider, Toggle } from "./Controls.tsx";
 import { Chip, Screen } from "./Screen.tsx";
+import { LangPick } from "./LangPick.tsx";
 import { ScoreView, planNow } from "./ScoreView.tsx";
 import { TubeView } from "./TubeView.tsx";
 import { Stroboscope } from "./Stroboscope.tsx";
@@ -12,7 +13,11 @@ import type { InfoFn, SlotsFn } from "./AnatomyView.tsx";
 import { V } from "../colors.ts";
 import { engine } from "../../audio/AudioEngine.ts";
 
-const EXAMPLES = ["Hello. Can you hear me?", "She sells sea shells by the sea shore.", "Every sound here is air moving through a throat.", "The quick brown fox jumps over the lazy dog."];
+const EXAMPLES: Record<Lang, string[]> = {
+  en: ["Hello. Can you hear me?", "She sells sea shells by the sea shore.", "Every sound here is air moving through a throat.", "The quick brown fox jumps over the lazy dog."],
+  tr: ["Merhaba, nasılsın?", "Bugün hava çok güzel.", "Türkçe konuşabiliyor musun?", "Şu köşe yaz köşesi, şu köşe kış köşesi."],
+};
+
 
 // IPA pulmonic consonant chart (rows = manner, columns = place); empty cells are null
 const PLACES = ["Bilabial", "Labiodental", "Dental", "Alveolar", "Postalveolar", "Retroflex", "Palatal", "Velar", "Uvular", "Pharyngeal", "Glottal"];
@@ -117,7 +122,8 @@ export function SpeakRight() {
   const body = useStore((s) => s.body);
   const f0 = useStore((s) => s.source.f0);
   const start = useStore((s) => s.start);
-  const [text, setText] = useState(EXAMPLES[0]);
+  const [text, setText] = useState(EXAMPLES.en[0]);
+  const [lang, setLang] = useState<Lang>("en");
   const [ipa, setIpa] = useState(false);
   const [rate, setRate] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -129,10 +135,17 @@ export function SpeakRight() {
     setBusy(true);
     try {
       await start();
-      await speakText(text, { ipa, body, rate, f0 });
+      await speakText(text, { ipa, lang, body, rate, f0 });
     } finally {
       setBusy(false);
     }
+  };
+  // another language: an example of the old one gives way to the new one's first example
+  const pickLang = (l: Lang) => {
+    if (l === lang) return;
+    if (EXAMPLES[lang].includes(text)) setText(EXAMPLES[l][0]);
+    setLang(l);
+    setIpa(false);
   };
   const pad = async (c: string) => {
     await start();
@@ -141,7 +154,17 @@ export function SpeakRight() {
 
   return (
     <div className="right right-speak">
-      <Screen className="s-say" title="Say" sub="Text to speech" tools={<Toggle label="Text is IPA" checked={ipa} onChange={setIpa} />}>
+      <Screen
+        className="s-say"
+        title="Say"
+        sub="Text to speech"
+        tools={
+          <>
+            <LangPick value={lang} onChange={pickLang} off={ipa} />
+            <Toggle label="Text is IPA" checked={ipa} onChange={setIpa} />
+          </>
+        }
+      >
         <div className="say">
           <div className="say-row">
             <textarea
@@ -153,8 +176,9 @@ export function SpeakRight() {
               }}
               rows={2}
               spellCheck={!ipa}
+              lang={ipa ? undefined : lang}
               aria-label={ipa ? "IPA to speak" : "Text to speak"}
-              placeholder={ipa ? "Type IPA, for example ˈhɛloʊ" : "Type something for the voice to say"}
+              placeholder={ipa ? "Type IPA, for example ˈhɛloʊ" : lang === "tr" ? "Söylenecek bir şey yaz" : "Type something for the voice to say"}
             />
             <div className="say-actions">
               <button className="primary" onClick={() => void speak()} disabled={busy}>
@@ -174,7 +198,7 @@ export function SpeakRight() {
             </div>
           </div>
           <div className="examples" role="group" aria-label="Examples">
-            {EXAMPLES.map((ex) => (
+            {EXAMPLES[lang].map((ex) => (
               <Chip
                 key={ex}
                 toggle={false}

@@ -1,6 +1,6 @@
 /** Main-thread speech planning: text/IPA → phrases → gestural plan → worklet. */
 import type { BodyMix } from "../wasm/types.ts";
-import { EnglishG2P, type Phrase } from "../wasm/engine.ts";
+import { EnglishG2P, turkishPhrases, type Phrase } from "../wasm/engine.ts";
 import { tokenizeIpa } from "../wasm/engine.ts";
 import { planPhrases, type Plan, type Segment } from "../wasm/engine.ts";
 import { engine } from "../audio/AudioEngine.ts";
@@ -8,6 +8,9 @@ import type { Gesture } from "../wasm/types.ts";
 import { wordSpans, type WordSpan } from "./words.ts";
 
 export const g2p = new EnglishG2P();
+
+/** The language typed text is read in (IPA input has none). */
+export type Lang = "en" | "tr";
 
 export interface SpokenPlan {
   plan: Plan;
@@ -59,10 +62,11 @@ export function speakPhrases(phrases: { segments: Segment[]; intonation?: "state
   return current;
 }
 
-export async function speakText(text: string, o: { ipa: boolean; body: BodyMix; rate: number; f0: number }): Promise<SpokenPlan | null> {
+export async function speakText(text: string, o: { ipa: boolean; lang?: Lang; body: BodyMix; rate: number; f0: number }): Promise<SpokenPlan | null> {
   if (!text.trim()) return null;
   let phrases: Phrase[];
   if (o.ipa) phrases = ipaToPhrases(text);
+  else if (o.lang === "tr") phrases = turkishPhrases(text);
   else {
     try {
       await g2p.load();

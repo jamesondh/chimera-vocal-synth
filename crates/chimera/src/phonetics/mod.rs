@@ -1,4 +1,4 @@
-//! Phonetics: IPA, English G2P, syllables, durations, the gestural planner, singing, beatbox.
+//! Phonetics: IPA, English and Turkish G2P, syllables, durations, the gestural planner, singing, beatbox.
 //! These run off the audio thread (they allocate); their output is a [`Plan`] of gestures that a
 //! voice plays.
 
@@ -14,6 +14,7 @@ pub mod planner;
 pub mod sing;
 pub mod songs;
 pub mod syllables;
+pub mod turkish;
 pub mod vowel_data;
 
 /// One phoneme in an utterance.
