@@ -143,14 +143,22 @@ impl EnglishG2P {
             // the words said: a token with no sound ("--", a lone apostrophe) is left out, so
             // the n-th word ends at the n-th word end
             let mut said: Vec<String> = Vec::new();
-            for w in words.iter() {
-                let mut ws = self.word(w, true);
+            for (i, w) in words.iter().enumerate() {
+                // a Russian preposition takes its voicing from the next word
+                let mut ws = if super::russian::contains_russian(w) {
+                    super::russian::word_before(w, words.get(i + 1).map(String::as_str), true)
+                } else {
+                    self.word(w, true)
+                };
                 let Some(last) = ws.last_mut() else { continue };
                 last.word_end = Some(true);
                 segs.append(&mut ws);
                 said.push(w.clone());
             }
-            apply_allophones(&mut segs);
+            // English allophones (flaps, dark l) are not Russian's
+            if !words.iter().any(|w| super::russian::contains_russian(w)) {
+                apply_allophones(&mut segs);
+            }
             let q = delim.contains('?');
             let pause = if delim.contains(['.', '!', '?']) {
                 0.35
@@ -169,7 +177,7 @@ impl EnglishG2P {
                 flush(part, &mut words);
             } else {
                 let lower = part.to_lowercase();
-                words.extend(lower.split(|c: char| !(c.is_ascii_lowercase() || c == '\'' || c == '-')).filter(|w| !w.is_empty()).map(str::to_string));
+                words.extend(lower.split(|c: char| !(c.is_ascii_lowercase() || super::russian::is_letter(c) || c == '\u{301}' || c == '\'' || c == '-')).filter(|w| !w.is_empty()).map(str::to_string));
             }
         }
         flush("", &mut words);
@@ -178,6 +186,9 @@ impl EnglishG2P {
 
     /// One word → segments with lexical stress. `reduce`: weak forms of function words (speech).
     pub fn word(&self, w: &str, reduce: bool) -> Vec<Segment> {
+        if super::russian::contains_russian(w) {
+            return super::russian::word(w, reduce);
+        }
         let lower = w.to_lowercase();
         let clean = lower.trim_matches('\'');
         let entry = homograph(clean).or_else(|| self.dict.as_ref().and_then(|d| d.get(clean)).map(String::as_str));

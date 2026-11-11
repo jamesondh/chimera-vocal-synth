@@ -12,6 +12,7 @@ pub mod inventory;
 pub mod ipa;
 pub mod korean;
 pub mod planner;
+pub mod russian;
 pub mod sing;
 pub mod songs;
 pub mod syllables;

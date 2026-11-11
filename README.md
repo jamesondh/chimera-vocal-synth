@@ -24,13 +24,13 @@ for tests and the `chimera` CLI.
 
 - **Play**: drag the tongue, lips and jaw in a live cutaway of the head; vowel pad, encoders,
   computer keyboard and Web MIDI.
-- **Speak**: English text (CMUdict with a letter-to-sound fallback) or IPA, turned into
-  gestures and prosody, with the gestural score and a consonant chart on screen. In IPA mode a
-  notice under the box lists the symbols and marks the voice doesn't say (`chimera render speech`
-  prints the same as warnings).
+- **Speak**: English text (CMUdict with a letter-to-sound fallback), Russian text or IPA, turned
+  into gestures and prosody, with the gestural score and a consonant chart on screen. In IPA mode
+  a notice under the box lists the symbols and marks the voice doesn't say (`chimera render
+  speech` prints the same as warnings).
 - **Sing**: a pitch roll with lyrics per note; consonants land before the beat. Lyrics can be
-  English or Korean (Hangul: one block per note, with Korean sound rules); each language is a
-  front end ([docs/language-front-ends.md](docs/language-front-ends.md)).
+  English, Korean (Hangul: one block per note, with Korean sound rules) or Russian; each language
+  is a front end ([docs/language-front-ends.md](docs/language-front-ends.md)).
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.
 - **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.
@@ -74,6 +74,7 @@ bun tools/musicxml-to-notes.ts score.mxl P1 --out p1.json   # a score's part →
   Song Dataset.
 - [docs/speech-comparison.md](docs/speech-comparison.md): scoring the speech against real
   speakers, phone by phone (the TSP speech database).
+- [docs/russian.md](docs/russian.md): how Russian text is read, and what is approximate.
 - [docs/hill-climb/](docs/hill-climb/): the rules and log for tuning the voice one measured
   step at a time.
 

@@ -24,6 +24,7 @@ Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3) and aspiration as 
 |---|---|---|---|
 | Latin | English | CMUdict (letter-to-sound until it loads) | `phonetics/english.rs`, `syllables.rs` |
 | Hangul | Korean | nothing: a block's letters are its sounds | `phonetics/korean.rs` |
+| Cyrillic | Russian | nothing: spelling rules, stress marked with an acute ([russian.md](russian.md)) | `phonetics/russian.rs` |
 
 The router (`read_lyrics` in `syllables.rs`) sends each word to the front end whose script it is
 in, so a line can mix them (`twinkle 빵야 star`). It also handles what every language shares:
@@ -85,7 +86,8 @@ by hand, or to sing a language that has no front end yet.
    `ɕ ʑ tɕ dʑ tʂ dʐ ɥ` were, and let `chimera calibrate consonants` set a fricative's constriction:
    it appends new entries and leaves existing ones alone.
 2. **Write the front end**: implement `FrontEnd` (which characters start and continue its words,
-   and word → syllables), then add it to the router's list in `lyrics_to_syllables`. A front end
+   and word → syllables; `word_after` also gets the word before, for words that lean on each
+   other, as a Russian preposition with no vowel does), then add it to the router's list in `lyrics_to_syllables`. A front end
    that needs data should load it like CMUdict: a gzipped file in `public/data/`, fetched only when
    the lyrics need it.
 3. **Say the phonology** in the syllables (aspiration and its length). Build `Syllable` and
