@@ -14,7 +14,7 @@
 use super::inventory::phoneme;
 use crate::anatomy::human::BodyMix;
 use super::planner::{PlanOptions, diphthong_parts, plan_utterance};
-use super::{Intonation, Plan, PlannedSegment, Segment, Syllable};
+use super::{Bend, Edge, Intonation, Plan, PlannedSegment, Segment, Syllable};
 use crate::control::score::{ControlKey, Gesture, Targets};
 use crate::math::{js_max, js_min};
 use serde::{Deserialize, Serialize};
@@ -99,6 +99,26 @@ pub struct SongOptions {
     pub vibrato: f64,
 }
 
+/// A bend's blending strength against the note's own pitch (6): it wins while it lasts.
+const BEND_STRENGTH: f64 = 30.0;
+
+/// Pitch gestures for a syllable's bends on a vowel sung at `hz` from a to b.
+fn bend_gestures(bends: &[Bend], hz: f64, a: f64, b: f64, out: &mut Vec<Gesture>) {
+    let d = b - a;
+    if d <= 0.02 {
+        return;
+    }
+    for bend in bends {
+        let len = js_min(bend.len * d, bend.max);
+        let (t0, t1) = match bend.at {
+            Edge::Start => (a - 0.03, a + len),
+            Edge::End => (b - len, b + 0.02),
+        };
+        let f = hz * crate::math::pow(2.0, bend.st / 12.0);
+        out.push(Gesture::new(t0, t1, 0.015, 0.04, BEND_STRENGTH, Targets::default().with(ControlKey::F0, f)).label("bend"));
+    }
+}
+
 fn melisma(s: &Syllable) -> bool {
     s.melisma == Some(true)
 }
@@ -123,10 +143,19 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
         }
         let mut segs: Vec<Segment> = Vec::new();
         let mut vowel_spans: Vec<(f64, f64)> = Vec::new();
+        // (note, vowel start, vowel end) of the syllables with bends
+        let mut bend_spans: Vec<(usize, f64, f64)> = Vec::new();
         // each note's onset and coda consonants, at the note's pitch (a coda at the pitch of the
         // note whose syllable it ends; a melisma has neither)
         let hz_of = |k: usize| midi_to_hz(notes[k].midi);
-        let mut onsets: Vec<Vec<Segment>> = (i..=j).map(|k| if melisma(&notes[k].syl) { Vec::new() } else { consonants_at(&notes[k].syl.onset, o.body, 0.8, hz_of(k)) }).collect();
+        // a bend at the vowel's start begins in the onset: the consonants already sing its pitch, so
+        // a rising tone starts low instead of starting at the note and dipping. Without a start
+        // bend this is the note's pitch, exactly as before.
+        let onset_hz = |k: usize| match notes[k].syl.pitch.iter().find(|b| b.at == Edge::Start) {
+            Some(b) => hz_of(k) * crate::math::pow(2.0, b.st / 12.0),
+            None => hz_of(k),
+        };
+        let mut onsets: Vec<Vec<Segment>> = (i..=j).map(|k| if melisma(&notes[k].syl) { Vec::new() } else { consonants_at(&notes[k].syl.onset, o.body, 0.8, onset_hz(k)) }).collect();
         let mut codas: Vec<Vec<Segment>> = (i..=j)
             .map(|k| if k < j && melisma(&notes[k + 1].syl) { Vec::new() } else { consonants_at(&last_of_chain(notes, k).coda, o.body, 0.8, hz_of(k)) })
             .collect();
@@ -164,12 +193,19 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
             }
             segs.extend(coda);
             vowel_spans.push((times[k], times[k] + vdur));
+            // bends shape their syllable's first note (a melisma continues at the written pitches)
+            if !n.syl.pitch.is_empty() && !melisma(&n.syl) {
+                bend_spans.push((k, times[k], times[k] + vdur));
+            }
         }
         if !segs.is_empty() {
             // the planner lays segments out from t0 + 0.06: start so the first vowel lands on its beat
             let plan = plan_utterance(&segs, &PlanOptions { body: o.body, t0: times[i] - first_onset - 0.06, f0: Some(hz_of(i)), intonation: Some(Intonation::Flat), sung: Some(true), ..Default::default() });
             gestures.extend_from_slice(&plan.gestures);
             segments.extend(plan.segments);
+            for &(k, a, b) in &bend_spans {
+                bend_gestures(&notes[k].syl.pitch, hz_of(k), a, b, &mut gestures);
+            }
             for (a, b) in vowel_spans {
                 if b - a > 0.3 {
                     gestures.push(vibrato_gesture(a, b, o.vibrato, None));

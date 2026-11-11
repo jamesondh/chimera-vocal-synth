@@ -115,4 +115,28 @@ pub struct Syllable {
     /// a breath follows (comma, full stop, line break); may be left out (false)
     #[serde(default)]
     pub phrase_end: bool,
+    /// pitch bends inside the sung note, as the syllable's front end writes them (a tone, a pitch
+    /// accent, a scoop); none: the note's pitch as written
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pitch: Vec<Bend>,
+}
+
+/// Which end of its sung vowel a pitch bend sits at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Edge {
+    Start,
+    End,
+}
+
+/// A bend of the pitch inside a sung note: `st` semitones from the note, at the vowel's start or
+/// end, over `len` of the vowel but at most `max` seconds. The melody stays as written; a bend only
+/// colours the note's start or end (Mandarin's tones, Japanese pitch accent, an English scoop).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Bend {
+    pub at: Edge,
+    pub len: f64,
+    pub max: f64,
+    pub st: f64,
 }
