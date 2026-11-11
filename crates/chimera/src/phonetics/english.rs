@@ -143,21 +143,31 @@ impl EnglishG2P {
             // the words said: a token with no sound ("--", a lone apostrophe) is left out, so
             // the n-th word ends at the n-th word end
             let mut said: Vec<String> = Vec::new();
+            // where the language changes, as (segment index, is Russian from here)
+            let mut runs: Vec<(usize, bool)> = Vec::new();
             for (i, w) in words.iter().enumerate() {
+                let russian = super::russian::contains_russian(w);
                 // a Russian preposition takes its voicing from the next word
-                let mut ws = if super::russian::contains_russian(w) {
+                let mut ws = if russian {
                     super::russian::word_before(w, words.get(i + 1).map(String::as_str), true)
                 } else {
                     self.word(w, true)
                 };
                 let Some(last) = ws.last_mut() else { continue };
                 last.word_end = Some(true);
+                if runs.last().is_none_or(|r| r.1 != russian) {
+                    runs.push((segs.len(), russian));
+                }
                 segs.append(&mut ws);
                 said.push(w.clone());
             }
-            // English allophones (flaps, dark l) are not Russian's
-            if !words.iter().any(|w| super::russian::contains_russian(w)) {
-                apply_allophones(&mut segs);
+            // English allophones (flaps, dark l) are not Russian's: each run of English words
+            // gets them, so one Russian word does not take them from the rest of the line
+            for (k, &(from, russian)) in runs.iter().enumerate() {
+                if !russian {
+                    let to = runs.get(k + 1).map_or(segs.len(), |r| r.0);
+                    apply_allophones(&mut segs[from..to]);
+                }
             }
             let q = delim.contains('?');
             let pause = if delim.contains(['.', '!', '?']) {

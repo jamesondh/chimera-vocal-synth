@@ -212,3 +212,16 @@ fn a_stressed_y_is_as_long_as_the_other_stressed_vowels() {
     // sung, the note sets the length
     assert!(russian::word("дым", false).iter().all(|s| s.ipa != "ɨ" || s.dur.is_none()));
 }
+
+#[test]
+fn english_words_keep_their_allophones_beside_a_russian_word() {
+    // one Cyrillic word used to turn the flaps and the dark l off for the whole line
+    let water = phrase("water");
+    assert!(water.contains('ɾ'), "{water}");
+    assert!(phrase("water ми́р").starts_with(&water), "{}", phrase("water ми́р"));
+    assert!(phrase("ми́р water").ends_with(&water), "{}", phrase("ми́р water"));
+    assert!(phrase("full ми́р").contains("ɫ m"), "{}", phrase("full ми́р"));
+    // the Russian words still get none: /t/ between vowels stays a stop
+    assert_eq!(phrase("water ле́то").strip_prefix(&water).unwrap().trim(), phrase("ле́то"));
+    assert!(phrase("ле́то").contains('t'));
+}
