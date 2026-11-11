@@ -225,3 +225,17 @@ fn english_words_keep_their_allophones_beside_a_russian_word() {
     assert_eq!(phrase("water ле́то").strip_prefix(&water).unwrap().trim(), phrase("ле́то"));
     assert!(phrase("ле́то").contains('t'));
 }
+
+#[test]
+fn russian_is_a_front_end_on_the_lyrics_router() {
+    let g = EnglishG2P::new();
+    // one line, three front ends: each word goes to its own
+    let s = lyrics_to_syllables("twinkle ми́р 별", &g);
+    assert_eq!(s.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["twin", "kle", "ми́р", "별"]);
+    assert!(s.iter().filter(|s| s.word_end).count() == 3);
+    // a preposition with no vowel leans only on a Russian word right after it in the phrase
+    assert_eq!(lyrics_to_syllables("в лесу́", &g)[0].text, "в ле");
+    assert_eq!(lyrics_to_syllables("в, лесу́", &g)[0].text, "ле");
+    let s = lyrics_to_syllables("в star ми́р", &g);
+    assert_eq!(s.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["star", "ми́р"]);
+}
