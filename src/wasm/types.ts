@@ -207,6 +207,16 @@ export interface Syllable {
   melisma?: boolean;
   wordEnd: boolean;
   phraseEnd: boolean;
+  /** pitch bends inside the sung note, written by the syllable's front end (a tone, an accent) */
+  pitch?: Bend[];
+}
+
+/** A bend of the pitch inside a sung note: `st` semitones, at its vowel's start or end, over `len` of the vowel (at most `max` s). */
+export interface Bend {
+  at: "start" | "end";
+  len: number;
+  max: number;
+  st: number;
 }
 
 export interface SungNote {

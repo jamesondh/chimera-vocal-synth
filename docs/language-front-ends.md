@@ -53,8 +53,8 @@ how long they aspirate (`vot`, voice onset time):
 | measured in the render (male; female within 3 ms) | 53 ms | 96 ms | 22 ms |
 
 Between voiced sounds a lax stop is voiced (아기 [agi]). Not modelled yet: the lower pitch that
-follows a lax stop (Seoul speakers rely on it as much as on aspiration; it needs pitch contours,
-#32 step 4) and the stiff voice of tense stops. A Korean speaker's ear is still wanted.
+follows a lax stop (Seoul speakers rely on it as much as on aspiration; a start bend could carry
+it, untried) and the stiff voice of tense stops. A Korean speaker's ear is still wanted.
 
 ## The one format
 
@@ -72,9 +72,29 @@ Every front end writes the same thing, one sung syllable per sounding note:
   millisecond; the measured voice onset also depends on the place and the voice (the Korean table
   above: 45 asked gives 53–69 ms, 90 gives 96–110).
 - `nucleus`: one vowel, or a diphthong the planner knows.
+- `pitch`: bends that colour the note's start or end (below).
 - A melisma note is `"melisma": true` with the same nucleus; its coda moves to the run's last note.
 - `text` is what the lyrics panel and the piano roll show.
 - `wordEnd` and `phraseEnd` may be left out (false).
+
+## Pitch bends
+
+A syllable can carry pitch bends: what tones, pitch accent or a scoop need (#32 step 4). Each is
+`st` semitones from the note at the vowel's `start` or `end`, over `len` of the vowel but at most
+`max` seconds:
+
+```json
+"pitch": [{"at": "start", "len": 0.3, "max": 0.2, "st": -3}, {"at": "end", "len": 0.3, "max": 0.2, "st": -4}]
+```
+
+The melody stays as written; a bend only colours the note's edges. A start bend begins in the
+onset, so the consonants already sing its pitch and a rise starts low rather than at the note. A
+melisma continues at its written pitches. The planner draws bends without knowing what they
+mean: a language's tones are a table in its front end.
+
+A front end that writes no bends sings exactly as before. Bends are drawn by `plan_song` (Sing's
+playback, `chimera render notes`, duets), **not yet on live notes**: a key pressed in Sing or a
+note from the plugin (`plan_note_on`) sings the note's pitch.
 
 Any front end's output can be frozen to JSON, edited and sung with `"syllables"` instead of
 `"lyrics"`, in `render notes` and duet melody files. Use it to fix a reading
@@ -138,4 +158,5 @@ in for a native listener; the test says where to look and whether a change moved
 - **Latin-script languages.** Routing by script can't tell Turkish or German from English, so
   Latin text is English. The second Latin-script front end brings an explicit language choice,
   with English the default (#40).
-- **Tone and pitch accent** need pitch contours (#32 step 4).
+- **Bends on live notes** (above), and **IPA tone letters** (`˥˩`, #52): IPA text doesn't write
+  bends yet.
