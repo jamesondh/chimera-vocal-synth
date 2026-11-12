@@ -129,6 +129,21 @@ fn spelling_conventions() {
 }
 
 #[test]
+fn the_review_s_small_gaps() {
+    // silent д in рдц, т in стл (they were said)
+    assert_eq!(sung("се́рдце"), "s j e ɾ ts e");
+    assert_eq!(sung("счастли́вый"), "ʃ j a s l j i v ɨ j");
+    // unstressed э reduces like е (it stayed /e/)
+    assert_eq!(said("этажа́"), "ɪ t ɐ ʐ a");
+    assert_eq!(said("э́то"), "e t ɐ");
+    // the vowel of -тся, -ться gets a Russian length, not English's 40-50 ms
+    let s = spoken("смеётся");
+    assert_eq!(s.last().unwrap().dur, Some(0.12));
+    let s = spoken("смеётся он");
+    assert_eq!((s[7].ipa.as_str(), s[7].dur), ("ɐ", Some(0.09)));
+}
+
+#[test]
 fn a_doubled_letter_is_one_consonant() {
     // long between vowels, plain before a consonant (it was two separate closures)
     let vanna = russian::word("ва́нна", false);
@@ -179,7 +194,7 @@ fn sung_syllables_are_open() {
     assert_eq!(onsets("Москва́"), ["m", "s k v"]);
     assert_eq!(onsets("сестра́"), ["s j", "s t ɾ"]);
     // a leading sonorant (р л н м й) stays with the vowel before it
-    assert_eq!(onsets("се́рдце"), ["s j", "t ts"]);
+    assert_eq!(onsets("се́рдце"), ["s j", "ts"]);
     assert_eq!(onsets("войска́"), ["v", "s k"]);
     assert_eq!(onsets("темно́"), ["t j", "n"]);
     // a soft consonant's glide, and the /j/ after ь, go with it

@@ -25,11 +25,11 @@ front-end list as Sing.
 | | |
 |---|---|
 | Vowels | а о у э ы и; я е ё ю add /j/ at the start of a word, after a vowel and after ь ъ |
-| Reduction (speech only) | unstressed о а → /ɐ/; е, and я before the end of the word → /ɪ/; а after ч щ → /ɪ/ |
+| Reduction (speech only) | unstressed о а → /ɐ/; е, э, and я before the end of the word → /ɪ/; а after ч щ → /ɪ/ |
 | Hard-only consonants | ж ш ц: и and unstressed е after them are /ɨ/ |
 | Voicing | a final obstruent devoices (дуб → /p/); voicing spreads backwards through a cluster (ло́дка → /tk/, сдать → /zd/); в doesn't start it (твой) |
 | Prepositions | в, с, к, из, над, под… are unstressed and take their voicing from the next word (в лесу́ /v/, в ти́хом /f/, с горы́ /z/) |
-| Spelling conventions | -ого, -его and его, сего́дня → /v/; что, коне́чно → /ʂ/; сч, зч, жч → щ; silent т д л в in стн, здн, лнц, вств; -тся, -ться → /tsa/ |
+| Spelling conventions | -ого, -его and его, сего́дня → /v/; что, коне́чно → /ʂ/; сч, зч, жч → щ; silent т д л в in стн, стл, здн, рдц, лнц, вств; -тся, -ться → /tsa/ |
 | Doubled letters | one consonant, half again as long between vowels (ва́нна), plain before a consonant (ру́сский) |
 
 ## What is approximate
@@ -45,6 +45,7 @@ front-end list as Sing.
   its spelling's voicing (над ти́хим keeps /d/).
 - Not done: stress for arbitrary unmarked words, voicing across other word boundaries, loanwords
   with hard consonants before е (те́ннис), numbers.
+- Ukrainian і ї є ґ are not Russian letters, so they split a word (привіт sings as прив and т).
 
 ## Tests
 

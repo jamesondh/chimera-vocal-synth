@@ -133,6 +133,7 @@ pub fn word_before(input: &str, next: Option<&str>, reduce: bool) -> Vec<Segment
                 'а' | 'о' if weak => "ɐ",
                 'я' if weak => if last { "ɐ" } else { "ɪ" },
                 'е' if weak => if hard_hiss { "ɨ" } else { "ɪ" },
+                'э' if weak => "ɪ",
                 'а' | 'я' => "a", 'о' | 'ё' => "o", 'у' | 'ю' => "u",
                 'и' if hard_hiss => "ɨ", 'и' => "i", 'ы' => "ɨ", 'э' | 'е' => "e", _ => unreachable!(),
             };
@@ -162,7 +163,8 @@ pub fn word_before(input: &str, next: Option<&str>, reduce: bool) -> Vec<Segment
         // -тся, -ться: a long /ts/ and an unstressed vowel
         if rest == ['т', 'с', 'я'] || rest == ['т', 'ь', 'с', 'я'] {
             out.push(lengthened("ts"));
-            out.push(Segment { stress: Some(0), ..Segment::new(if reduce { "ɐ" } else { "a" }) });
+            let dur = reduce.then_some(if next.is_none() { 0.12 } else { 0.09 });
+            out.push(Segment { stress: Some(0), dur, ..Segment::new(if reduce { "ɐ" } else { "a" }) });
             break;
         }
         // a doubled letter is one consonant, long between vowels (ва́нна), plain otherwise (ру́сский)
@@ -170,10 +172,11 @@ pub fn word_before(input: &str, next: Option<&str>, reduce: bool) -> Vec<Segment
             long = true;
             continue;
         }
-        // silent letters: стн (гру́стный), здн (по́здно), лнц (со́лнце), вств (чу́вство)
+        // silent letters: стн (гру́стный), стл (счастли́вый), здн (по́здно), рдц (се́рдце),
+        // лнц (со́лнце), вств (чу́вство)
         let silent = match c {
-            'т' => prev == Some('с') && rest.get(1) == Some(&'н'),
-            'д' => prev == Some('з') && rest.get(1) == Some(&'н'),
+            'т' => prev == Some('с') && matches!(rest.get(1), Some('н' | 'л')),
+            'д' => matches!((prev, rest.get(1)), (Some('з'), Some('н')) | (Some('р'), Some('ц'))),
             'л' => rest.starts_with(&['л', 'н', 'ц']),
             'в' => rest.starts_with(&['в', 'с', 'т', 'в']),
             _ => false,
