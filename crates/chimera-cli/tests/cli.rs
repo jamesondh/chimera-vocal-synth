@@ -404,6 +404,21 @@ fn render_notes_sings_a_front_ends_syllables_without_lyrics() {
 }
 
 #[test]
+fn the_cli_reads_russian_lyrics() {
+    // The CLI reads lyrics through its own call into the router (on #85, a list of its own): a
+    // language missing there is skipped, and the cargo tests on lyrics_to_syllables still pass
+    let syl: serde_json::Value = serde_json::from_str(&chimera(&["syllables", "в лесу́ молоко́"])).unwrap();
+    let texts: Vec<&str> = syl.as_array().unwrap().iter().map(|s| s["text"].as_str().unwrap()).collect();
+    assert_eq!(texts, ["в ле", "су\u{301}", "мо", "ло", "ко\u{301}"]);
+    // and a melody with Russian lyrics renders one syllable per note
+    let melody = tmp("melody-russian.json");
+    let j = serde_json::json!({ "bpm": 120, "lyrics": "молоко́", "notes": [[60, 1], [62, 1], [64, 2]] });
+    std::fs::write(&melody, j.to_string()).unwrap();
+    let stdout = chimera(&["render", "notes", &melody, &tmp("notes-russian"), "male"]);
+    assert!(stdout.contains("3 notes"), "{stdout}");
+}
+
+#[test]
 fn render_notes_tele_records_the_live_telemetry_without_changing_the_sound() {
     let melody = tmp("tele-melody.json");
     std::fs::write(
