@@ -267,3 +267,14 @@ fn russian_is_a_front_end_on_the_lyrics_router() {
     let s = lyrics_to_syllables("в star ми́р", &g);
     assert_eq!(s.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["star", "ми́р"]);
 }
+
+#[test]
+fn a_lone_stress_mark_is_not_a_russian_word() {
+    // Russian claimed a word that starts with U+0301, so ni + U+0301 (pinyin with a separate
+    // tone mark) would lose its tone to Russian once Mandarin is on the router
+    use chimera::phonetics::syllables::FrontEnd;
+    assert!(!russian::Russian.starts('\u{301}'));
+    assert!(russian::Russian.continues('\u{301}'));
+    let g = EnglishG2P::new();
+    assert_eq!(lyrics_to_syllables("молоко́", &g).len(), 3);
+}

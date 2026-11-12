@@ -298,11 +298,13 @@ pub fn split_spelling(word: &str, n: usize) -> Vec<String> {
 pub struct Russian;
 
 impl FrontEnd for Russian {
+    // a stress mark continues a word but never starts one: a lone U+0301 after a Latin word is
+    // another front end's (pinyin typed with a separate tone mark, ni + U+0301)
     fn starts(&self, c: char) -> bool {
-        is_letter(c) || c == '\u{301}'
+        is_letter(c)
     }
     fn continues(&self, c: char) -> bool {
-        self.starts(c) || c == '-'
+        is_letter(c) || c == '\u{301}' || c == '-'
     }
     fn word(&self, word: &str) -> Vec<Syllable> {
         self.word_after(word, None)
