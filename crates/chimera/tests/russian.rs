@@ -202,6 +202,12 @@ fn sung_syllables_are_open() {
     // the spelling on the notes splits the same way
     let texts = lyrics_to_syllables("я́блоко", &g).iter().map(|s| s.text.clone()).collect::<Vec<_>>();
     assert_eq!(texts, ["я\u{301}", "бло", "ко"]);
+    // a sonorant left on the note before is written there too
+    let texts = |t: &str| lyrics_to_syllables(t, &g).iter().map(|s| s.text.clone()).collect::<Vec<_>>();
+    assert_eq!(texts("войска́"), ["вой", "ска\u{301}"]);
+    assert_eq!(texts("се́рдце"), ["се\u{301}р", "дце"]);
+    assert_eq!(texts("бо́льно"), ["бо\u{301}ль", "но"]);
+    assert_eq!(texts("Москва́"), ["Мо", "сква\u{301}"]);
 }
 
 #[test]

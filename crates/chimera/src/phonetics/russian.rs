@@ -279,6 +279,15 @@ pub fn split_spelling(word: &str, n: usize) -> Vec<String> {
         while chars.get(cut).is_some_and(|c| *c == '\u{301}') {
             cut += 1;
         }
+        // a sonorant before another consonant stays on this note, as is_onset leaves it (се́р-дце,
+        // вой-ска́, бо́ль-но)
+        let lower = |k: usize| chars.get(k).and_then(|c| c.to_lowercase().next());
+        if lower(cut).is_some_and(|c| "рлнмй".contains(c)) {
+            let soft = usize::from(lower(cut + 1) == Some('ь'));
+            if lower(cut + 1 + soft).is_some_and(|c| is_letter(c) && !vowel(c) && !"ьъ".contains(c)) {
+                cut += 1 + soft;
+            }
+        }
         cuts.push(cut);
     }
     cuts.push(chars.len());
