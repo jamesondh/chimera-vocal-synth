@@ -163,7 +163,8 @@ impl<F: Fn(&str, bool) -> Vec<Segment>> WordSource for F {
 }
 
 fn is_lyric_punct(c: char) -> bool {
-    matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '\n')
+    // ASCII, and the full-width forms Chinese and Japanese lyrics use
+    matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '\n' | '，' | '。' | '！' | '？' | '；' | '：' | '、')
 }
 
 /// A language front end: claims the words written in its script and turns each into sung syllables
@@ -174,6 +175,12 @@ pub trait FrontEnd {
     /// `c` continues a word this front end started.
     fn continues(&self, c: char) -> bool {
         self.starts(c)
+    }
+    /// Whether this front end reads the whole `word` it scanned (default: yes). A front end that
+    /// shares a script with another says no to what isn't its own, and the next one gets the word
+    /// (pinyin and English share the Latin alphabet).
+    fn claims(&self, _word: &str) -> bool {
+        true
     }
     /// One word → its syllables (the router marks the last as the word's end).
     fn word(&self, word: &str) -> Vec<Syllable>;
@@ -228,15 +235,33 @@ fn lyric_tokens(text: &str, front_ends: &[&dyn FrontEnd]) -> Vec<Token> {
     let s: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
+    // where each front end may claim again after declining a word (the end of that word)
+    let mut barred = vec![0usize; front_ends.len()];
     while i < s.len() {
         let c = s[i];
-        if let Some(k) = front_ends.iter().position(|f| f.starts(c)) {
-            let start = i;
-            i += 1;
-            while i < s.len() && front_ends[k].continues(s[i]) {
-                i += 1;
+        // the first front end that starts here and claims the word it scans. A front end that
+        // declines a word (pinyin and English share the Latin alphabet) can't claim a piece of it
+        // either: the others read that span as they would without it ("café" stays English's "caf",
+        // not "caf" and a pinyin "é"), and nothing in it is lost ("Zürich" is "Z" "rich", as on main)
+        let mut word = None;
+        for (k, f) in front_ends.iter().enumerate() {
+            if !f.starts(c) || barred[k] > i {
+                continue;
             }
-            out.push(Token::Word(k, s[start..i].iter().collect()));
+            let mut j = i + 1;
+            while j < s.len() && f.continues(s[j]) {
+                j += 1;
+            }
+            let w: String = s[i..j].iter().collect();
+            if f.claims(&w) {
+                word = Some((k, j, w));
+                break;
+            }
+            barred[k] = j;
+        }
+        if let Some((k, j, w)) = word {
+            out.push(Token::Word(k, w));
+            i = j;
             continue;
         }
         let melisma = (c == '~' || c == '-') && (i == 0 || js_is_space(s[i - 1])) && (i + 1 == s.len() || js_is_space(s[i + 1]));

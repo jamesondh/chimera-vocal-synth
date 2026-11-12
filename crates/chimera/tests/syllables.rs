@@ -151,3 +151,30 @@ fn hand_written_syllables_may_leave_out_word_and_phrase_ends() {
     assert!(!s.word_end && !s.phrase_end);
     assert_eq!(s.onset[0].vot, Some(0.09));
 }
+
+/// A front end that shares English's letters but reads only words in capitals (as pinyin reads
+/// only words with tones).
+struct Shouting;
+impl chimera::phonetics::syllables::FrontEnd for Shouting {
+    fn starts(&self, c: char) -> bool {
+        c.is_ascii_alphabetic()
+    }
+    fn claims(&self, word: &str) -> bool {
+        word.chars().all(|c| c.is_ascii_uppercase())
+    }
+    fn word(&self, word: &str) -> Vec<chimera::phonetics::Syllable> {
+        vec![chimera::phonetics::Syllable { text: format!("!{word}"), nucleus: Segment::new("a"), ..Default::default() }]
+    }
+}
+
+#[test]
+fn a_declined_word_goes_to_the_next_front_end_and_nothing_is_lost() {
+    use chimera::phonetics::syllables::{English, read_lyrics};
+    let g2p = chimera::phonetics::english::EnglishG2P::new();
+    let texts: Vec<String> = read_lyrics("HEY there LOUD", &[&Shouting, &English(&g2p)]).into_iter().map(|s| s.text).collect();
+    assert_eq!(texts, ["!HEY", "there", "!LOUD"]);
+    // the front end that declined a word can't claim a piece of it: "MIXed" is English's, not a
+    // shouted "MIX" and "ed"
+    let texts: Vec<String> = read_lyrics("MIXed", &[&Shouting, &English(&g2p)]).into_iter().map(|s| s.text).collect();
+    assert!(texts.iter().all(|t| !t.starts_with('!')), "{texts:?}");
+}
