@@ -27,8 +27,11 @@ fn cdur(ipa: &str, body: BodyMix, k: f64) -> f64 {
     phoneme(ipa, body).map_or(0.07, |d| d.dur) * k
 }
 
+/// Sung consonants: a duration the front end gives is its own (a language's timing: Mandarin's long
+/// nasal codas); otherwise the phoneme's spoken length times `k`. Either is squeezed when a note is
+/// too short for it.
 fn consonants(segs: &[Segment], body: BodyMix, k: f64) -> Vec<Segment> {
-    segs.iter().map(|c| Segment { ipa: c.ipa.clone(), dur: Some(c.dur.map_or_else(|| cdur(&c.ipa, body, k), |d| d * k)), aspirated: c.aspirated, vot: c.vot, palatalized: c.palatalized, breathy: c.breathy, ..Default::default() }).collect()
+    segs.iter().map(|c| Segment { ipa: c.ipa.clone(), dur: Some(c.dur.unwrap_or_else(|| cdur(&c.ipa, body, k))), aspirated: c.aspirated, vot: c.vot, palatalized: c.palatalized, breathy: c.breathy, ..Default::default() }).collect()
 }
 
 /// A sung vowel (or one half of a diphthong) at the note's pitch, with the sound marks of the
