@@ -120,6 +120,14 @@ pub struct Syllable {
     /// accent, a scoop); none: the note's pitch as written
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pitch: Vec<Bend>,
+    /// nasalise this fraction of the vowel before a nasal coda (at most 0.25 s), as Mandarin does;
+    /// None: the song's SongOptions::nasal_lead
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nasal_lead: Option<f64>,
+    /// the share of a falling diphthong's held note its off-glide takes (Mandarin's ai ao ei ou glide
+    /// over the last 35%); None: the planner's 20%
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offglide: Option<f64>,
 }
 
 /// Which end of its sung vowel a pitch bend sits at.
@@ -127,6 +135,8 @@ pub struct Syllable {
 #[serde(rename_all = "lowercase")]
 pub enum Edge {
     Start,
+    /// centred on the vowel's middle (a dip or a peak inside the note: Mandarin's tone 3)
+    Middle,
     End,
 }
 
