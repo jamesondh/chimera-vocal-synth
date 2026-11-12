@@ -1,10 +1,14 @@
 # Russian
 
-Speak and Sing accept Cyrillic. A word with a Cyrillic letter is read by
-`crates/chimera/src/phonetics/russian.rs`; everything else stays English, and a line can mix both.
-Sung lyrics reach it as a front end on the lyrics router ([language-front-ends.md](language-front-ends.md));
-Speak calls the same reader word by word.
+Sing accepts Cyrillic lyrics. A word with a Cyrillic letter is read by
+`crates/chimera/src/phonetics/russian.rs`, a front end on the lyrics router
+([language-front-ends.md](language-front-ends.md)), so a line can mix it with English and Korean.
 There are no new sounds: Russian is mapped onto the existing inventory.
+
+Speak doesn't read Russian yet. The reader already has the speech rules (`word_before` with
+`reduce`: vowel reduction, Russian vowel lengths, prepositions voiced by the next word), and they
+are tested on it directly; Russian Speak comes back through the shared speech path, with the same
+front-end list as Sing.
 
 ## Writing it
 

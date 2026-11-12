@@ -143,32 +143,14 @@ impl EnglishG2P {
             // the words said: a token with no sound ("--", a lone apostrophe) is left out, so
             // the n-th word ends at the n-th word end
             let mut said: Vec<String> = Vec::new();
-            // where the language changes, as (segment index, is Russian from here)
-            let mut runs: Vec<(usize, bool)> = Vec::new();
-            for (i, w) in words.iter().enumerate() {
-                let russian = super::russian::contains_russian(w);
-                // a Russian preposition takes its voicing from the next word
-                let mut ws = if russian {
-                    super::russian::word_before(w, words.get(i + 1).map(String::as_str), true)
-                } else {
-                    self.word(w, true)
-                };
+            for w in words.iter() {
+                let mut ws = self.word(w, true);
                 let Some(last) = ws.last_mut() else { continue };
                 last.word_end = Some(true);
-                if runs.last().is_none_or(|r| r.1 != russian) {
-                    runs.push((segs.len(), russian));
-                }
                 segs.append(&mut ws);
                 said.push(w.clone());
             }
-            // English allophones (flaps, dark l) are not Russian's: each run of English words
-            // gets them, so one Russian word does not take them from the rest of the line
-            for (k, &(from, russian)) in runs.iter().enumerate() {
-                if !russian {
-                    let to = runs.get(k + 1).map_or(segs.len(), |r| r.0);
-                    apply_allophones(&mut segs[from..to]);
-                }
-            }
+            apply_allophones(&mut segs);
             let q = delim.contains('?');
             let pause = if delim.contains(['.', '!', '?']) {
                 0.35
@@ -187,7 +169,7 @@ impl EnglishG2P {
                 flush(part, &mut words);
             } else {
                 let lower = part.to_lowercase();
-                words.extend(lower.split(|c: char| !(c.is_ascii_lowercase() || super::russian::is_letter(c) || c == '\u{301}' || c == '\'' || c == '-')).filter(|w| !w.is_empty()).map(str::to_string));
+                words.extend(lower.split(|c: char| !(c.is_ascii_lowercase() || c == '\'' || c == '-')).filter(|w| !w.is_empty()).map(str::to_string));
             }
         }
         flush("", &mut words);
@@ -196,9 +178,6 @@ impl EnglishG2P {
 
     /// One word → segments with lexical stress. `reduce`: weak forms of function words (speech).
     pub fn word(&self, w: &str, reduce: bool) -> Vec<Segment> {
-        if super::russian::contains_russian(w) {
-            return super::russian::word(w, reduce);
-        }
         let lower = w.to_lowercase();
         let clean = lower.trim_matches('\'');
         let entry = homograph(clean).or_else(|| self.dict.as_ref().and_then(|d| d.get(clean)).map(String::as_str));

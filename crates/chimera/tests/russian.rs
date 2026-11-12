@@ -17,9 +17,14 @@ fn sung(w: &str) -> String {
 fn said(w: &str) -> String {
     ipa(&russian::word(w, true))
 }
-/// a whole spoken phrase
+/// a spoken phrase of Russian words, each read with the word after it (Speak has no Russian yet:
+/// it comes back through the shared speech path, so the speech rules are tested on the reader)
+fn spoken(text: &str) -> Vec<chimera::phonetics::Segment> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    words.iter().enumerate().flat_map(|(i, w)| russian::word_before(w, words.get(i + 1).copied(), true)).collect()
+}
 fn phrase(text: &str) -> String {
-    ipa(&EnglishG2P::new().to_phrases(text)[0].segments)
+    ipa(&spoken(text))
 }
 
 #[test]
@@ -135,21 +140,20 @@ fn a_doubled_letter_is_one_consonant() {
 }
 
 #[test]
-fn speech_plans_and_english_is_untouched() {
-    let g = EnglishG2P::new();
-    let p = g.to_phrases("Приве́т! Ты меня́ слы́шишь?");
-    assert_eq!(p.len(), 2);
-    assert_eq!(p[0].words, ["приве\u{301}т"]);
-    assert_eq!(p[1].words.len(), 3);
-    for p in &p {
-        let plan = plan_utterance(&p.segments, &PlanOptions { body: BodyMix::MALE, ..Default::default() });
+fn the_reader_s_speech_plans() {
+    for text in ["Приве́т", "Ты меня́ слы́шишь"] {
+        let plan = plan_utterance(&spoken(text), &PlanOptions { body: BodyMix::MALE, ..Default::default() });
         assert!(plan.end.is_finite() && plan.end > 0.0);
         assert!(!plan.gestures.is_empty());
     }
-    // a line can mix both
-    let mixed = g.to_phrases("hello ми́р");
-    assert_eq!(mixed[0].words.len(), 2);
-    assert!(ipa(&mixed[0].segments).ends_with("m j i ɾ"));
+}
+
+#[test]
+fn english_speech_is_untouched() {
+    // Speak's tokenizer kept U+0301 in every word for Russian, so "cafe" + U+0301 (as pasted
+    // text sometimes arrives) read as one word, "k eɪ f ɛ", where main read "cafe"
+    let g = EnglishG2P::new();
+    assert_eq!(g.to_phrases("cafe\u{301}")[0].segments, g.to_phrases("cafe")[0].segments);
 }
 
 #[test]
@@ -192,9 +196,8 @@ fn a_sung_preposition_without_a_vowel_joins_the_next_word() {
 fn unstressed_vowels_keep_a_syllable_s_length() {
     // the duration rules are English's and have no /ɐ/: unstressed vowels came out 40-50 ms,
     // "Доброе утро" took 0.75 s for five syllables, and Whisper lost whole words
-    let g = EnglishG2P::new();
-    let p = &g.to_phrases("До́брое у́тро")[0];
-    let weak: Vec<f64> = p.segments.iter().filter(|s| s.stress == Some(0)).filter_map(|s| s.dur).collect();
+    let p = spoken("До́брое у́тро");
+    let weak: Vec<f64> = p.iter().filter(|s| s.stress == Some(0)).filter_map(|s| s.dur).collect();
     assert_eq!(weak.len(), 3);
     assert!(weak.iter().all(|d| *d >= 0.07), "{weak:?}");
     // the last one, before a pause, is the longest
@@ -205,25 +208,11 @@ fn unstressed_vowels_keep_a_syllable_s_length() {
 fn a_stressed_y_is_as_long_as_the_other_stressed_vowels() {
     // the duration table's /ɨ/ is English's reduced vowel (110 ms inherent): "дым" came out with
     // half the vowel of "дум" and Whisper wrote "дум" for it
-    let g = EnglishG2P::new();
-    let y = |text: &str| g.to_phrases(text)[0].segments.iter().find(|s| s.ipa == "ɨ").unwrap().dur;
+    let y = |text: &str| spoken(text).iter().find(|s| s.ipa == "ɨ").unwrap().dur;
     assert_eq!(y("ды́м"), Some(0.19));
     assert_eq!(y("ды́м и до́м"), Some(0.12));
     // sung, the note sets the length
     assert!(russian::word("дым", false).iter().all(|s| s.ipa != "ɨ" || s.dur.is_none()));
-}
-
-#[test]
-fn english_words_keep_their_allophones_beside_a_russian_word() {
-    // one Cyrillic word used to turn the flaps and the dark l off for the whole line
-    let water = phrase("water");
-    assert!(water.contains('ɾ'), "{water}");
-    assert!(phrase("water ми́р").starts_with(&water), "{}", phrase("water ми́р"));
-    assert!(phrase("ми́р water").ends_with(&water), "{}", phrase("ми́р water"));
-    assert!(phrase("full ми́р").contains("ɫ m"), "{}", phrase("full ми́р"));
-    // the Russian words still get none: /t/ between vowels stays a stop
-    assert_eq!(phrase("water ле́то").strip_prefix(&water).unwrap().trim(), phrase("ле́то"));
-    assert!(phrase("ле́то").contains('t'));
 }
 
 #[test]
