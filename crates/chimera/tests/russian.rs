@@ -165,10 +165,28 @@ fn lyrics_split_into_syllables() {
     let texts = |t: &str| lyrics_to_syllables(t, &g).iter().map(|s| s.text.clone()).collect::<Vec<_>>();
     assert_eq!(texts("мая́к"), ["ма", "я\u{301}к"]);
     assert_eq!(russian::split_spelling("поёт", 2), ["по", "ёт"]);
-    // an obstruent and р start a syllable together (се-стра́); other clusters split (ло́д-ка)
+}
+
+#[test]
+fn sung_syllables_are_open() {
+    // Russian singing gives the next syllable the whole cluster, so the vowel holds the note: only
+    // the onsets пр, стр were allowed, and я́блоко sang as я́б-ло-ко, Москва́ put /sk/ on the first
+    // note, ло́дка sang as ло́д-ка
+    let g = EnglishG2P::new();
     let onsets = |t: &str| lyrics_to_syllables(t, &g).iter().map(|s| ipa(&s.onset)).collect::<Vec<_>>();
+    assert_eq!(onsets("ло́дка"), ["ɫ", "t k"]);
+    assert_eq!(onsets("я́блоко"), ["j", "b ɫ", "k"]);
+    assert_eq!(onsets("Москва́"), ["m", "s k v"]);
     assert_eq!(onsets("сестра́"), ["s j", "s t ɾ"]);
-    assert_eq!(onsets("ло́дка"), ["ɫ", "k"]);
+    // a leading sonorant (р л н м й) stays with the vowel before it
+    assert_eq!(onsets("се́рдце"), ["s j", "t ts"]);
+    assert_eq!(onsets("войска́"), ["v", "s k"]);
+    assert_eq!(onsets("темно́"), ["t j", "n"]);
+    // a soft consonant's glide, and the /j/ after ь, go with it
+    assert_eq!(onsets("семья́"), ["s j", "m j j"]);
+    // the spelling on the notes splits the same way
+    let texts = lyrics_to_syllables("я́блоко", &g).iter().map(|s| s.text.clone()).collect::<Vec<_>>();
+    assert_eq!(texts, ["я\u{301}", "бло", "ко"]);
 }
 
 #[test]

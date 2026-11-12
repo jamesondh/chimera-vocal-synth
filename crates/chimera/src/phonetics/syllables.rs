@@ -48,7 +48,7 @@ pub fn is_english_onset(cluster: &[Segment]) -> bool {
 }
 
 /// Split one word's segments into syllables: of the consonants between two vowels, the longest
-/// run that `is_onset` accepts (up to three) starts the second syllable.
+/// run that `is_onset` accepts starts the second syllable.
 pub fn syllabify_with(segs: &[Segment], is_onset: impl Fn(&[Segment]) -> bool) -> Vec<SyllableParts> {
     let vi: Vec<usize> = segs.iter().enumerate().filter(|(_, s)| is_vowel(&s.ipa, BodyMix::MALE)).map(|(i, _)| i).collect();
     if vi.is_empty() {
@@ -62,7 +62,7 @@ pub fn syllabify_with(segs: &[Segment], is_onset: impl Fn(&[Segment]) -> bool) -
             // consonants between this vowel and the next: the longest legal onset goes right
             let between = &segs[v + 1..next];
             let mut k = 0;
-            for len in (1..=3.min(between.len())).rev() {
+            for len in (1..=between.len()).rev() {
                 if is_onset(&between[between.len() - len..]) {
                     k = len;
                     break;

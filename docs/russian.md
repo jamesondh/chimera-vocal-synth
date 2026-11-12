@@ -16,6 +16,8 @@ front-end list as Sing.
   An unmarked word is looked up in a short table of frequent words (`STRESS`); failing that, its
   **first vowel** is stressed. That guess is wrong for most longer words, so mark them.
 - In Sing, one vowel is one note. `мо-ло-ко́` forces the breaks, `~` holds the previous vowel.
+- Sung syllables are open: the next note takes the whole consonant cluster (я-бло-ко, мо-сква́),
+  except a leading sonorant р л н м й, which stays on the note before (се́р-дце, вой-ска́).
 - Write numbers as words: digits still go through the English number expander.
 
 ## What it does

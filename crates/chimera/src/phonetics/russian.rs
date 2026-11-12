@@ -248,19 +248,14 @@ fn lengthened(ipa: &str) -> Segment {
     Segment { dur: phoneme(ipa, BodyMix::MALE).map(|p| p.dur * 1.5), ..Segment::new(ipa) }
 }
 
-/// Onsets for the lyric syllabifier: one consonant, or an obstruent and р (пр, стр), each with
-/// its softness glide if it has one. Anything longer leaves its first consonants in the coda.
+/// Onsets for the lyric syllabifier. Russian singing keeps syllables open, so the next syllable
+/// takes the whole cluster (я-бло-ко, мо-сква́), except that a leading sonorant stays with the
+/// vowel before it (се́р-дце, вой-ска́). A /j/ after a consonant (its softness glide, or the /j/
+/// after ь in се-мья́) goes with that consonant.
 pub fn is_onset(cluster: &[Segment]) -> bool {
-    let mut c: Vec<&str> = cluster.iter().map(|s| s.ipa.as_str()).collect();
-    if c.len() > 1 && c.last() == Some(&"j") {
-        c.pop();
-    }
-    match c[..] {
-        [_] => true,
-        [a, "ɾ"] => ["p", "b", "t", "d", "k", "g", "f", "v"].contains(&a),
-        ["s", a, "ɾ"] => ["p", "t", "k"].contains(&a),
-        _ => false,
-    }
+    let first = cluster.first().map(|s| s.ipa.as_str());
+    let consonants = cluster.iter().enumerate().filter(|(i, s)| *i == 0 || s.ipa != "j").count();
+    consonants == 1 || first.is_some_and(|c| !["ɾ", "ɫ", "l", "n", "m", "j"].contains(&c))
 }
 
 /// Split a written word into n chunks, each ending after a vowel (and its stress mark).
