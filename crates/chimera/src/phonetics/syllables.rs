@@ -12,6 +12,7 @@
 use crate::anatomy::human::BodyMix;
 use super::english::js_is_space;
 use super::korean::Korean;
+use super::mandarin::{Mandarin, MandarinLexicon, Pinyin};
 use super::russian::Russian;
 use super::planner::is_vowel;
 use super::{Segment, Syllable};
@@ -308,7 +309,16 @@ pub fn read_lyrics(text: &str, front_ends: &[&dyn FrontEnd]) -> Vec<Syllable> {
 }
 
 /// Lyrics text → syllables through the built-in front ends that need no data beyond the English
-/// dictionary: English (`g2p`), Korean and Russian.
+/// dictionary: every built-in front end but Mandarin's characters (they need its lexicon; see
+/// [`lyrics_to_syllables_with`]).
 pub fn lyrics_to_syllables(text: &str, g2p: &impl WordSource) -> Vec<Syllable> {
-    read_lyrics(text, &[&English(g2p), &Korean, &Russian])
+    lyrics_to_syllables_with(text, g2p, &MandarinLexicon::new())
+}
+
+/// Lyrics → sung syllables through every built-in front end: pinyin (only words with tones; before
+/// English, which shares its alphabet), English (`g2p`), Korean, Russian, and Mandarin with its
+/// lexicon (empty: Han characters are skipped). The one list the app, the wasm engine and the CLI
+/// all read lyrics through, so a new front end can't be missing from one of them.
+pub fn lyrics_to_syllables_with(text: &str, g2p: &impl WordSource, zh: &MandarinLexicon) -> Vec<Syllable> {
+    read_lyrics(text, &[&Pinyin, &English(g2p), &Korean, &Russian, &Mandarin(zh)])
 }

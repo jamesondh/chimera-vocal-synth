@@ -22,7 +22,8 @@ use chimera::phonetics::sing::{
     plan_song,
 };
 use chimera::phonetics::songs::DEMO_SONGS;
-use chimera::phonetics::syllables::lyrics_to_syllables;
+use chimera::phonetics::mandarin::{MandarinLexicon, is_han};
+use chimera::phonetics::syllables::{lyrics_to_syllables, lyrics_to_syllables_with};
 use chimera::phonetics::{Intonation, Plan, Syllable};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
 use std::io::Read;
@@ -46,6 +47,24 @@ pub fn g2p() -> Result<EnglishG2P, String> {
     let mut g = EnglishG2P::new();
     g.load_dict(&text);
     Ok(g)
+}
+
+/// The Mandarin front end's lexicon (public/data/mandarin.txt.gz, from tools/build-mandarin.ts).
+pub fn zh() -> Result<MandarinLexicon, String> {
+    let path = repo_path("public/data/mandarin.txt.gz");
+    let gz = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(&gz[..]).read_to_string(&mut text).map_err(|e| format!("{path}: {e}"))?;
+    let mut l = MandarinLexicon::new();
+    l.load(&text);
+    Ok(l)
+}
+
+/// Lyrics → syllables through every built-in front end (the Mandarin lexicon only when needed).
+pub fn sung_lyrics(text: &str) -> Result<Vec<Syllable>, String> {
+    let g = g2p()?;
+    let lex = if text.chars().any(is_han) { zh()? } else { MandarinLexicon::new() };
+    Ok(lyrics_to_syllables_with(text, &g, &lex))
 }
 
 /// A file name from a song's name: letters of any script, everything else as one "-".
@@ -501,8 +520,9 @@ fn render_tracked(v: &mut HumanVoice, out: &mut [f32], artic: bool, tele: bool) 
 /// writes the articulators over time (`{"rate", "body", "keys", "frames"}`), to animate a face in
 /// sync; `--tele` writes the voice's whole telemetry over time (see `TeleRecorder`), which the
 /// app's duet page replays on a 3D head. The melody file may give `"syllables"` (IPA
-/// onset/nucleus/coda per sounding note) instead of English `"lyrics"`: a language front end's
-/// output (docs/language-front-ends.md).
+/// onset/nucleus/coda per sounding note, optional `"pitch"` bends) instead of `"lyrics"`: a
+/// language front end's output (docs/language-front-ends.md). Optional sing-planner settings:
+/// `"nasalLead"`, `"consonantScale"`.
 pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let mut artic_out: Option<String> = None;
     let mut tele_out: Option<String> = None;
@@ -532,8 +552,7 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let syl: Vec<Syllable> = if j.get("syllables").is_some() {
         serde_json::from_value(j["syllables"].clone()).map_err(|e| format!("syllables: {e}"))?
     } else {
-        let g = g2p()?;
-        lyrics_to_syllables(j["lyrics"].as_str().ok_or("lyrics missing")?, &g)
+        sung_lyrics(j["lyrics"].as_str().ok_or("lyrics missing")?)?
     };
     let sounding = raw.iter().filter(|n| n[0] > 0.0).count();
     if syl.len() != sounding {

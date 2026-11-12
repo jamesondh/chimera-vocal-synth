@@ -12,7 +12,9 @@ use chimera::phonetics::beatbox::{self, BeatStep};
 use chimera::phonetics::planner::{self, PhraseInput, PlanOptions};
 use chimera::phonetics::sing::{self, MelismaOptions, NoteOnOptions, SongOptions, SungNote};
 use chimera::phonetics::english::EnglishG2P;
-use chimera::phonetics::{Segment, Syllable, ipa, songs, syllables, vowel_data};
+use chimera::phonetics::mandarin::MandarinLexicon;
+use chimera::phonetics::syllables::lyrics_to_syllables_with;
+use chimera::phonetics::{Segment, Syllable, ipa, songs, vowel_data};
 use chimera::voice::human_airway::HumanAirway;
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -33,6 +35,8 @@ struct State {
     next_model: usize,
     /// the page's English G2P (one dictionary, loaded once)
     g2p: EnglishG2P,
+    /// the Mandarin front end's lexicon (loaded once, when lyrics first need it)
+    mandarin: MandarinLexicon,
 }
 
 thread_local! {
@@ -126,7 +130,12 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
         }
         "g2pPhrases" => to_json(&st.g2p.to_phrases(&arg::<String>(req, "text")?)),
         "g2pWord" => to_json(&st.g2p.word(&arg::<String>(req, "word")?, arg::<Option<bool>>(req, "reduce")?.unwrap_or(true))),
-        "lyricsToSyllables" => to_json(&syllables::lyrics_to_syllables(&arg::<String>(req, "text")?, &st.g2p)),
+        "zhLoad" => {
+            st.mandarin.load(&arg::<String>(req, "text")?);
+            Ok(json!(true))
+        }
+        // every built-in front end: pinyin, English, Korean, and Mandarin once its lexicon is loaded
+        "lyricsToSyllables" => to_json(&lyrics_to_syllables_with(&arg::<String>(req, "text")?, &st.g2p, &st.mandarin)),
         // ---------------------------------------------------------------- creatures
         "creaturePreview" => {
             let id: String = arg(req, "id")?;
