@@ -203,6 +203,12 @@ impl Engine {
         &self.voice.score
     }
 
+    /// How many of the human voice's decaying states are denormal numbers (for tests: none should
+    /// be; see `AirwayNetwork::flush_tiny`).
+    pub fn denormal_states(&self) -> usize {
+        self.voice.denormal_states()
+    }
+
     /// The voice clock (s): the time base of scheduled gestures.
     pub fn clock(&self) -> f64 {
         self.voice.clock

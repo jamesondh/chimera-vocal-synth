@@ -499,7 +499,17 @@ impl HumanVoice {
             0.07
         };
         self.gate += (gate_goal - self.gate) * (1.0 - exp(-dt / tau));
+        // a breath let go decays toward zero for ever, and a denormal lung pressure makes denormals
+        // of the whole airway (see `AirwayNetwork::flush_tiny`): nothing is nothing
+        crate::airway::network::tiny(&mut self.gate);
+        self.glottis.flush_tiny();
+        crate::airway::network::tiny(&mut self.dc_x);
+        crate::airway::network::tiny(&mut self.dc_y);
+        crate::airway::network::tiny(&mut self.lim_env);
         self.p_lung = self.source.pressure * CM_H2O * self.gate;
+        if self.p_lung == 0.0 {
+            crate::airway::network::tiny(&mut self.p_lung_now);
+        }
         self.p_lung_step = (self.p_lung - self.p_lung_now) / self.ctrl_every as f64;
         // vocal effort follows the pressure actually applied: a harder breath (a louder sung note)
         // gives wider, sharper-closing pulses, as in real phonation, not just more flow
@@ -514,6 +524,7 @@ impl HumanVoice {
         for k in 0..n_ph + self.airway.n_or {
             let br = if k < n_ph { self.airway.branch_of(self.airway.pharynx, k as isize) } else { self.airway.branch_of(self.airway.oral, (k - n_ph) as isize) };
             self.flow_sm[k] += a * (self.airway.net.u[br] - self.flow_sm[k]);
+            crate::airway::network::tiny(&mut self.flow_sm[k]);
         }
     }
 
@@ -548,6 +559,15 @@ impl HumanVoice {
         fix(&mut self.artic, ct, ctn, ArticKey::TtX, ArticKey::TtY);
         fix(&mut self.artic, cb, cbn, ArticKey::TbX, ArticKey::TbY);
         changed
+    }
+
+    /// How many of the voice's decaying states are denormal numbers (for tests: none should be;
+    /// see `AirwayNetwork::flush_tiny`).
+    pub fn denormal_states(&self) -> usize {
+        use crate::airway::network::is_denormal;
+        let own = [self.gate, self.dc_x, self.dc_y, self.lim_env, self.p_lung_now];
+        let artic = ArticKey::ALL.iter().filter(|k| is_denormal(self.artic.x.get(**k))).count() + self.artic.v.iter().filter(|v| is_denormal(**v)).count();
+        self.airway.net.denormal_states() + self.glottis.denormal_states() + own.iter().filter(|x| is_denormal(**x)).count() + self.flow_sm.iter().filter(|x| is_denormal(**x)).count() + artic
     }
 
     /// Fill a telemetry snapshot and reset the accumulators.
