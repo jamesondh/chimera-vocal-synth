@@ -227,13 +227,14 @@ impl ParametricGlottis {
         self.phase
     }
 
-    /// Zero the smoothed values that have decayed to nothing (see `AirwayNetwork::flush_tiny`):
-    /// with the breath off or the folds apart each of them heads for zero and would otherwise
-    /// stall among the denormals. Called at control rate.
+    /// How many of the smoothed values are denormal (for tests: none should be).
     pub fn denormal_states(&self) -> usize {
         [self.dp_sm, self.voicing_sm, self.amp_sm, self.closure_sm, self.static_sm].iter().filter(|x| crate::airway::network::is_denormal(**x)).count()
     }
 
+    /// Zero the smoothed values that have decayed to nothing (see `AirwayNetwork::flush_tiny`):
+    /// with the breath off or the folds apart each of them heads for zero and would otherwise
+    /// stall among the denormals. Called at control rate.
     pub fn flush_tiny(&mut self) {
         use crate::airway::network::tiny;
         tiny(&mut self.dp_sm);
