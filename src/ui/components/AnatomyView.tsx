@@ -149,8 +149,13 @@ export function AnatomyView(props: { slots?: SlotsFn; info?: InfoFn; showFormant
     const rect = canvasRef.current!.getBoundingClientRect();
     const p = r.toBody(e.clientX - rect.left, e.clientY - rect.top);
     (e.target as Element).setPointerCapture(e.pointerId);
-    dragRef.current = { id, start: p, artic: { ...useStore.getState().artic } };
+    const st = useStore.getState();
+    dragRef.current = { id, start: p, artic: { ...st.artic } };
     e.preventDefault();
+    // A grab starts the audio, as the start overlay over the face did (until 704ed2c). The engine
+    // is what keeps the tongue out of the palate and makes the sound: without it a drag moved only
+    // the drawing, through the skull, in silence. In Play it breathes, as that overlay's button did.
+    if (!st.started) void (st.mode === "play" && !st.hold ? st.toggleBreath() : st.start());
   };
 
   const onMove = (e: React.PointerEvent) => {
@@ -162,7 +167,8 @@ export function AnatomyView(props: { slots?: SlotsFn; info?: InfoFn; showFormant
       if (id !== hover) setHover(id);
       return;
     }
-    if (!r || !m) return;
+    // until the audio runs nothing keeps the tongue in the mouth: the drag waits (or a failed start)
+    if (!r || !m || !useStore.getState().started) return;
     const rect = canvasRef.current!.getBoundingClientRect();
     const p = r.toBody(e.clientX - rect.left, e.clientY - rect.top);
     const t = m.tract;
