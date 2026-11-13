@@ -3,7 +3,7 @@
  * measures worklet load, and saves screenshots.
  * Usage: bun tools/e2e.ts [url] [outdir]
  */
-import { chromium } from "playwright-core";
+import { chromium, type Page } from "playwright-core";
 import { mkdirSync } from "node:fs";
 
 const url = process.argv[2] ?? "http://127.0.0.1:5318/";
@@ -29,10 +29,12 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.screenshot({ path: `${outDir}/${tag}-0-idle.png` });
   // the app opens on Sing; this run starts in Play
   await page.getByRole("radio", { name: "Play" }).click();
-  // each tab's main button starts the audio: Play's breathes
-  const startBtn = page.getByRole("button", { name: /^Breathe$/ });
-  await startBtn.click();
-  await page.waitForTimeout(1800);
+  if (tag === "desktop") await grabTongueFirst(page, tag);
+  else {
+    // each tab's main button starts the audio: Play's breathes
+    await page.getByRole("button", { name: /^Breathe$/ }).click();
+    await page.waitForTimeout(1800);
+  }
   await page.screenshot({ path: `${outDir}/${tag}-1-running.png` });
   // drag the tongue body handle via the canvas: find it by probing (center-ish of viewport)
   const box = await page.locator(".anatomy canvas").boundingBox();
@@ -465,10 +467,55 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.close();
 }
 
+/**
+ * Play before any audio (upstream issue 89): grabbing the tongue starts the audio and breathes, and
+ * the engine keeps the tongue in the mouth. Since 704ed2c took away the start overlay over the face,
+ * a drag before the audio existed moved only the drawing, up through the skull, in silence.
+ */
+async function grabTongueFirst(page: Page, tag: string) {
+  const box = (await page.locator(".anatomy canvas").boundingBox())!;
+  const anatomy = page.locator(".anatomy");
+  // the tongue handle, found by hovering a grid finer than its 22 px hit radius
+  const findTongue = async () => {
+    for (let y = box.y + 6; y < box.y + box.height; y += 16)
+      for (let x = box.x + 6; x < box.x + box.width; x += 16) {
+        await page.mouse.move(x, y);
+        if ((await anatomy.getAttribute("data-hover")) === "tongue") return { x, y };
+      }
+    return null;
+  };
+  const from = await findTongue();
+  if (!from) return void errors.push(`[${tag}] found no tongue handle on the face`);
+  const to = { x: from.x, y: box.y + 4 }; // above the skull
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  // heard with the tongue where it was: pressed to the palate it closes the mouth, and is silent
+  await page
+    .waitForFunction(() => {
+      // @ts-expect-error debug handle
+      const e = window.__chimeraEngine;
+      return e?.ctx?.state === "running" && (e?.latest?.t?.outRms ?? 0) > 0.01;
+    }, null, { timeout: 10000 })
+    .catch(() => {});
+  const sound = await page.evaluate(() => {
+    // @ts-expect-error debug handle
+    const e = window.__chimeraEngine;
+    return { ctx: e?.ctx?.state ?? null, rms: e?.latest?.t?.outRms ?? -1 };
+  });
+  await page.mouse.move(to.x, to.y, { steps: 15 });
+  await page.waitForTimeout(600);
+  await page.mouse.up();
+  const at = await findTongue();
+  logs.push(`[${tag}] tongue grabbed first: audio ${sound.ctx}, rms ${sound.rms.toFixed(4)}; handle ${JSON.stringify(from)} dragged to ${JSON.stringify(to)}, rests at ${JSON.stringify(at)}`);
+  if (sound.ctx !== "running" || !(sound.rms > 0.01)) errors.push(`[${tag}] grabbing the tongue before any audio made no sound (audio ${sound.ctx}, rms ${sound.rms})`);
+  // the palate is a couple of centimetres above the tongue: a third of the way to the top is out of the mouth
+  if (!at || at.y < to.y + (from.y - to.y) * 0.67) errors.push(`[${tag}] the tongue left the mouth: dragged from ${JSON.stringify(from)} to ${JSON.stringify(to)}, rests at ${JSON.stringify(at)}`);
+}
+
 await run({ width: 1440, height: 980 }, "desktop");
 await run({ width: 390, height: 844 }, "mobile");
 await browser.close();
 console.log("console errors:", errors.length ? "\n" + errors.join("\n") : "none");
-console.log(logs.filter((l) => /load|rate|warn|transcription|example|creature|held|back to|beatbox|silence|sing|octave|retry|song|video/i.test(l)).slice(0, 52).join("\n"));
+console.log(logs.filter((l) => /load|rate|warn|transcription|example|creature|held|back to|beatbox|silence|sing|octave|retry|tongue|song|video/i.test(l)).slice(0, 52).join("\n"));
 // a run that collected errors fails, so CI and agents can't read it as a pass
 if (errors.length) process.exit(1);

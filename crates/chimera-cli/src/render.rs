@@ -48,12 +48,13 @@ pub fn g2p() -> Result<EnglishG2P, String> {
     Ok(g)
 }
 
-/// `name.toLowerCase().replace(/[^a-z]+/g, "-")`
+/// A file name from a song's name: letters of any script, everything else as one "-".
+/// (Only a-z counted, so "Ночной ветер" was written to "--male.wav".)
 fn slug(name: &str) -> String {
     let mut out = String::new();
     let mut run = false;
     for c in name.to_lowercase().chars() {
-        if c.is_ascii_lowercase() {
+        if c.is_alphabetic() {
             out.push(c);
             run = false;
         } else if !run {
@@ -62,6 +63,15 @@ fn slug(name: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod slug_tests {
+    #[test]
+    fn a_song_named_in_another_script_keeps_its_name() {
+        assert_eq!(super::slug("Twinkle, twinkle"), "twinkle-twinkle");
+        assert_eq!(super::slug("Ночной ветер"), "ночной-ветер");
+    }
 }
 
 fn ms_since(t: Instant) -> f64 {

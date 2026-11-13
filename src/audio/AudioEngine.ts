@@ -4,6 +4,7 @@
  */
 import workletUrl from "../worklet/processor.ts?worker&url";
 import { chimeraModule } from "../wasm/chimera.ts";
+import { preferPlaybackSession } from "./session.ts";
 import type { ToWorklet, FromWorklet, TelemetryMessage, PlannedMessage, CreatureTelemetryMessage } from "../worklet/protocol.ts";
 import type { BodyMix } from "../wasm/types.ts";
 import type { HumanArtic } from "../wasm/types.ts";
@@ -73,7 +74,11 @@ export class AudioEngine {
     // 48 kHz whatever the device runs at (the browser resamples): the airway's cost grows with
     // the square of its rate, and a 192 kHz device took ~3x the CPU of 48 kHz and starved the
     // worklet (load 120-150%, no sound; issue #33)
+    preferPlaybackSession();
     const ctx = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+    // resume now, while the tap that called start() is still the current gesture: iOS Safari
+    // refuses a resume() that comes after the awaits below (the context stays suspended, silent)
+    const resumed = ctx.resume().catch(() => {});
     this.ctx = ctx;
     this.sampleRate = ctx.sampleRate;
     let node: AudioWorkletNode;
@@ -150,6 +155,8 @@ export class AudioEngine {
         console.error("worklet:", m.message);
       }
     };
+    await resumed;
+    // a second chance where the first resume was refused (the result is what callers see)
     await ctx.resume();
   }
 

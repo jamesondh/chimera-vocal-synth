@@ -13,6 +13,8 @@ and the CLI) under a React UI. See the README.
 - Commit small. The subject names what changed and the trap, in searchable words; the body gives
   the why, what you ruled out, what you ran (with numbers) and what you didn't test.
 - Keep each fixed bug's reproduction as a test.
+- PRs follow `CONTRIBUTING.md`: the body is written top-down, with evidence, and ends with the
+  model and harness that wrote it.
 - Code outranks this file: fix the file when they disagree. When something breaks unnoticed, add
   a rule here, with a check.
 
