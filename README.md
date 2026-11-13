@@ -12,8 +12,9 @@ for tests and the `chimera` CLI.
 2. **The web app is the primary surface**: anyone should be able to make songs in it without
    an LLM's help. Mobile is the likely next surface. The plugin (CLAP/VST3/AU) still ships, but
    it's secondary.
-3. **More realistic without losing what it is**: the robotic, primitive sound people like today
-   stays available, and every realism change is checked by ear against it.
+3. **As realistic as we can make it**: the main push is to see how close the simulation gets to
+   a real voice. The robotic, Vocaloid-like sound people like today stays playable as a preset
+   ([#93](https://github.com/jamesondh/chimera-vocal-synth/issues/93)).
 4. **Languages enter through one shared front-end design**, not one-off hacks. Each needs a
    native speaker's check and must leave English unchanged.
 5. **The design language (the vector display) is settled**; the look within it can still evolve.

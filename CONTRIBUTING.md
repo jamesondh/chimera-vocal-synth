@@ -14,7 +14,8 @@ Solve one problem per PR. Split unrelated fixes, and leave drive-by refactors fo
 
 ## Use a strong model, and review the work
 
-- Use the most capable model you have, at high reasoning effort.
+- Use the most capable model you have, with reasoning effort to match the work's complexity and
+  risk.
 - Before you open the PR, have a fresh agent review the diff and fix what it finds (or say in the
   PR why you didn't). A reviewer from a different model family tends to catch more; we recommend
   one but don't require it.
@@ -26,9 +27,8 @@ Solve one problem per PR. Split unrelated fixes, and leave drive-by refactors fo
 Put the evidence in the PR, not in git.
 
 - **Sound**: before/after audio of the same phrase, or before/after spectrograms
-  (`bun tools/spectrogram.ts`). Re-bless the goldens, and check by ear that the robotic voice
-  people like is still there (vision item 3). Voice tuning follows
-  [docs/hill-climb/](docs/hill-climb/README.md).
+  (`bun tools/spectrogram.ts`), and say what you hear change. Re-bless the goldens. Voice tuning
+  follows [docs/hill-climb/](docs/hill-climb/README.md).
 - **UI**: before/after screenshots, including at phone width; a short recording when motion or
   timing matters.
 - **Bug fix**: the reproduction, kept as a test that fails before the fix and passes after.
