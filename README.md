@@ -78,7 +78,7 @@ bun tools/musicxml-to-notes.ts score.mxl P1 --out p1.json   # a score's part →
 - [docs/hill-climb/](docs/hill-climb/): the rules and log for tuning the voice one measured
   step at a time.
 
-Agents: see [AGENTS.md](AGENTS.md).
+Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md). Agents: see [AGENTS.md](AGENTS.md).
 
 ## License
 
