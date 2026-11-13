@@ -53,9 +53,31 @@ export class AudioEngine {
     return !!this.ctx && this.ctx.state === "running";
   }
 
+  /**
+   * Unlock the destination on the current user-gesture turn (before any await). WebKit in
+   * particular can report `running` after a late resume while the speakers stay muted if the
+   * first await (worklet `addModule`) already left the gesture.
+   */
+  private prime(ctx: AudioContext): void {
+    try {
+      const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      // priming is best-effort; resume below is the real unlock
+    }
+    void ctx.resume();
+  }
+
   async start(): Promise<void> {
     if (this.ctx) {
+      this.prime(this.ctx);
       await this.ctx.resume();
+      if (this.ctx.state !== "running") {
+        throw new Error(`AudioContext is ${this.ctx.state} (click Speak again to unlock audio)`);
+      }
       return;
     }
     // 48 kHz whatever the device runs at (the browser resamples): the airway's cost grows with
@@ -64,6 +86,8 @@ export class AudioEngine {
     const ctx = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
     this.ctx = ctx;
     this.sampleRate = ctx.sampleRate;
+    // unlock before awaiting the worklet module (keeps this call on the user-gesture turn)
+    this.prime(ctx);
     let node: AudioWorkletNode;
     try {
       await ctx.audioWorklet.addModule(workletUrl);
@@ -138,7 +162,12 @@ export class AudioEngine {
         console.error("worklet:", m.message);
       }
     };
+    // re-prime after the graph is built (gesture may already be gone; still helps some browsers)
+    this.prime(ctx);
     await ctx.resume();
+    if (ctx.state !== "running") {
+      throw new Error(`AudioContext is ${ctx.state} (click Speak again to unlock audio)`);
+    }
   }
 
   onTelemetry(l: Listener): () => void {

@@ -175,6 +175,8 @@ struct Seg<'a> {
     nasalized: Option<bool>,
     palatalized: Option<bool>,
     breathy: Option<bool>,
+    /// true when this segment ends a word (or a syllable marked with `.` in IPA)
+    word_end: bool,
 }
 
 /// glottal abduction of breathy voice: /ɦ/'s, a gap the folds still vibrate across
@@ -211,10 +213,39 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             let base = durs[si];
             for (i, p) in parts.iter().enumerate() {
                 let dur = if parts.len() > 1 { base * (if i == 0 { 0.55 } else { 0.45 }) } else { base };
-                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, nasalized: s.nasalized, palatalized: None, breathy: s.breathy });
+                segs.push(Seg {
+                    ipa: p,
+                    dur: Some(dur),
+                    stress: s.stress,
+                    f0: s.f0,
+                    def: None,
+                    vowel: None,
+                    glide_from: i > 0,
+                    aspirated: None,
+                    vot: None,
+                    nasalized: s.nasalized,
+                    palatalized: None,
+                    breathy: s.breathy,
+                    // only the diphthong's last part carries the word boundary
+                    word_end: i + 1 == parts.len() && s.word_end == Some(true),
+                });
             }
         } else {
-            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, nasalized: s.nasalized, palatalized: s.palatalized, breathy: s.breathy });
+            segs.push(Seg {
+                ipa: &s.ipa,
+                dur: Some(durs[si]),
+                stress: s.stress,
+                f0: s.f0,
+                def: None,
+                vowel: None,
+                glide_from: false,
+                aspirated: s.aspirated,
+                vot: s.vot,
+                nasalized: s.nasalized,
+                palatalized: s.palatalized,
+                breathy: s.breathy,
+                word_end: s.word_end == Some(true),
+            });
         }
     }
     for s in segs.iter_mut() {
@@ -336,9 +367,11 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             gestures.push(Gesture::new(t0, t1, 0.012, 0.015, 8.0, one(ControlKey::CLOSURE, 1.0)).label("ʔ"));
         } else if def.voicing == Voicing::Voiceless {
             if def.manner == Manner::Stop || def.manner == Manner::Affricate {
-                // as the front end says; by default English's rule: aspirated when syllable-initial
-                // before a vowel and not after /s/
-                let aspirated = s.aspirated.unwrap_or_else(|| next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s"));
+                // as the front end says; by default English's rule: aspirated in a word-initial
+                // onset or before a stressed vowel, and not after /s/. A coda (or other word-medial
+                // stop before an unstressed vowel) stays unaspirated — otherwise its VOT eats the
+                // short nucleus (ˈæt.ʌ… heard as "ehton").
+                let aspirated = s.aspirated.unwrap_or_else(|| english_aspirates(s, prev_seg, i == 0, next_vowel, segs.get(i + 1)));
                 // the folds stay apart past the release by 40% of the default 50 ms (the ramps
                 // make up the rest of the aspiration); a front end's longer or shorter `vot` moves
                 // that by the whole difference, so the voice onset time it asks for is what it gets
@@ -490,6 +523,23 @@ fn place_rank(place: &str) -> Option<u8> {
 const PLACED_CLOSURE_DELAY: f64 = 0.025;
 /// An aspirated stop's voice onset time when its front end doesn't say (English's), in seconds.
 const DEFAULT_VOT: f64 = 0.05;
+
+/// English default aspiration when the front end leaves `Segment::aspirated` unset.
+/// Word-initial onsets (and onsets before a stressed vowel) aspirate; a coda or other
+/// word-medial stop before an unstressed vowel does not — matching the same stress context
+/// English uses for flapping in [`super::english`].
+fn english_aspirates(s: &Seg<'_>, prev: Option<&Seg<'_>>, at_utterance_start: bool, next_vowel: bool, next: Option<&Seg<'_>>) -> bool {
+    if !next_vowel || prev.is_some_and(|p| p.ipa == "s") {
+        return false;
+    }
+    // a stop marked word-final (IPA `.` / space) is a coda: no aspiration into the next vowel
+    if s.word_end {
+        return false;
+    }
+    let word_initial = at_utterance_start || prev.is_some_and(|p| p.word_end);
+    let next_stressed = next.is_some_and(|n| n.vowel.is_some() && n.stress.unwrap_or(0) > 0);
+    word_initial || next_stressed
+}
 
 /// Whether stop `i` closes behind the closure of the stop before it, with its own articulators
 /// already set by the consonant before that one (/t/ in /ɹpt/: the tip is up for the /ɹ/ and

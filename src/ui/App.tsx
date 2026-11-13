@@ -67,8 +67,16 @@ function TopBar() {
           <input type="range" min={0} max={1} step={0.01} value={volume} onChange={(e) => setVolume(Number(e.target.value))} style={{ "--pos": `${volume * 100}%` } as React.CSSProperties} />
         </label>
         {started && (
-          <span className="load" title="Share of the audio thread's time budget used by the simulation">
-            Engine load {Math.round(load * 100)} %
+          <span
+            className="load"
+            title={
+              load > 1
+                ? "Audio thread is over budget: turn off 3D / Sound pressure / Airflow or the voice goes silent"
+                : "Share of the audio thread's time budget used by the simulation"
+            }
+            style={load > 1 ? { color: "var(--warn, #c45c26)" } : undefined}
+          >
+            Engine load {Math.round(load * 100)} %{load > 1 ? " — turn off 3D" : ""}
           </span>
         )}
         <a className="repo-link" href="https://github.com/jamesondh/chimera-vocal-synth" target="_blank" rel="noreferrer" aria-label="Source code on GitHub" title="Source code on GitHub">

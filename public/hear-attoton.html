@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Hear attoton — Chimera</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: radial-gradient(1200px 600px at 50% 0%, #1c2430, #0b0d10); color: #e8eef5; }
+    main { width: min(36rem, 92vw); text-align: center; }
+    h1 { font-size: 1.6rem; font-weight: 650; margin: 0 0 .4rem; letter-spacing: .02em; }
+    p { opacity: .8; margin: 0 0 1.25rem; line-height: 1.45; }
+    code { font-size: 1.05rem; }
+    audio { width: 100%; margin-top: .5rem; }
+    button { margin-top: 1rem; font: inherit; font-weight: 600; padding: .7rem 1.2rem;
+      border-radius: .6rem; border: 0; background: #d9e2ec; color: #102a43; cursor: pointer; }
+    button:hover { filter: brightness(1.05); }
+    .hint { margin-top: 1rem; font-size: .9rem; opacity: .65; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>attoton</h1>
+    <p><code>ˈætʌˌtʰɔn</code> — middle <code>ʌ</code> should be audible · IPA without syllable <code>.</code></p>
+    <audio id="a" controls preload="auto" src="/attoton.wav"></audio>
+    <div><button id="play" type="button">Play attoton</button></div>
+    <p class="hint">If the Speak UI is silent, use this page (or turn off 3D / Sound pressure / Airflow first).</p>
+  </main>
+  <script>
+    const a = document.getElementById('a');
+    document.getElementById('play').onclick = async () => {
+      try { await a.play(); } catch (e) { alert(String(e)); }
+    };
+  </script>
+</body>
+</html>

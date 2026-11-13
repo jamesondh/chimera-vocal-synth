@@ -10,6 +10,11 @@ use super::inventory::Manner;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Floor (ms) for an unstressed vowel between a voiceless stop/affricate and another stop/affricate.
+/// Stop closure leads ~30 ms into the vowel and residual glottal opening ~5–20 ms after a
+/// voiceless release; below this floor the nucleus is heard as skipped ("attoton" → "ehton").
+const CRUSHED_UNSTRESSED_MS: f64 = 100.0;
+
 /// Klatt's inherent / minimum durations (ms).
 fn table(ipa: &str) -> Option<(f64, f64)> {
     Some(match ipa {
@@ -168,6 +173,13 @@ pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> 
                 let pv = if i > 0 { Some(inf[i - 1]) } else { None };
                 if stress > 0 && pv.is_some_and(|pv| pv.manner == Some(Manner::Stop) && pv.voiced != Some(true)) {
                     d += 20.0;
+                }
+                // unstressed vowel crushed between a voiceless stop's release and the next stop's
+                // early closure: floor so a nucleus like ʌ in ˈæt.ʌt… keeps ~40 ms of clear voicing
+                let after_vi = pv.is_some_and(|pv| matches!(pv.manner, Some(Manner::Stop | Manner::Affricate)) && pv.voiced != Some(true));
+                let before_stop = i + 1 < n && matches!(inf[i + 1].manner, Some(Manner::Stop | Manner::Affricate));
+                if stress == 0 && after_vi && before_stop {
+                    d = d.max(CRUSHED_UNSTRESSED_MS);
                 }
                 return d / 1000.0;
             }
