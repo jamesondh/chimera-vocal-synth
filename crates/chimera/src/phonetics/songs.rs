@@ -61,8 +61,8 @@ pub static DEMO_SONGS: &[DemoSong] = &[
         octave: SongOctave { male: -1.0, female: 0.0, child: 0.0 },
     },
     DemoSong {
-        // traditional (public domain)
-        name: "Daisy bell",
+        // by Harry Dacre, 1892 (public domain)
+        name: "Daisy Bell",
         bpm: 175.0,
         lyrics: "daisy daisy give me your answer do i'm half crazy all for the love of you it won't be a stylish marriage i can't afford a carriage but you'll look sweet upon the seat of a bicycle built for two",
         notes: &[
