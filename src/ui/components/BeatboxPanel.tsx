@@ -10,6 +10,7 @@ import { EncoderPages } from "./Encoder.tsx";
 import { Spectrogram } from "./Spectrogram.tsx";
 import type { InfoFn, SlotsFn } from "./AnatomyView.tsx";
 import { V } from "../colors.ts";
+import { t } from "../i18n/index.ts";
 
 const AIR: Record<Airstream, string> = {
   pulmonic: "Breath out",
@@ -40,10 +41,10 @@ export function useBeatStep(): number {
 
 /** Beatbox's readouts under the chin: the articulators a mouth drum uses */
 export const beatSlots: SlotsFn = (_m, a, f) => [
-  { label: "Jaw", value: a.jaw.toFixed(1), unit: "cm", color: V.red },
-  { label: "Lips", value: a.lipAp < 0.05 ? "Sealed" : a.lipWidth < 0.55 ? "Round" : "Open", color: V.pink },
-  { label: "Larynx", value: `${a.larynx >= 0 ? "+" : ""}${a.larynx.toFixed(1)}`, unit: "cm", color: V.green },
-  { label: "Soft palate", value: f.velumPort > 0.02 ? "Open" : "Shut", color: V.white },
+  { label: t("Jaw"), value: a.jaw.toFixed(1), unit: "cm", color: V.red },
+  { label: t("Lips"), value: a.lipAp < 0.05 ? t("Sealed") : a.lipWidth < 0.55 ? t("Round") : t("Open"), color: V.pink },
+  { label: t("Larynx"), value: `${a.larynx >= 0 ? "+" : ""}${a.larynx.toFixed(1)}`, unit: "cm", color: V.green },
+  { label: t("Soft palate"), value: f.velumPort > 0.02 ? t("Open") : t("Shut"), color: V.white },
 ];
 /** the big symbol owns the top right, so nothing else is written there */
 export const beatInfo: InfoFn = () => [];
@@ -88,12 +89,12 @@ function Pads() {
               hit(s.id);
             }
           }}
-          title={s.hint}
-          aria-label={`${s.name}: ${s.hint}. Key ${(i + 1) % 10}`}
+          title={t(s.hint)}
+          aria-label={`${t(s.name)}: ${t(s.hint)}. ${t("Key")} ${(i + 1) % 10}`}
         >
           <span className="pad-sym">{s.id}</span>
-          <span className="pad-name">{s.name}</span>
-          <span className="pad-air">{AIR[s.airstream]}</span>
+          <span className="pad-name">{t(s.name)}</span>
+          <span className="pad-air">{t(AIR[s.airstream])}</span>
           <span className="pad-key" aria-hidden="true">
             {(i + 1) % 10}
           </span>
@@ -108,11 +109,11 @@ function Sequencer() {
   const toggle = useStore((s) => s.toggleBeatStep);
   const now = useBeatStep();
   return (
-    <div className="seq-grid" style={{ "--steps": beat.steps.length } as React.CSSProperties} role="grid" aria-label="Beat pattern: one sound per step">
+    <div className="seq-grid" style={{ "--steps": beat.steps.length } as React.CSSProperties} role="grid" aria-label={t("Beat pattern: one sound per step")}>
       {BEAT_SOUNDS.map((s) => (
         <div className="seq-row" role="row" key={s.id}>
           <span className="seq-label" role="rowheader">
-            <b>{s.id}</b> {s.name}
+            <b>{s.id}</b> {t(s.name)}
           </span>
           {beat.steps.map((st, i) => {
             const on = st?.id === s.id;
@@ -123,7 +124,7 @@ function Sequencer() {
                 className={`cell${on ? " on" : ""}${i === now ? " now" : ""}${i % 4 === 0 ? " downbeat" : ""}`}
                 onClick={() => toggle(i, s.id)}
                 aria-pressed={on}
-                aria-label={`${s.name}, step ${i + 1}`}
+                aria-label={`${t(s.name)}, ${t("step")} ${i + 1}`}
               >
                 {on && s.id === "m" && st?.note !== undefined ? <span className="cell-note">{noteName(st.note)}</span> : null}
               </button>
@@ -145,17 +146,17 @@ function BeatActions() {
   const setMic = useStore((s) => s.setMic);
   const press = () => setPlaying(!playing);
   return (
-    <ActionBar label="Beat" onSpace={press}>
-      <PrimaryButton label="Play beat" playing={playing} onClick={press} />
+    <ActionBar label={t("Beat")} onSpace={press}>
+      <PrimaryButton label={t("Play beat")} playing={playing} onClick={press} />
       <Menu
-        label="Pattern"
+        label={t("Pattern")}
         value={preset ?? ""}
-        options={[...(preset ? [] : [{ value: "", label: "Your beat", disabled: true }]), ...BEAT_PRESETS.map((p) => ({ value: p.name, label: p.name }))]}
+        options={[...(preset ? [] : [{ value: "", label: t("Your beat"), disabled: true }]), ...BEAT_PRESETS.map((p) => ({ value: p.name, label: p.name }))]}
         onChange={(name) => loadPreset(name)}
       />
       {/* an effect on the sound, not the microphone: "Close mic" read as "shut the mic" */}
-      <Chip on={mic} onClick={() => setMic(!mic)} title="Close-mic effect: the bass, presence and squash of a mic held to the lips">
-        Mic FX
+      <Chip on={mic} onClick={() => setMic(!mic)} title={t("Close-mic effect: the bass, presence and squash of a mic held to the lips")}>
+        {t("Mic FX")}
       </Chip>
     </ActionBar>
   );
@@ -174,24 +175,24 @@ function Transport() {
     <div className="transport">
       <div className="transport-encoders">
         <EncoderPages
-          label="Transport"
+          label={t("Transport")}
           columns={2}
           pages={[
             {
-              name: "Tempo",
+              name: t("Tempo"),
               encoders: [
-                { label: "Tempo", value: beat.bpm, min: 60, max: 180, onChange: (v) => setTempo({ bpm: Math.round(v) }), format: (v) => ({ value: String(Math.round(v)), unit: "bpm" }) },
-                { label: "Swing", value: beat.swing, min: 0, max: 0.6, onChange: (v) => setTempo({ swing: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
+                { label: t("Tempo"), value: beat.bpm, min: 60, max: 180, onChange: (v) => setTempo({ bpm: Math.round(v) }), format: (v) => ({ value: String(Math.round(v)), unit: "bpm" }) },
+                { label: t("Swing"), value: beat.swing, min: 0, max: 0.6, onChange: (v) => setTempo({ swing: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
               ],
             },
           ]}
         />
       </div>
       <label className="sbn">
-        <span className="dim">Beat as text</span>
+        <span className="dim">{t("Beat as text")}</span>
         <input
           value={text}
-          title="B kick, t hat, Pf snare, K rimshot, ^K inward, ! click, m hum (m:43 sets its note), . rest"
+          title={t("B kick, t hat, Pf snare, K rimshot, ^K inward, ! click, m hum (m:43 sets its note), . rest")}
           placeholder="B . t . | Pf . t ."
           spellCheck={false}
           onFocus={() => (editing.current = true)}
@@ -215,20 +216,20 @@ export function BeatboxRight() {
   return (
     <div className="right right-beatbox">
       <BeatActions />
-      <Screen className="s-seq" title="Step sequencer">
+      <Screen className="s-seq" title={t("Step sequencer")}>
         <Sequencer />
       </Screen>
-      <Screen className="s-wf" title="Spectrogram">
+      <Screen className="s-wf" title={t("Spectrogram")}>
         <Spectrogram />
       </Screen>
-      <Screen className="s-pads" title="Pads">
+      <Screen className="s-pads" title={t("Pads")}>
         <Pads />
       </Screen>
-      <Screen className="s-transport" title="Tempo">
+      <Screen className="s-transport" title={t("Tempo")}>
         <Transport />
       </Screen>
       {/* the keys hum a bass note under the beat */}
-      <Screen className="s-keys s-keys-compact" title="Bass" tools={<MidiButton />}>
+      <Screen className="s-keys s-keys-compact" title={t("Bass")} tools={<MidiButton />}>
         <Keys />
       </Screen>
     </div>
@@ -246,10 +247,10 @@ export function BeatOverlay() {
   return (
     <div className="beat-overlay" data-layout="overlay" aria-hidden="true" key={now}>
       <span className="beat-sym">{cell.id}</span>
-      <span className="beat-name">{s?.name}</span>
-      {s && <span className="beat-air">{AIR[s.airstream]}</span>}
+      <span className="beat-name">{s ? t(s.name) : ""}</span>
+      {s && <span className="beat-air">{t(AIR[s.airstream])}</span>}
       <span className="beat-step">
-        Step {String(now + 1).padStart(2, "0")} / {steps.length}
+        {t("Step")} {String(now + 1).padStart(2, "0")} / {steps.length}
       </span>
     </div>
   );

@@ -4,11 +4,13 @@ import { creatureById } from "../../wasm/engine.ts";
 import { liveTelemetry, previewTelemetry } from "../creatureLive.ts";
 import { TEXT, V, heat, pressureLevel } from "../colors.ts";
 import { beam, beamPts, label, type Pt } from "../render/vector.ts";
+import { t, useLang } from "../i18n/index.ts";
 
 const a2d = (A: number) => 2 * Math.sqrt(Math.max(0, A) / Math.PI);
 
 /** Each airway tube unrolled into a lane: one ring per section (shared diameter scale), lit by sound pressure. */
 export function CreatureTubes() {
+  useLang();
   const ref = usePhosphor(({ ctx, w, h }) => {
     const st = useStore.getState();
     const def = creatureById(st.creature);
@@ -24,7 +26,7 @@ export function CreatureTubes() {
     lanes.forEach((l, li) => {
       const data = tele.tubes[l.tube];
       const y = 3 + laneH * (li + 0.5);
-      label(ctx, (l.label ?? l.tube).toUpperCase(), 14, y + 3, { size: 9, color: TEXT.secondary, ls: 0.16 });
+      label(ctx, t(l.label ?? l.tube).toUpperCase(), 14, y + 3, { size: 9, color: TEXT.secondary, ls: 0.16 });
       const n = data.areas.length;
       const x0 = labelW, x1 = w - 14;
       const dx = (x1 - x0) / n;
@@ -43,5 +45,5 @@ export function CreatureTubes() {
       beamPts(ctx, botL, V.blue, 1.1);
     });
   });
-  return <canvas ref={ref} className="instrument-canvas" aria-label="Airway tubes unrolled, lit by sound pressure" role="img" />;
+  return <canvas ref={ref} className="instrument-canvas" aria-label={t("Airway tubes unrolled, lit by sound pressure")} role="img" />;
 }

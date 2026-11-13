@@ -132,7 +132,7 @@ fn klatt_durations_match_typescript() {
         let segs: Vec<Segment> = de(&c["segments"]);
         let infos: Vec<SegInfo> = de(&c["infos"]);
         // the info callback receives the segment: find its index by identity
-        let durs = val(&klatt_durations(&segs, |s| infos[segs.iter().position(|x| std::ptr::eq(x, s)).unwrap()]));
+        let durs = val(&klatt_durations(&segs, |s| infos[segs.iter().position(|x| std::ptr::eq(x, s)).unwrap()], None));
         if !blessing() {
             cmp(&format!("klatt {ci}"), &c["durs"], &durs, &mut st);
         }
@@ -198,7 +198,7 @@ fn live_notes_match_typescript() {
                 legato += o.legato_from.is_some() as usize;
                 plan_note_on(&de(&n["syl"]), midi, &o)
             }
-            "off" => plan_note_off(&de(&n["syl"]), midi, n["body"].as_str().unwrap().into()),
+            "off" => plan_note_off(&de(&n["syl"]), midi, n["body"].as_str().unwrap().into(), None),
             "melisma" => plan_melisma(midi, &de::<MelismaOptions>(&n["opts"])),
             k => panic!("{k}"),
         };

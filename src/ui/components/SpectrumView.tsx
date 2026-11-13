@@ -7,6 +7,7 @@ import { useModel } from "../useModel.ts";
 import { VoiceModel } from "../analysis.ts";
 import { TEXT, V } from "../colors.ts";
 import { beam, beamPts, label, labelWidth, seg, type Pt } from "../render/vector.ts";
+import { t, useLang } from "../i18n/index.ts";
 
 const FMIN = 60, FMAX = 8000;
 const RANGE = 62; // dB shown
@@ -17,6 +18,7 @@ const RANGE = 62; // dB shown
  * Pass `ring` to mark the singer's-ring band.
  */
 export function SpectrumView(props: { ring?: boolean }) {
+  useLang();
   const model = useModel();
   const bins = useRef<Float32Array | null>(null);
   const ringRef = useRef(props.ring);
@@ -117,5 +119,5 @@ export function SpectrumView(props: { ring?: boolean }) {
       label(ctx, f0Text, x - 9, bot + 13, { size: 9, color: V.green, align: "right", ls: 0.12 });
     }
   });
-  return <canvas ref={ref} className="instrument-canvas" aria-label="Output spectrum: harmonics, the vocal tract's resonances and its formants" role="img" />;
+  return <canvas ref={ref} className="instrument-canvas" aria-label={t("Output spectrum: harmonics, the vocal tract's resonances and its formants")} role="img" />;
 }

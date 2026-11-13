@@ -8,6 +8,7 @@ import { VoiceModel } from "../analysis.ts";
 import { TEXT, V } from "../colors.ts";
 import { beamPts, handle, ipaGlyph, label, seg, type Pt } from "../render/vector.ts";
 import { nearestVowel } from "./AnatomyView.tsx";
+import { t, useLang } from "../i18n/index.ts";
 
 /**
  * Vowel map in the phonetician's orientation: F2 decreasing left→right, F1 increasing downward.
@@ -15,6 +16,7 @@ import { nearestVowel } from "./AnatomyView.tsx";
  * articulation between them; the green ring is the live tract's measured (F1, F2), with a trail.
  */
 export function VowelMap() {
+  useLang();
   const model = useModel();
   const dragging = useRef(false);
   const range = () => {
@@ -94,9 +96,9 @@ export function VowelMap() {
       onPointerMove={(e) => dragging.current && apply(e)}
       onPointerUp={() => (dragging.current = false)}
       onPointerCancel={() => (dragging.current = false)}
-      aria-label="Vowel map. Drag to morph between vowels."
+      aria-label={t("Vowel map. Drag to morph between vowels.")}
       role="slider"
-      aria-valuetext="vowel position"
+      aria-valuetext={t("vowel position")}
     />
   );
 }

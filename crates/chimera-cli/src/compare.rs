@@ -291,6 +291,7 @@ fn render_notes(notes: &[Note], body_name: &str, seconds: f64) -> Result<Render,
                 bpm: 60.0,
                 t0: notes[i].start,
                 vibrato: VIBRATO_CENTS,
+                lang: None,
             },
         );
         v.schedule(&plan.gestures);

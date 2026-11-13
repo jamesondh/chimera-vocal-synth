@@ -6,7 +6,8 @@
 import { chromium, type Page } from "playwright-core";
 import { mkdirSync } from "node:fs";
 
-const url = process.argv[2] ?? "http://127.0.0.1:5318/";
+// `?lang=en`: the smoke test asserts on the English texts (the app opens in Spanish otherwise)
+const url = process.argv[2] ?? "http://127.0.0.1:5318/?lang=en";
 const outDir = process.argv[3] ?? "out/e2e";
 mkdirSync(outDir, { recursive: true });
 

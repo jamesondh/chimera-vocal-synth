@@ -6,12 +6,14 @@ import { useModel } from "../useModel.ts";
 import { VoiceModel } from "../analysis.ts";
 import { TEXT, V, heat, pressureLevel } from "../colors.ts";
 import { beam, beamPts, label, seg, type Pt } from "../render/vector.ts";
+import { t, useLang } from "../i18n/index.ts";
 
 /**
  * The simulated tube as a wireframe: one ring per section (diameter from the area function),
  * lit by acoustic pressure, with the nasal branch above the velum junction.
  */
 export function TubeView() {
+  useLang();
   const model = useModel();
   const ref = usePhosphor(({ ctx, w, h }) => {
     const st = useStore.getState();
@@ -60,8 +62,8 @@ export function TubeView() {
       p.lineTo(jx + nLen, nTop + off);
       beam(ctx, p, nc, 1, { dash });
     }
-    label(ctx, "NOSE", jx + nLen + 6, nTop + 3, { size: 9, color: TEXT.secondary, ls: 0.16 });
-    label(ctx, open ? `VELUM OPEN ${velum.toFixed(2)} CM²` : "VELUM SHUT", jx, nTop - 12, { size: 9, color: TEXT.secondary, ls: 0.16, align: "center" });
+    label(ctx, t("NOSE"), jx + nLen + 6, nTop + 3, { size: 9, color: TEXT.secondary, ls: 0.16 });
+    label(ctx, open ? `${t("VELUM OPEN")} ${velum.toFixed(2)} CM²` : t("VELUM SHUT"), jx, nTop - 12, { size: 9, color: TEXT.secondary, ls: 0.16, align: "center" });
 
     // silhouette and rings
     const top: Pt[] = [[x0, axisY - 3], ...secs.map((q) => [q.x, axisY - q.r] as Pt), [x1, axisY - secs[secs.length - 1].r]];
@@ -81,14 +83,15 @@ export function TubeView() {
     const marks: [number, string][] = [[0, "GLOTTIS"], [phLen, "VELUM"], [f.teethS, "TEETH"], [total, "LIPS"]];
     let lastRight = -Infinity;
     for (const [s, name] of marks) {
+      const shown = t(name); // the translated name is what is drawn; size the clamp with it
       const x = x0 + s * sx;
-      const tw = name.length * 9 * 0.78;
+      const tw = shown.length * 9 * 0.78;
       const lx = Math.min(w - tw - 2, Math.max(2, x - tw / 2));
       if (lx < lastRight + 8) continue;
       lastRight = lx + tw;
       seg(ctx, x, h - 26, x, h - 21, V.blueDim, 1);
-      label(ctx, name, lx, h - 9, { size: 9, color: TEXT.secondary, ls: 0.16 });
+      label(ctx, shown, lx, h - 9, { size: 9, color: TEXT.secondary, ls: 0.16 });
     }
   });
-  return <canvas ref={ref} className="instrument-canvas" aria-label="Area function of the simulated tube, lit by sound pressure" role="img" />;
+  return <canvas ref={ref} className="instrument-canvas" aria-label={t("Area function of the simulated tube, lit by sound pressure")} role="img" />;
 }

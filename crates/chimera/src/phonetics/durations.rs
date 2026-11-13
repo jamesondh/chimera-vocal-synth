@@ -7,6 +7,7 @@
 
 use super::Segment;
 use super::inventory::Manner;
+use super::syllables::Lang;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -35,6 +36,14 @@ fn table(ipa: &str) -> Option<(f64, f64)> {
         "aɪ" => (250.0, 150.0),
         "aʊ" => (240.0, 100.0),
         "ɔɪ" => (280.0, 150.0),
+        // Spanish falling diphthongs (shorter than their English counterparts)
+        "ai" => (180.0, 80.0),
+        "au" => (180.0, 80.0),
+        "ei" => (180.0, 80.0),
+        "oi" => (180.0, 80.0),
+        "eu" => (180.0, 80.0),
+        "ou" => (180.0, 80.0),
+        "ui" => (180.0, 80.0),
         "ɨ" => (110.0, 40.0),
         // consonants
         "p" => (85.0, 50.0),
@@ -81,8 +90,9 @@ pub struct SegInfo {
     pub dur: Option<f64>,
 }
 
-/// Durations (s) for one phrase of segments (explicit `dur` values are kept).
-pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> Vec<f64> {
+/// Durations (s) for one phrase of segments (explicit `dur` values are kept). `lang` gates the
+/// English-only rules (the aspiration compensation below); unset means English.
+pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo, lang: Option<Lang>) -> Vec<f64> {
     let n = segs.len();
     let inf: Vec<SegInfo> = segs.iter().map(info).collect();
     // words: index ranges split after wordEnd
@@ -164,9 +174,10 @@ pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> 
                     p *= 0.7;
                 }
                 let mut d = min + (inh - min) * p;
-                // aspiration after a voiceless stop eats into a stressed vowel's onset: give it back
+                // aspiration after a voiceless stop eats into a stressed vowel's onset: give it
+                // back (English only; Spanish stops are unaspirated, so there is nothing to repay)
                 let pv = if i > 0 { Some(inf[i - 1]) } else { None };
-                if stress > 0 && pv.is_some_and(|pv| pv.manner == Some(Manner::Stop) && pv.voiced != Some(true)) {
+                if lang != Some(Lang::Spanish) && stress > 0 && pv.is_some_and(|pv| pv.manner == Some(Manner::Stop) && pv.voiced != Some(true)) {
                     d += 20.0;
                 }
                 return d / 1000.0;

@@ -5,6 +5,7 @@ import { currentPlan, onPlan, type SpokenPlan } from "../speech.ts";
 import { activation, type Gesture } from "../../wasm/engine.ts";
 import { core, TEXT, V } from "../colors.ts";
 import { beam, beamPts, blockLineH, label, labelBlock, labelWidth, seg, wrapLabel, type LabelOpts, type Pt } from "../render/vector.ts";
+import { t, useLang } from "../i18n/index.ts";
 
 /** rows of the score, coloured like the articulators on the face (lips pink, tongue green, soft palate white, glottis amber) */
 const ROWS: { name: string; keys: string[]; color: string }[] = [
@@ -40,20 +41,22 @@ export function planNow(sp: SpokenPlan | null): number {
 
 /** Gestural score of the current utterance (Articulatory Phonology), with a live playhead. */
 export function ScoreView() {
+  useLang();
   const planRef = useRef<SpokenPlan | null>(currentPlan());
   useEffect(() => onPlan((p) => (planRef.current = p)), []);
   const ref = usePhosphor(({ ctx, w, h }) => {
     const sp = planRef.current;
-    // the rows start right after the longest name
-    const left = 14 + Math.max(...ROWS.map((r) => labelWidth(ctx, r.name.toUpperCase(), NAME))) + 14;
+    // the rows start right after the longest name (the labels follow the page's language, so the
+    // margin is measured in that language)
+    const left = 14 + Math.max(...[...ROWS.map((r) => t(r.name)), "PITCH"].map((n) => labelWidth(ctx, n.toUpperCase(), NAME))) + 14;
     const right = w - 14, top = 18, bottom = h - 26;
     const rowH = (bottom - top) / (ROWS.length + 1);
-    ROWS.forEach((r, i) => label(ctx, r.name.toUpperCase(), 14, top + rowH * (i + 0.62), { ...NAME, color: core(r.color) }));
-    label(ctx, "PITCH", 14, top + rowH * (ROWS.length + 0.62), { ...NAME, color: core(V.amber) });
+    ROWS.forEach((r, i) => label(ctx, t(r.name).toUpperCase(), 14, top + rowH * (i + 0.62), { ...NAME, color: core(r.color) }));
+    label(ctx, t("PITCH"), 14, top + rowH * (ROWS.length + 0.62), { ...NAME, color: core(V.amber) });
     for (let i = 1; i <= ROWS.length + 1; i++) seg(ctx, left, top + rowH * i, right, top + rowH * i, V.frame, 1);
     if (!sp) {
       // on black over the rules, wrapped to the score's width
-      const msg = "SPEAK SOMETHING TO SEE ITS GESTURES: WHICH ARTICULATOR MOVES, WHEN, AND HOW THEY OVERLAP.";
+      const msg = t("SPEAK SOMETHING TO SEE ITS GESTURES: WHICH ARTICULATOR MOVES, WHEN, AND HOW THEY OVERLAP.");
       const cy = (top + bottom) / 2;
       const bh = wrapLabel(ctx, msg, right - left - 16, { size: 10, ls: 0.12 }).length * blockLineH(10) + 8;
       ctx.fillStyle = "#000";
@@ -84,7 +87,7 @@ export function ScoreView() {
       p.lineTo(xb, yt);
       p.lineTo(x1, yb);
       beam(ctx, p, ROWS[r].color, act > 0.05 ? 1.5 : 1.1, { alpha: act > 0.05 ? 0.6 + 0.4 * act : isVowel ? 0.42 : 0.75, hot: act > 0.5 });
-      const lbl = g.label === "aspiration" || g.label === "voiceless" ? "OPEN" : g.label === "velum" ? "LOWERED" : g.label;
+      const lbl = g.label === "aspiration" || g.label === "voiceless" ? t("OPEN") : g.label === "velum" ? t("LOWERED") : g.label;
       // only inside its own trapezoid (a wider label ran over the sides and its neighbours)
       if (lbl && labelWidth(ctx, lbl, GESTURE) <= x1 - x0 - 6) {
         label(ctx, lbl, (xa + xb) / 2, yb - 4, { ...GESTURE, color: core(ROWS[r].color), alpha: isVowel && act < 0.05 ? 0.75 : 1 });
@@ -123,5 +126,5 @@ export function ScoreView() {
       label(ctx, `${Math.max(0, now).toFixed(2)} S`, x + 8, top - 4, { size: 9, color: V.white, ls: 0.12, alpha: 0.8 });
     }
   });
-  return <canvas ref={ref} className="score-canvas" aria-label="Gestural score of the current utterance: which articulator moves, when, and how they overlap" role="img" />;
+  return <canvas ref={ref} className="score-canvas" aria-label={t("Gestural score of the current utterance: which articulator moves, when, and how they overlap")} role="img" />;
 }

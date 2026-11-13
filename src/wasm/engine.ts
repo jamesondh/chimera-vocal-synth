@@ -60,6 +60,24 @@ export function tokenizeIpa(text: string): Segment[] {
   return call("tokenizeIpa", { text });
 }
 
+/** How the Spanish front-end treats seseo, ll/y and coda /s/ (the engine's `Dialect`). */
+export interface Dialect {
+  /** /z/ and soft /c/ say [s] (seseo) or [θ] (distinción) */
+  seseo: boolean;
+  /** /ll/ and consonantal /y/ say [ʝ] (jeismo), [ʃ] (sheismo), [ʒ] (zheismo) or [ʎ] (lleista) */
+  ll: "jeismo" | "sheismo" | "zheismo" | "lleista";
+  /** syllable-final /s/ breathes instead of staying [s] */
+  aspiratedS: boolean;
+}
+
+/** the dialect presets the UI offers (the engine's own; neutro is the default) */
+export const DIALECT_PRESETS = {
+  neutro: { seseo: true, ll: "jeismo", aspiratedS: false },
+  rioplatense: { seseo: true, ll: "sheismo", aspiratedS: true },
+  castellano: { seseo: false, ll: "jeismo", aspiratedS: false },
+} satisfies Record<string, Dialect>;
+export type DialectPreset = keyof typeof DIALECT_PRESETS;
+
 /**
  * What `tokenizeIpa` leaves out of IPA text without a word, in input order, each item once: symbols
  * the engine does not know, symbols it knows but has no sound for, and letters whose mark it
@@ -70,10 +88,12 @@ export function skippedIpa(text: string): SkippedIpa {
 }
 
 /**
- * English text → phonemes: CMUdict once loaded (fetched and gunzipped here, parsed by the
- * engine), letter-to-sound rules until then. One dictionary per page (the engine keeps it).
+ * Text → phonemes: English through CMUdict once loaded (fetched and gunzipped here, parsed by
+ * the engine; letter-to-sound rules until then) or Spanish through its rules (no dictionary,
+ * dialect switches included). One front-end per page: the engine keeps both and routes by the
+ * language set with `setLang`.
  */
-export class EnglishG2P {
+export class G2P {
   private loading: Promise<void> | null = null;
   private isLoaded = false;
 
@@ -110,6 +130,14 @@ export class EnglishG2P {
     this.isLoaded = true;
   }
 
+  /**
+   * Route the text calls (`toPhrases`, `word`, `lyricsToSyllables`) through this language's
+   * front-end; `dialect` sets the Spanish one's switches (seseo, ll/y, coda s).
+   */
+  setLang(lang: "en" | "es", dialect?: Dialect): void {
+    call("g2pLang", { lang, dialect });
+  }
+
   /** Text → phrases of segments. */
   toPhrases(text: string): Phrase[] {
     return call("g2pPhrases", { text });
@@ -121,7 +149,7 @@ export class EnglishG2P {
   }
 }
 
-/** Lyrics → sung syllables, through the page's dictionary (see EnglishG2P). */
+/** Lyrics → sung syllables, through the page's front-end (see `G2P.setLang`). */
 export function lyricsToSyllables(text: string): Syllable[] {
   return call("lyricsToSyllables", { text });
 }
@@ -144,6 +172,9 @@ export interface PlanOptions {
   /** a sung phrase (planSong sets it): consonants given a pitch hold it, and pitch ramps shrink
    *  to fit short notes */
   sung?: boolean;
+  /** which language's phonation the utterance follows: English (the default) aspirates
+   *  syllable-initial voiceless stops, Spanish never does */
+  lang?: "english" | "spanish";
 }
 
 export function planUtterance(segments: Segment[], options: PlanOptions): Plan {
@@ -159,11 +190,11 @@ export function planPhrases(phrases: { segments: Segment[]; intonation?: "statem
   return call("planPhrases", { phrases: phrases.map((p) => ({ segments: p.segments, intonation: p.intonation, pause: p.pause })), options });
 }
 
-export function planSong(notes: SungNote[], options: { body: BodyMix; bpm: number; t0: number; vibrato: number }): Plan {
+export function planSong(notes: SungNote[], options: { body: BodyMix; bpm: number; t0: number; vibrato: number; lang?: "english" | "spanish" }): Plan {
   return call("planSong", { notes, options });
 }
 
-export function planNoteOn(syl: Syllable, midi: number, options: { body: BodyMix; vibrato: number; tag: number; legatoFrom?: { syl: Syllable; midi: number } }): Gesture[] {
+export function planNoteOn(syl: Syllable, midi: number, options: { body: BodyMix; vibrato: number; tag: number; legatoFrom?: { syl: Syllable; midi: number }; lang?: "english" | "spanish" }): Gesture[] {
   return call("planNoteOn", { syl, midi, options });
 }
 
@@ -171,8 +202,8 @@ export function planMelisma(midi: number, options: { vibrato: number; tag: numbe
   return call("planMelisma", { midi, options });
 }
 
-export function planNoteOff(syl: Syllable, midi: number, body: BodyMix): Gesture[] {
-  return call("planNoteOff", { syl, midi, body });
+export function planNoteOff(syl: Syllable, midi: number, body: BodyMix, lang?: "english" | "spanish"): Gesture[] {
+  return call("planNoteOff", { syl, midi, body, lang });
 }
 
 /** Smooth activation 0..1..0 with cosine ramps (for drawing the score; the engine's own blend uses its Rust twin). */

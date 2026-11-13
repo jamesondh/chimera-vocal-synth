@@ -10,6 +10,7 @@ import { useModel } from "../useModel.ts";
 import { V } from "../colors.ts";
 import type { HumanArtic, HumanFrame } from "../../wasm/types.ts";
 import type { TelemetryMessage } from "../../worklet/protocol.ts";
+import { t, useLang } from "../i18n/index.ts";
 
 /** What the four readouts under the chin show; a mode can pass its own. */
 export type SlotsFn = (m: VoiceModel, a: HumanArtic, f: HumanFrame, formants: number[], tele: TelemetryMessage | null) => Slot[];
@@ -21,8 +22,8 @@ export type OverlayFn = (ctx: CanvasRenderingContext2D, r: FaceView, m: VoiceMod
 
 /** the tract's length and mouth opening, then the live pitch and lungs */
 export const tractInfo: InfoFn = (_m, f, tele) => {
-  const info = [`Tract ${f.length.toFixed(1)} cm`, `Mouth ${f.lipArea.toFixed(1)} cm²`];
-  if (tele) info.push(`F0 ${tele.t.f0.toFixed(1)} Hz`, `Lungs ${tele.t.pLung.toFixed(1)} cmH₂O`);
+  const info = [`${t("Tract")} ${f.length.toFixed(1)} cm`, `${t("Mouth")} ${f.lipArea.toFixed(1)} cm²`];
+  if (tele) info.push(`F0 ${tele.t.f0.toFixed(1)} Hz`, `${t("Lungs")} ${tele.t.pLung.toFixed(1)} cmH₂O`);
   return info;
 };
 
@@ -41,13 +42,14 @@ export function nearestVowel(m: VoiceModel, F1: number, F2: number): string {
 
 /** Play mode: the tongue as its nearest vowel, then jaw, lips and soft palate */
 export const articulatorSlots: SlotsFn = (m, a, f, formants) => [
-  formants.length >= 2 ? { label: "Tongue", value: nearestVowel(m, formants[0], formants[1]), color: V.green, ipa: true } : { label: "Tongue", value: "-", color: V.green },
-  { label: "Jaw", value: a.jaw.toFixed(1), unit: "cm", color: V.red },
-  { label: "Lips", value: a.lipAp.toFixed(1), unit: "cm", color: V.pink },
-  f.velumPort > 0.02 ? { label: "Soft palate", value: f.velumPort.toFixed(2), unit: "cm²", color: V.white } : { label: "Soft palate", value: "Shut", color: V.white },
+  formants.length >= 2 ? { label: t("Tongue"), value: nearestVowel(m, formants[0], formants[1]), color: V.green, ipa: true } : { label: t("Tongue"), value: "-", color: V.green },
+  { label: t("Jaw"), value: a.jaw.toFixed(1), unit: "cm", color: V.red },
+  { label: t("Lips"), value: a.lipAp.toFixed(1), unit: "cm", color: V.pink },
+  f.velumPort > 0.02 ? { label: t("Soft palate"), value: f.velumPort.toFixed(2), unit: "cm²", color: V.white } : { label: t("Soft palate"), value: t("Shut"), color: V.white },
 ];
 
 export function AnatomyView(props: { slots?: SlotsFn; info?: InfoFn; showFormants?: boolean; overlay?: OverlayFn }) {
+  useLang();
   const overlayRef = useRef<OverlayFn | undefined>(props.overlay);
   overlayRef.current = props.overlay;
   const formantsRef = useRef(props.showFormants ?? true);
@@ -81,6 +83,9 @@ export function AnatomyView(props: { slots?: SlotsFn; info?: InfoFn; showFormant
       canvas.width = Math.max(1, Math.round(w * dpr));
       canvas.height = Math.max(1, Math.round(h * dpr));
       r.resize(w, h);
+      // redraw now, in the same frame the element resized: a draw from the old size would
+      // otherwise be on screen (and under layout lint) until the next animation frame
+      draw(performance.now());
     };
     const ro = new ResizeObserver(fit);
     ro.observe(wrap);
@@ -88,12 +93,11 @@ export function AnatomyView(props: { slots?: SlotsFn; info?: InfoFn; showFormant
     let last = performance.now();
     let fTick = 0;
     let formants: number[] = [];
-    const loop = (now: number) => {
+    const draw = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       // the face's expression keeps real time (a held note lasts as long at a low frame rate)
       const elapsed = Math.min(0.5, (now - last) / 1000);
       last = now;
-      if (Math.min(2, window.devicePixelRatio || 1) !== dpr) fit();
       const st = useStore.getState();
       const tele = engine.latest && sameBody(engine.latest.body, st.body) ? engine.latest : null;
       const a = tele ? VoiceModel.articFromArray(tele.t.artic) : st.artic;
@@ -115,6 +119,10 @@ export function AnatomyView(props: { slots?: SlotsFn; info?: InfoFn; showFormant
         overlayRef.current?.(ctx, r, m, f, a, { w, h, dt });
         glow.apply(canvas, ctx, dpr);
       }
+    };
+    const loop = (now: number) => {
+      if (Math.min(2, window.devicePixelRatio || 1) !== dpr) fit();
+      draw(now);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -227,7 +235,7 @@ export function AnatomyView(props: { slots?: SlotsFn; info?: InfoFn; showFormant
         onPointerUp={onUp}
         onPointerCancel={onUp}
         onDoubleClick={onDouble}
-        aria-label="Vocal tract cross-section. Drag the tongue, tongue tip, jaw, lips, soft palate or larynx handles."
+        aria-label={t("Vocal tract cross-section. Drag the tongue, tongue tip, jaw, lips, soft palate or larynx handles.")}
         role="img"
       />
     </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store.ts";
 import { midiSupported } from "../midi.ts";
 import { nearestBody, type BodyMix } from "../body.ts";
+import { t, useLang } from "../i18n/index.ts";
 import { Chip } from "./Screen.tsx";
 
 /** Computer-keyboard layout: two rows like a piano (A W S E D F T G Y H U J K O L P ;). */
@@ -11,6 +12,7 @@ const BASES: Record<string, number> = { male: 48, female: 57, child: 60 };
 const BASE = (b: BodyMix) => BASES[nearestBody(b)];
 
 export function Keys() {
+  useLang();
   const body = useStore((s) => s.body);
   const held = useStore((s) => s.heldNotes);
   const noteOn = useStore((s) => s.noteOn);
@@ -90,10 +92,10 @@ export function Keys() {
   };
   return (
     <div className="keys-row">
-      <div className="keys" data-layout="layered" aria-label="Keyboard. Computer keys A to semicolon play notes; Z and X change octave.">
+      <div className="keys" data-layout="layered" aria-label={t("Keyboard. Computer keys A to semicolon play notes; Z and X change octave.")}>
         <div className="white-row">
           {whites.map((m) => (
-            <button key={m} className={`key white${held.includes(m) ? " down" : ""}`} onPointerDown={press(m)} aria-label={`Note ${m}`} />
+            <button key={m} className={`key white${held.includes(m) ? " down" : ""}`} onPointerDown={press(m)} aria-label={`${t("Note")} ${m}`} />
           ))}
         </div>
         <div className="black-row">
@@ -101,7 +103,7 @@ export function Keys() {
             const b = m + 1;
             const hasBlack = isBlack(b) && i < whites.length - 1;
             return hasBlack ? (
-              <button key={b} className={`key black${held.includes(b) ? " down" : ""}`} style={{ left: `calc(${((i + 1) / whites.length) * 100}% - 1.1%)` }} onPointerDown={press(b)} aria-label={`Note ${b}`} />
+              <button key={b} className={`key black${held.includes(b) ? " down" : ""}`} style={{ left: `calc(${((i + 1) / whites.length) * 100}% - 1.1%)` }} onPointerDown={press(b)} aria-label={`${t("Note")} ${b}`} />
             ) : null;
           })}
         </div>
@@ -118,16 +120,16 @@ export function MidiButton() {
   const on = midi.status === "on";
   const status =
     midi.status === "connecting"
-      ? "Connecting…"
+      ? t("Connecting…")
       : midi.status === "denied"
-        ? "Blocked by the browser"
+        ? t("Blocked by the browser")
         : on
           ? midi.inputs.length
             ? midi.inputs.join(", ")
-            : "Plug one in"
-          : "Off";
+            : t("Plug one in")
+          : t("Off");
   return (
-    <Chip on={on} onClick={() => setMidi(!on)} className="midi-chip" title={`MIDI keyboard: ${status}. ${on ? "Press to disconnect." : "Press to connect (the browser asks for access)."}`}>
+    <Chip on={on} onClick={() => setMidi(!on)} className="midi-chip" title={`${t("MIDI keyboard")}: ${status}. ${on ? t("Press to disconnect.") : t("Press to connect (the browser asks for access).")}`}>
       MIDI{midi.status === "off" ? "" : `: ${status}`}
     </Chip>
   );

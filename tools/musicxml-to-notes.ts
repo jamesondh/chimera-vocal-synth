@@ -235,8 +235,8 @@ for (const s of sung) {
 // The engine's dictionary, as `render notes` uses it. engine.ts calls the wasm when it loads,
 // so it is imported only after initChimera.
 await initChimera(readFileSync(new URL("../src/wasm/chimera.wasm", import.meta.url)));
-const { EnglishG2P, lyricsToSyllables } = await import("../src/wasm/engine.ts");
-new EnglishG2P().setDictionaryText(gunzipSync(readFileSync(new URL("../public/data/cmudict.txt.gz", import.meta.url))).toString());
+const { G2P, lyricsToSyllables } = await import("../src/wasm/engine.ts");
+new G2P().setDictionaryText(gunzipSync(readFileSync(new URL("../public/data/cmudict.txt.gz", import.meta.url))).toString());
 const count = (w: string) => lyricsToSyllables(w).length;
 
 const tokens: string[] = [];

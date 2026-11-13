@@ -6,6 +6,7 @@ import type { CreatureDef } from "../../wasm/types.ts";
 import { liveTelemetry, previewTelemetry } from "../creatureLive.ts";
 import { TEXT, V, SLOTS, heat, pressureLevel } from "../colors.ts";
 import { beamPts, dot, hfont, label, labelWidth, ring, seg, wrapLabel, type Pt } from "../render/vector.ts";
+import { t, useLang } from "../i18n/index.ts";
 
 type P = [number, number];
 
@@ -89,6 +90,7 @@ function fmtParam(v: number, p: CreatureDef["params"][number]): { value: string;
  * four parameters as readouts across the bottom.
  */
 export function CreatureView() {
+  useLang(); // the canvas redraws per frame anyway; this keeps the aria label in the page language
   const glyph = useRef<{ peak: Record<string, number>; phase: Record<string, number> }>({ peak: {}, phase: {} });
   const ref = usePhosphor(({ ctx, w, h, dt }) => {
     const st = useStore.getState();
@@ -145,7 +147,7 @@ export function CreatureView() {
       }
       if (tg.label && tg.inView) {
         const m = S(pointAt(tg, tg.length * 0.5));
-        labels.push({ text: tg.label.toUpperCase(), x: m[0] + 12, y: m[1] - 12, color: TEXT.secondary });
+        labels.push({ text: t(tg.label).toUpperCase(), x: m[0] + 12, y: m[1] - 12, color: TEXT.secondary });
       }
     }
 
@@ -169,7 +171,7 @@ export function CreatureView() {
       }
       ring(ctx, x, y, r0, color, 1.5, { hot: true });
       dot(ctx, x, y, 1.8, color);
-      labels.push({ text: s.label.toUpperCase(), x: x + 14, y: y + 18, color });
+      labels.push({ text: t(s.label).toUpperCase(), x: x + 14, y: y + 18, color });
     });
 
     if (st.view.calipers) {
@@ -191,10 +193,10 @@ export function CreatureView() {
     }
 
     // like a map's title: the name, the latin name, and what it is doing
-    label(ctx, fit(ctx, def.name.toUpperCase(), w - 32, compact ? 18 : 24, 0.18), 16, compact ? 30 : 34, { size: compact ? 18 : 24, color: TEXT.primary, ls: 0.18 });
+    label(ctx, fit(ctx, t(def.name).toUpperCase(), w - 32, compact ? 18 : 24, 0.18), 16, compact ? 30 : 34, { size: compact ? 18 : 24, color: TEXT.primary, ls: 0.18 });
     label(ctx, fit(ctx, def.latin.toUpperCase(), w - 34, 10, 0.16), 18, compact ? 48 : 54, { size: 10, color: TEXT.secondary, ls: 0.16 });
     blurb.forEach((line, i) => label(ctx, line, 18, blurbY + i * 15, blurbO));
-    const state = live ? (live.call ? (def.calls.find((c) => c.id === live.call)?.name ?? live.call) : live.gate > 0.05 ? "Sustaining" : "At rest") : "Not started";
+    const state = live ? (live.call ? t(def.calls.find((c) => c.id === live.call)?.name ?? live.call) : live.gate > 0.05 ? t("Sustaining") : t("At rest")) : t("Not started");
     const pitchText = pp ? (() => { const f = fmtParam(pitch, pp); return `${f.value} ${f.unit}`.trim().toUpperCase(); })() : "";
     if (compact) {
       label(ctx, `${state.toUpperCase()}${pitchText ? "   " + pitchText : ""}`, 18, 70, { size: 11, color: V.amber, ls: 0.14 });
@@ -221,11 +223,11 @@ export function CreatureView() {
       dot(ctx, cx + 5, cy, 4, color);
       // a long name takes a second line above, where the first row of slots has room, before an ellipsis
       const lo = { size: 10, color, ls: 0.16, alpha: 0.85 };
-      const lines = wrapLabel(ctx, p.label.toUpperCase(), cw - 22, lo);
+      const lines = wrapLabel(ctx, t(p.label).toUpperCase(), cw - 22, lo);
       if (lines.length > 1 && i < perRow) {
         label(ctx, lines[0], cx + 15, cy - 9, lo);
         label(ctx, fit(ctx, lines.slice(1).join(" "), cw - 22, 10, 0.16), cx + 15, cy + 4, lo);
-      } else label(ctx, fit(ctx, p.label.toUpperCase(), cw - 22, 10, 0.16), cx + 15, cy + 4, lo);
+      } else label(ctx, fit(ctx, t(p.label).toUpperCase(), cw - 22, 10, 0.16), cx + 15, cy + 4, lo);
       const f = fmtParam(paramValue(p.key, p.default), p);
       label(ctx, f.value, cx, cy + 14 + big, { size: big, color, weight: "m", ls: 0.02 });
       // under the value, or beside it on a phone, where two rows of slots leave no room below
@@ -233,5 +235,5 @@ export function CreatureView() {
       else if (f.unit) label(ctx, f.unit.toUpperCase(), cx, cy + 32 + big, { size: 10, color, ls: 0.14, alpha: 0.7 });
     });
   });
-  return <canvas ref={ref} className="creature-canvas" aria-label="Creature airway: its outline, its airways lit by sound pressure, and its sound sources" role="img" />;
+  return <canvas ref={ref} className="creature-canvas" aria-label={t("Creature airway: its outline, its airways lit by sound pressure, and its sound sources")} role="img" />;
 }

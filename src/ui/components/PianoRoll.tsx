@@ -6,6 +6,7 @@ import { roll, tickSinging } from "../singing.ts";
 import { TEXT, V } from "../colors.ts";
 import { beam, beamPts, label, labelWidth, seg, type Pt } from "../render/vector.ts";
 import { nearestBody } from "../body.ts";
+import { t, useLang } from "../i18n/index.ts";
 
 /** pixels per second of voice time */
 const SPEED = 96;
@@ -25,6 +26,7 @@ const hzToMidi = (f: number) => 69 + 12 * Math.log2(f / 440);
  * vibrato), on the vector display.
  */
 export function PianoRoll() {
+  useLang();
   const st = useRef({ centre: NaN, trace: [] as { t: number; m: number; v: number }[], lastClock: -1 });
   const ref = usePhosphor(({ ctx, w, h, dt }) => {
     tickSinging();
@@ -121,5 +123,5 @@ export function PianoRoll() {
     const xn = left + (w - left) * NOW_AT;
     seg(ctx, xn, top, xn, h, V.white, 1, { dash: [3, 4], alpha: 0.6 });
   });
-  return <canvas ref={ref} className="instrument-canvas roll-canvas" aria-label="Piano roll: the notes played, their syllables, and the pitch actually sung" />;
+  return <canvas ref={ref} className="instrument-canvas roll-canvas" aria-label={t("Piano roll: the notes played, their syllables, and the pitch actually sung")} />;
 }

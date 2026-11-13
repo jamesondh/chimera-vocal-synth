@@ -1,5 +1,6 @@
 /** What the Speak box tells a person about IPA the engine will not say as written. */
 import { skippedIpa, type SkippedIpa } from "../wasm/engine.ts";
+import { t } from "./i18n/index.ts";
 
 /** the pieces of IPA text that become phrases (`.`, `|`, `?` and `!` end one) */
 export function ipaPhraseTexts(text: string): string[] {
@@ -23,9 +24,9 @@ export function skippedLines(text: string): SkippedLine[] {
 
 export function skippedLinesOf(r: SkippedIpa): SkippedLine[] {
   const out: SkippedLine[] = [];
-  if (r.unknown.length) out.push({ what: "Not said", symbols: r.unknown });
-  if (r.noSound.length) out.push({ what: "No sound yet", symbols: r.noSound });
-  if (r.ignoredMarks.length) out.push({ what: "Mark ignored", symbols: r.ignoredMarks });
+  if (r.unknown.length) out.push({ what: t("Not said"), symbols: r.unknown });
+  if (r.noSound.length) out.push({ what: t("No sound yet"), symbols: r.noSound });
+  if (r.ignoredMarks.length) out.push({ what: t("Mark ignored"), symbols: r.ignoredMarks });
   return out;
 }
 

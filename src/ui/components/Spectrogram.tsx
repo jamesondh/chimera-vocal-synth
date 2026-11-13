@@ -4,6 +4,7 @@ import { engine } from "../../audio/AudioEngine.ts";
 import { useStore } from "../store.ts";
 import { TEXT, V, mix } from "../colors.ts";
 import { beam, label, seg } from "../render/vector.ts";
+import { t, t as tt, useLang } from "../i18n/index.ts";
 
 const FMIN = 60, FMAX = 12000;
 const DB_LO = -100, DB_HI = -30;
@@ -19,6 +20,7 @@ const POINTS = 96;
  * hiding what is behind it.
  */
 export function Spectrogram() {
+  useLang();
   const st = useRef<{ slices: { t: number; v: Float32Array }[]; bins: Float32Array | null; last: number }>({ slices: [], bins: null, last: -Infinity });
   const ref = usePhosphor(({ ctx, w, h, now }) => {
     const s = st.current;
@@ -81,9 +83,9 @@ export function Spectrogram() {
       seg(ctx, x, base, x, base + 4, V.blueDim, 1);
       label(ctx, t, x, base + 15, { size: 9, color: TEXT.secondary, align: "center", ls: 0.1 });
     }
-    label(ctx, "NOW", left + frontW + 6, base + 3, { size: 9, color: TEXT.secondary, ls: 0.14 });
-    label(ctx, `${(SLICES * EVERY).toFixed(0)} S AGO`, right + 4, base - depthY + 3, { size: 9, color: TEXT.secondary, ls: 0.14 });
-    if (!started) label(ctx, "START AUDIO TO SEE THE SOUND", left, 24, { size: 9, color: TEXT.secondary, ls: 0.16 });
+    label(ctx, tt("NOW"), left + frontW + 6, base + 3, { size: 9, color: TEXT.secondary, ls: 0.14 });
+    label(ctx, `${(SLICES * EVERY).toFixed(0)} ${tt("S AGO")}`, right + 4, base - depthY + 3, { size: 9, color: TEXT.secondary, ls: 0.14 });
+    if (!started) label(ctx, tt("START AUDIO TO SEE THE SOUND"), left, 24, { size: 9, color: TEXT.secondary, ls: 0.16 });
   });
-  return <canvas ref={ref} className="instrument-canvas" aria-label="Waterfall spectrogram of the last two seconds of output" role="img" />;
+  return <canvas ref={ref} className="instrument-canvas" aria-label={t("Waterfall spectrogram of the last two seconds of output")} role="img" />;
 }

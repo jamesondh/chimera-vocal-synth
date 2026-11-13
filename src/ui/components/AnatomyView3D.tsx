@@ -23,6 +23,7 @@ import { articulatorSlots, tractInfo, type InfoFn, type OverlayFn, type SlotsFn 
 import type { ViewFlags } from "../render/anatomy.ts";
 import type { HumanArtic } from "../../wasm/engine.ts";
 import type { TelemetryMessage } from "../../worklet/protocol.ts";
+import { t, useLang } from "../i18n/index.ts";
 
 /**
  * A head driven by something other than the live engine (the duet page's recordings): its own
@@ -268,12 +269,12 @@ export function AnatomyView3D(props: { slots?: SlotsFn; info?: InfoFn; showForma
   if (failed)
     return (
       <div className="anatomy three">
-        <p className="no-webgl">3D needs WebGL, which this browser has turned off. Untick 3D for the flat view.</p>
+        <p className="no-webgl">{t("3D needs WebGL, which this browser has turned off. Untick 3D for the flat view.")}</p>
       </div>
     );
   return (
     <div ref={wrapRef} className="anatomy three">
-      <canvas ref={canvasRef} aria-label="Vocal tract in 3D. Drag to turn the head, scroll or pinch to zoom, double-click to go back to the starting view." role="img" />
+      <canvas ref={canvasRef} aria-label={t("Vocal tract in 3D. Drag to turn the head, scroll or pinch to zoom, double-click to go back to the starting view.")} role="img" />
     </div>
   );
 }

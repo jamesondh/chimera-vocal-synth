@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { useStore } from "../store.ts";
 import { bodyLabel, PRESETS, sameBody, type BodyMix } from "../body.ts";
+import { t } from "../i18n/index.ts";
 
 const W = 64, H = 32, P = 4;
 const STEP = 0.05;
@@ -60,12 +61,12 @@ export function BodyPad() {
       className="body-pad"
       role="slider"
       tabIndex={0}
-      aria-label="Body between male, female and child"
+      aria-label={t("Body between male, female and child")}
       aria-valuetext={bodyLabel(body)}
       aria-valuenow={Math.round(body.child * 100)}
       aria-valuemin={0}
       aria-valuemax={100}
-      title={`${bodyLabel(body)} — drag between male, female and child; arrow keys step`}
+      title={`${bodyLabel(body)} — ${t("drag between male, female and child; arrow keys step")}`}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         (e.currentTarget as Element).setPointerCapture(e.pointerId);

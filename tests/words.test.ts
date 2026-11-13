@@ -8,10 +8,10 @@ import { gunzipSync } from "node:zlib";
 import { initEngine } from "./harness.ts";
 
 await initEngine();
-const { EnglishG2P, planPhrases, tokenizeIpa } = await import("../src/wasm/engine.ts");
+const { G2P, planPhrases, tokenizeIpa } = await import("../src/wasm/engine.ts");
 const { wordSpans } = await import("../src/ui/words.ts");
 const { advanceTrail } = await import("../src/ui/mouthWords.ts");
-const g2p = new EnglishG2P();
+const g2p = new G2P();
 g2p.setDictionaryText(gunzipSync(readFileSync(new URL("../public/data/cmudict.txt.gz", import.meta.url))).toString());
 const male = { female: 0, child: 0 };
 

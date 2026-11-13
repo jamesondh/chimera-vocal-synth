@@ -11,6 +11,7 @@ import { Chip, Screen } from "./Screen.tsx";
 import { EncoderPages, type EncoderPage } from "./Encoder.tsx";
 import { Spectrogram } from "./Spectrogram.tsx";
 import { CreatureTubes } from "./CreatureTubes.tsx";
+import { t } from "../i18n/index.ts";
 
 /** Thumbnail: the creature's outline in blue with its airway traced in amber. */
 const Thumb = memo(function Thumb({ def }: { def: CreatureDef }) {
@@ -37,7 +38,7 @@ function Gallery() {
       {CREATURES.map((c) => (
         <button key={c.id} className={`specimen${c.id === creature ? " on" : ""}`} onClick={() => setCreature(c.id)} aria-pressed={c.id === creature}>
           <Thumb def={c} />
-          <span className="specimen-name">{c.name}</span>
+          <span className="specimen-name">{t(c.name)}</span>
           <span className="specimen-latin">{c.latin}</span>
         </button>
       ))}
@@ -64,12 +65,12 @@ function CallActions({ def }: { def: CreatureDef }) {
   };
   const again = sounding ?? (def.calls.find((c) => c.id === last) ?? def.calls[0])?.id;
   return (
-    <ActionBar label="Calls" onSpace={() => again && press(again)}>
+    <ActionBar label={t("Calls")} onSpace={() => again && press(again)}>
       {def.calls.map((c) => (
-        <PrimaryButton key={c.id} className="act-call" label={c.name} playing={sounding === c.id} pressed={last === c.id} title={c.hint} onClick={() => press(c.id)} />
+        <PrimaryButton key={c.id} className="act-call" label={t(c.name)} playing={sounding === c.id} pressed={last === c.id} title={t(c.hint)} onClick={() => press(c.id)} />
       ))}
-      <Chip on={hold} onClick={() => void toggleBreath()} title="Keep the breath on and shape the sound with the controls">
-        Breathe
+      <Chip on={hold} onClick={() => void toggleBreath()} title={t("Keep the breath on and shape the sound with the controls")}>
+        {t("Breathe")}
       </Chip>
     </ActionBar>
   );
@@ -81,9 +82,9 @@ function KeysMode({ def }: { def: CreatureDef }) {
   const setKeyCall = useStore((s) => s.setKeyCall);
   return (
     <Menu
-      label="What the keys play"
+      label={t("What the keys play")}
       value={keyCall ?? ""}
-      options={[{ value: "", label: "Held voice" }, ...def.calls.map((c) => ({ value: c.id, label: c.name }))]}
+      options={[{ value: "", label: t("Held voice") }, ...def.calls.map((c) => ({ value: c.id, label: t(c.name) }))]}
       onChange={(id) => setKeyCall(id || null)}
     />
   );
@@ -106,15 +107,15 @@ function Params({ def }: { def: CreatureDef }) {
       name: String(pages.length + 1),
       encoders: def.params.slice(i, i + 4).map((p) => {
         const mine = cparams?.[p.key] ?? p.default;
-        return { label: p.label, value: calling ? (live!.params[p.key] ?? mine) : mine, min: p.min, max: p.max, log: p.log, onChange: (v: number) => setCParam(p.key, v), format: (v: number) => fmt(v, p) };
+        return { label: t(p.label), value: calling ? (live!.params[p.key] ?? mine) : mine, min: p.min, max: p.max, log: p.log, onChange: (v: number) => setCParam(p.key, v), format: (v: number) => fmt(v, p) };
       }),
     });
   }
   return (
     <>
       {/* a sentence, too long for the header: it wraps here instead of being cut off there */}
-      {def.role && <p className="cparams-role">{def.role}</p>}
-      <EncoderPages key={def.id} label={`${def.name} controls`} pages={pages} />
+      {def.role && <p className="cparams-role">{t(def.role)}</p>}
+      <EncoderPages key={def.id} label={`${t(def.name)}: ${t("controls")}`} pages={pages} />
     </>
   );
 }
@@ -126,19 +127,19 @@ export function BestiaryRight() {
   return (
     <div className="right right-bestiary">
       {def && <CallActions def={def} />}
-      <Screen className="s-gallery" title="Creatures">
+      <Screen className="s-gallery" title={t("Creatures")}>
         <Gallery />
       </Screen>
-      <Screen className="s-wf" title="Spectrogram">
+      <Screen className="s-wf" title={t("Spectrogram")}>
         <Spectrogram />
       </Screen>
-      <Screen className="s-cparams" title="Controls">
+      <Screen className="s-cparams" title={t("Controls")}>
         {def && <Params def={def} />}
       </Screen>
-      <Screen className="s-airway" title="Airway" sub="Each tube unrolled">
+      <Screen className="s-airway" title={t("Airway")} sub={t("Each tube unrolled")}>
         <CreatureTubes />
       </Screen>
-      <Screen className="s-keys s-keys-compact" title="Keys" tools={<>{def && <KeysMode def={def} />}<MidiButton /></>}>
+      <Screen className="s-keys s-keys-compact" title={t("Keys")} tools={<>{def && <KeysMode def={def} />}<MidiButton /></>}>
         <Keys />
       </Screen>
     </div>

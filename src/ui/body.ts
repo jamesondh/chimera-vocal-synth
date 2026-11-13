@@ -4,6 +4,7 @@
  */
 import type { BodyMix } from "../wasm/types.ts";
 import type { BodyName } from "../worklet/protocol.ts";
+import { t } from "./i18n/index.ts";
 
 export type { BodyMix };
 
@@ -14,6 +15,8 @@ export const PRESETS: Record<BodyName, BodyMix> = {
 };
 
 export const PRESET_LABEL: Record<BodyName, string> = { male: "Adult male", female: "Adult female", child: "Child" };
+/** the blend label's short names ("Masculino 40 · Femenino 30 · Niño 30 %") */
+const NAME_LABEL: Record<BodyName, string> = { male: "Male", female: "Female", child: "Child" };
 
 const clamp01 = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
 
@@ -53,12 +56,12 @@ export function blendLog(b: BodyMix, of: Record<BodyName, number>): number {
 /** Default pitch: the presets' (as the engine's `default_f0`), blended geometrically in between. */
 export const defaultF0 = (b: BodyMix) => blendLog(b, { male: 110, female: 205, child: 260 });
 
-/** "Adult female", or the blend's shares: "Male 40 · Female 30 · Child 30 %". */
+/** "Mujer adulta", or the blend's shares: "Masculino 40 · Femenino 30 · Niño 30 %". */
 export function bodyLabel(b: BodyMix): string {
   const p = presetOf(b);
-  if (p) return PRESET_LABEL[p];
+  if (p) return t(PRESET_LABEL[p]);
   const parts = bodyWeights(b)
     .filter(([, w]) => w > 0.005)
-    .map(([n, w]) => `${n[0].toUpperCase()}${n.slice(1)} ${Math.round(w * 100)}`);
+    .map(([n, w]) => `${t(NAME_LABEL[n])} ${Math.round(w * 100)}`);
   return `${parts.join(" · ")} %`;
 }

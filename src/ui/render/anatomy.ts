@@ -17,6 +17,7 @@ import { V, heat, pressureLevel } from "../colors.ts";
 import { beam, beamPts, chaikin, dot, handle, label, ring, seg, type Pt } from "./vector.ts";
 import { buildProfile, Gaze, jawFn, VIEW, type Profile } from "./profile.ts";
 import { drawReadouts, type Slot } from "./readouts.ts";
+import { t } from "../i18n/index.ts";
 import { Expression } from "./expression.ts";
 
 export type { Slot } from "./readouts.ts";
@@ -454,12 +455,12 @@ export class AnatomyRenderer {
     seg(ctx, x0, y0, x1, y1, V.white, 1.4, { hot: true });
     const nx = -(y1 - y0), ny = x1 - x0, nl = Math.hypot(nx, ny) || 1;
     for (const [x, y] of [[x0, y0], [x1, y1]]) seg(ctx, x - (nx / nl) * 4, y - (ny / nl) * 4, x + (nx / nl) * 4, y + (ny / nl) * 4, V.white, 1.2);
-    // at the lips, in front of them is where Sing and Speak write the words: the label goes behind
+    // Keep the caliper label clear of lyric text drawn in front of the lips.
     const end = f.grid[f.grid.length - 1];
     const lipsX = Math.max(this.P(end.inner)[0], this.P(end.outer)[0]);
     const atLips = lipsX - Math.max(x0, x1) < 1.5 * this.pxPerCm;
     const lx = atLips ? Math.min(x0, x1) - 10 : Math.max(x0, x1) + 10, ly = Math.min(y0, y1) - 4;
-    label(ctx, ma <= 0.0005 ? "CLOSED" : `${ma.toFixed(2)} CM²`, lx, ly, { size: 11, color: V.white, ls: 0.12, align: atLips ? "right" : "left" });
+    label(ctx, ma <= 0.0005 ? t("CLOSED") : `${ma.toFixed(2)} CM²`, lx, ly, { size: 11, color: V.white, ls: 0.12, align: atLips ? "right" : "left" });
   }
 
   private drawHandles(ctx: CanvasRenderingContext2D, model: VoiceModel, f: HumanFrame, a: HumanArtic, hover: HandleId | null, drag: HandleId | null): void {
@@ -471,7 +472,7 @@ export class AnatomyRenderer {
       handle(ctx, x, y, colour[h.id], size[h.id] + (active ? 2 : 0), active ? 1 : 0.9);
       if (active) {
         ring(ctx, x, y, 28, colour[h.id], 1, { alpha: 0.75 });
-        label(ctx, h.label.toUpperCase(), x + 32, y - 18, { size: 12, color: colour[h.id], ls: 0.18 });
+        label(ctx, t(h.label).toUpperCase(), x + 32, y - 18, { size: 12, color: colour[h.id], ls: 0.18 });
       }
     }
   }

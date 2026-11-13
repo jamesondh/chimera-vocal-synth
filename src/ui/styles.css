@@ -1823,6 +1823,16 @@ input[type="range"]::-moz-range-thumb {
     top: 10px;
     bottom: auto;
   }
+  /* ES/EN toggle + volume + engine load + the repo link must fit a 375px window in both languages */
+  .topbar-right {
+    gap: 10px;
+  }
+  .volume {
+    gap: 6px;
+  }
+  .volume input {
+    width: 64px;
+  }
 }
 
 @media (max-width: 640px) {

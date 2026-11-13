@@ -14,6 +14,7 @@ import { Chip, Screen } from "./Screen.tsx";
 import { EncoderPages } from "./Encoder.tsx";
 import { noteName } from "./VoiceControls.tsx";
 import type { InfoFn } from "./AnatomyView.tsx";
+import { t } from "../i18n/index.ts";
 
 /** epilarynx narrowing for the singer's ring (measured: +3 to +12 dB at 2.4–3.6 kHz, adult male) */
 const RING = 0.85;
@@ -31,10 +32,10 @@ export const singWords = mouthWords(sungNow, V.green);
 /** Sing mode's lines over the face: the note, the syllable, the ring */
 export const singInfo: InfoFn = (_m, _f, tele) => {
   const out: string[] = [];
-  if (tele && tele.t.voicing > 0.3) out.push(`Note ${noteName(tele.t.f0)} ${tele.t.f0.toFixed(0)} Hz`);
+  if (tele && tele.t.voicing > 0.3) out.push(`${t("Note")} ${noteName(tele.t.f0)} ${tele.t.f0.toFixed(0)} Hz`);
   const syl = syllableNow();
-  if (syl) out.push(`Syllable ${syl}`);
-  out.push(useStore.getState().artic.epilarynx >= RING - 0.05 ? "Ring on" : "Ring off");
+  if (syl) out.push(`${t("Syllable")} ${syl}`);
+  out.push(useStore.getState().artic.epilarynx >= RING - 0.05 ? t("Ring on") : t("Ring off"));
   return out;
 };
 
@@ -55,31 +56,31 @@ function Lyrics() {
         onChange={(e) => setLyrics(e.target.value)}
         onKeyDown={(e) => e.stopPropagation()}
         rows={Math.min(4, lyrics.split("\n").length)}
-        aria-label="Lyrics to sing"
-        placeholder="Type the words to sing"
-        title="Sing sings these words to the tune, a line to each of its phrases. Each key sings the next syllable; hold a key while you press the next one to sing legato. A lone “-” between words holds a vowel over several notes; hyphens split a word your way (“ti-ger”)."
+        aria-label={t("Lyrics to sing")}
+        placeholder={t("Type the words to sing")}
+        title={t("Sing sings these words to the tune, one line per phrase. Each key sings the next syllable; hold keys for legato. A lone dash holds a vowel; hyphens split a word.")}
       />
-      <div className="syllables" role="group" aria-label="Syllables. Each note sings the marked one; choose another to start there.">
+      <div className="syllables" role="group" aria-label={t("Syllables. Each note sings the marked one; choose another to start there.")}>
         {syllables.map((s, i) => (
           <span key={i} className={`syl-wrap${s.wordEnd ? " word-end" : ""}`}>
             <button
               className={`syl${!demo && i === cursor ? " next" : ""}${i === at ? " now" : ""}${i < done ? " sung" : ""}${s.melisma ? " held" : ""}`}
               onClick={() => setCursor(i)}
               aria-current={!demo && i === cursor ? "step" : undefined}
-              title={s.melisma ? "Held vowel: carries the previous syllable onto this note" : `Sing from “${s.text}”`}
+              title={s.melisma ? t("Held vowel: carries the previous syllable onto this note") : `${t("Sing from")} «${s.text}»`}
             >
               {s.text}
             </button>
             {s.phraseEnd && (
-              <span className="breath-mark" aria-label="breath">
+              <span className="breath-mark" aria-label={t("Breath mark")}>
                 ’
               </span>
             )}
           </span>
         ))}
-        {!syllables.length && <span className="dim">No words: the keys sing “ah”.</span>}
+        {!syllables.length && <span className="dim">{t("No words: the keys sing “ah”.")}</span>}
         <Chip toggle={false} className="from-start" onClick={() => setCursor(0)} disabled={cursor === 0 && !demo}>
-          From the start
+          {t("From the start")}
         </Chip>
       </div>
     </div>
@@ -99,29 +100,29 @@ function SongControls() {
   const setKey = useSing((s) => s.setKey);
   return (
     <EncoderPages
-      label="Song voice"
+      label={t("Song voice")}
       pages={[
         {
-          name: "Song",
+          name: t("Song"),
           encoders: [
-            { label: "Vibrato", value: vibrato, min: 0, max: 80, onChange: (v) => setVibrato(Math.round(v)), format: (v) => ({ value: String(Math.round(v)), unit: "cents" }) },
-            { label: "Rate", value: source.vibratoRate, min: 3.5, max: 7.5, onChange: (v) => setSource({ vibratoRate: v }), format: (v) => ({ value: v.toFixed(1), unit: "Hz" }) },
-            { label: "Breathy", value: source.breathiness, min: 0, max: 1, onChange: (v) => setSource({ breathiness: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
+            { label: t("Vibrato"), value: vibrato, min: 0, max: 80, onChange: (v) => setVibrato(Math.round(v)), format: (v) => ({ value: String(Math.round(v)), unit: "cents" }) },
+            { label: t("Rate"), value: source.vibratoRate, min: 3.5, max: 7.5, onChange: (v) => setSource({ vibratoRate: v }), format: (v) => ({ value: v.toFixed(1), unit: "Hz" }) },
+            { label: t("Breathy"), value: source.breathiness, min: 0, max: 1, onChange: (v) => setSource({ breathiness: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
             // the singer's ring narrows the tube just above the folds, adding the bright band near 3 kHz
-            { label: "Ring", value: epilarynx, min: 0, max: 1, onChange: (v) => setArtic({ epilarynx: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
+            { label: t("Ring"), value: epilarynx, min: 0, max: 1, onChange: (v) => setArtic({ epilarynx: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
           ],
         },
         {
-          // the tune's speed and key, from the next time Sing is pressed
-          name: "Tune",
+          // Tune settings apply the next time singing starts.
+          name: t("Tune"),
           encoders: [
-            { label: "Tempo", value: tempo, min: 0.5, max: 1.5, onChange: (v) => setTempo(Math.round(v * 20) / 20), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
-            { label: "Key", value: key, min: -12, max: 12, onChange: (v) => setKey(Math.round(v)), format: (v) => ({ value: (v > 0.5 ? "+" : "") + String(Math.round(v)), unit: "semitones" }) },
+            { label: t("Tempo"), value: tempo, min: 0.5, max: 1.5, onChange: (v) => setTempo(Math.round(v * 20) / 20), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
+            { label: t("Tonal key"), value: key, min: -12, max: 12, onChange: (v) => setKey(Math.round(v)), format: (v) => ({ value: (v > 0.5 ? "+" : "") + String(Math.round(v)), unit: t("semitones") }) },
           ],
         },
         {
-          name: "Tone",
-          encoders: [{ label: "Bright", value: source.brightness, min: 0, max: 1, onChange: (v) => setSource({ brightness: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) }],
+          name: t("Tone"),
+          encoders: [{ label: t("Bright"), value: source.brightness, min: 0, max: 1, onChange: (v) => setSource({ brightness: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) }],
         },
       ]}
     />
@@ -215,10 +216,11 @@ function SingActions() {
   const press = () => (playing || pending ? stop() : sing(tune));
   const share = clip && typeof navigator.canShare === "function" && navigator.canShare({ files: [clip.file] });
   return (
-    <ActionBar label="Song" onSpace={press}>
-      <PrimaryButton label="Sing" playing={(!!playing || pending) && !recording} busy={recording ? "Recording…" : null} onClick={press} />
+    <ActionBar label={t("Song")} onSpace={press}>
+      <PrimaryButton label={t("Sing")} playing={(!!playing || pending) && !recording} busy={recording ? t("Recording…") : null} onClick={press} />
       <Menu
-        label="Tune"
+        label={t("Tune")}
+
         icon="note"
         value={tune}
         options={TUNES.map((t) => ({ value: t.id, label: t.name }))}
@@ -228,18 +230,18 @@ function SingActions() {
         }}
       />
       {canRecord() && (
-        <Chip toggle={false} onClick={() => (recording ? stop() : sing(tune, true))} title="Sing it again and record the face into a video">
-          {recording ? "Cancel" : "Record video"}
+        <Chip toggle={false} onClick={() => (recording ? stop() : sing(tune, true))} title={t("Sing it again and record the face into a video")}>
+          {recording ? t("Cancel") : t("Record video")}
         </Chip>
       )}
       {clip && share && (
         <Chip toggle={false} tone="amber" onClick={() => void navigator.share({ files: [clip.file] }).catch(() => {})}>
-          Share
+          {t("Share")}
         </Chip>
       )}
       {clip && (
         <a className="chip" href={clip.url} download={clip.file.name}>
-          Save
+          {t("Save")}
         </a>
       )}
     </ActionBar>
@@ -256,19 +258,19 @@ export function SingRight() {
   return (
     <div className="right right-sing">
       <SingActions />
-      <Screen className="s-roll" title="Pitch">
+      <Screen className="s-roll" title={t("Pitch")}>
         <PianoRoll />
       </Screen>
-      <Screen className="s-lyrics" title="Lyrics">
+      <Screen className="s-lyrics" title={t("Lyrics")}>
         <Lyrics />
       </Screen>
-      <Screen className="s-spec" title="Spectrum" sub={ring ? "Ring on" : ""}>
+      <Screen className="s-spec" title={t("Spectrum")} sub={ring ? t("Ring on") : ""}>
         <SpectrumView ring={ring} />
       </Screen>
-      <Screen className="s-voice" title="Voice">
+      <Screen className="s-voice" title={t("Voice")}>
         <SongControls />
       </Screen>
-      <Screen className="s-keys" title="Keys" sub={next ? `Next: ${next}` : ""} tools={<MidiButton />}>
+      <Screen className="s-keys" title={t("Keys")} sub={next ? `${t("Next")}: ${next}` : ""} tools={<MidiButton />}>
         <Keys />
       </Screen>
     </div>

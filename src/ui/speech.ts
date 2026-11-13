@@ -1,6 +1,6 @@
 /** Main-thread speech planning: text/IPA → phrases → gestural plan → worklet. */
 import type { BodyMix } from "../wasm/types.ts";
-import { EnglishG2P, type Phrase } from "../wasm/engine.ts";
+import { G2P, type Dialect, type Phrase } from "../wasm/engine.ts";
 import { tokenizeIpa } from "../wasm/engine.ts";
 import { planPhrases, type Plan, type Segment } from "../wasm/engine.ts";
 import { engine } from "../audio/AudioEngine.ts";
@@ -8,7 +8,28 @@ import type { Gesture } from "../wasm/types.ts";
 import { ipaPhraseTexts } from "./skipped.ts";
 import { wordSpans, type WordSpan } from "./words.ts";
 
-export const g2p = new EnglishG2P();
+export const g2p = new G2P();
+
+/** the page's voice language: which front-end text goes through (speech and sung syllables) */
+export type VoiceLang = "en" | "es";
+let voiceLang: VoiceLang = "en";
+
+/** Switch the voice's language (and, for Spanish, its dialect). English stays the default, so
+ *  everything the page did before keeps working untouched. */
+export function setVoiceLang(lang: VoiceLang, dialect?: Dialect): void {
+  voiceLang = lang;
+  g2p.setLang(lang, dialect);
+}
+
+/** the voice language now set */
+export function currentVoiceLang(): VoiceLang {
+  return voiceLang;
+}
+
+/** the planner's language tag: English is the engine's default (left unset), so only Spanish is sent */
+export function planLang(): "english" | "spanish" | undefined {
+  return voiceLang === "es" ? "spanish" : undefined;
+}
 
 export interface SpokenPlan {
   plan: Plan;
@@ -49,7 +70,7 @@ export function transcribe(phrases: { segments: Segment[]; intonation?: string }
 }
 
 export function speakPhrases(phrases: { segments: Segment[]; intonation?: "statement" | "question" | "flat"; pause?: number; words?: string[] }[], o: { body: BodyMix; rate: number; f0: number }): SpokenPlan {
-  const plan = planPhrases(phrases, { body: o.body, t0: 0, rate: o.rate, f0: o.f0 });
+  const plan = planPhrases(phrases, { body: o.body, t0: 0, rate: o.rate, f0: o.f0, lang: planLang() });
   const id = engine.schedule({ gestures: plan.gestures.map((g: Gesture) => ({ ...g, targets: { ...g.targets } })), segments: plan.segments, end: plan.end });
   current = { plan, offset: null, id, transcription: transcribe(phrases), words: wordSpans(phrases, plan) };
   for (const l of listeners) l(current);
@@ -61,10 +82,13 @@ export async function speakText(text: string, o: { ipa: boolean; body: BodyMix; 
   let phrases: Phrase[];
   if (o.ipa) phrases = ipaToPhrases(text);
   else {
-    try {
-      await g2p.load();
-    } catch {
-      // dictionary unavailable: the letter-to-sound rules still work
+    // Spanish needs no dictionary; English through CMUdict once loaded, letter-to-sound until then
+    if (voiceLang === "en") {
+      try {
+        await g2p.load();
+      } catch {
+        // dictionary unavailable: the letter-to-sound rules still work
+      }
     }
     phrases = g2p.toPhrases(text);
   }

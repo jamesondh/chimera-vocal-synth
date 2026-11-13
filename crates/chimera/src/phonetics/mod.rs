@@ -15,6 +15,7 @@ pub mod planner;
 pub mod russian;
 pub mod sing;
 pub mod songs;
+pub mod spanish;
 pub mod syllables;
 pub mod vowel_data;
 
@@ -61,6 +62,19 @@ impl Segment {
     pub fn new(ipa: &str) -> Segment {
         Segment { ipa: ipa.to_string(), ..Default::default() }
     }
+}
+
+/// One phrase of speech: segments plus how it ends and how long the pause after it is. Shared
+/// by the English and Spanish front-ends.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Phrase {
+    pub segments: Vec<Segment>,
+    pub intonation: Intonation,
+    /// pause after the phrase (s)
+    pub pause: f64,
+    /// the words said, one per word end in `segments`
+    pub words: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

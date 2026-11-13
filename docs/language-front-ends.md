@@ -10,9 +10,8 @@ lyrics ──► router ──► FRONT END ──► syllables ──► BACK E
 ```
 
 **A front end is phonology; the back end is physics.** A front end decides what a word's sounds
-are: which phonemes, and whether and how long a stop aspirates. The back end realises whatever
-the syllables say and knows no language's rules. When a front end says nothing, the planner keeps
-English's defaults, which is why English output doesn't change.
+are: which phonemes, and whether and how long a stop aspirates. The back end realises the syllables produced by each front end. English remains the default voice
+language unless Speak is switched explicitly.
 
 This is the shared design for languages (#40), and the first steps of #32 live in it: the sounds
 Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3) and aspiration as the front end's call
@@ -23,11 +22,12 @@ Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3) and aspiration as 
 | Script | Front end | Needs | Where |
 |---|---|---|---|
 | Latin | English | CMUdict (letter-to-sound until it loads) | `phonetics/english.rs`, `syllables.rs` |
+| Latin | Spanish | rule-based spelling-to-sound; no dictionary | `phonetics/spanish.rs`, `syllables.rs` |
 | Hangul | Korean | nothing: a block's letters are its sounds | `phonetics/korean.rs` |
-| Cyrillic | Russian | nothing: spelling rules, stress marked with an acute ([russian.md](russian.md)) | `phonetics/russian.rs` |
+| Cyrillic | Russian | spelling rules; acute marks stress ([russian.md](russian.md)) | `phonetics/russian.rs` |
 
-The router (`read_lyrics` in `syllables.rs`) sends each word to the front end whose script it is
-in, so a line can mix them (`twinkle 빵야 star`). It also handles what every language shares:
+The router (`read_lyrics` in `syllables.rs`) uses the selected front end for Latin text and script
+for Hangul and Cyrillic. A line can mix English and Hangul. It also handles shared syntax:
 melisma marks (`-`, `~`), phrase punctuation and word ends.
 
 Characters no front end claims are skipped, as before: `Zürich` sings "Z rich". Nothing after them
@@ -35,6 +35,18 @@ is lost.
 
 `chimera syllables "<lyrics>"` prints what the front ends read, one JSON syllable per sung note:
 the quickest way to check a front end.
+
+## Spanish
+
+Spanish text uses spelling rules, written accents for stress, and shared Spanish syllabification; it needs no dictionary. In Speak, choose Spanish and one of three dialect presets:
+
+| Preset | Main choices |
+|---|---|
+| Neutro | seseo, yeísmo, coda /s/ retained (default) |
+| Rioplatense | seseo, sheísmo, coda /s/ aspirated |
+| Castellano | /s/ and /θ/ distinction, yeísmo, coda /s/ retained |
+
+Number words are not expanded yet. The UI language toggle is separate from the voice language: translating controls does not change pronunciation. Spanish lyrics use the same syllable planner as speech.
 
 ## Korean
 
@@ -135,7 +147,7 @@ in for a native listener; the test says where to look and whether a change moved
 
 ## Not yet
 
-- **Latin-script languages.** Routing by script can't tell Turkish or German from English, so
-  Latin text is English. The second Latin-script front end brings an explicit language choice,
-  with English the default (#40).
+- **Other Latin-script languages.** Speak selects the voice language explicitly because script
+  detection cannot distinguish English, Spanish, Turkish, or German. English remains the default;
+  Spanish is the additional Latin-script front end currently supported.
 - **Tone and pitch accent** need pitch contours (#32 step 4).

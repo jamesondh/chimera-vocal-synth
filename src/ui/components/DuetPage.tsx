@@ -29,6 +29,7 @@ import { g2p } from "../speech.ts";
 import { lyricsToSyllables } from "../../wasm/engine.ts";
 import { sungWords, wordAt, type Melody, type SungWords } from "../../show/words.ts";
 import type { OverlayFn } from "./AnatomyView.tsx";
+import { t, useLang } from "../i18n/index.ts";
 
 interface ShowFile {
   title: string;
@@ -56,6 +57,7 @@ async function fetchOk(url: string): Promise<Response> {
 const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
 export function DuetPage(props: { id: string }) {
+  useLang(); // the page's texts follow the language control
   const base = `${import.meta.env.BASE_URL}shows/${props.id}/`;
   // one transport per mount (its context closes on unmount)
   const [transport, setTransport] = useState<Transport | null>(null);
@@ -112,11 +114,11 @@ export function DuetPage(props: { id: string }) {
   if (error)
     return (
       <div className="duet">
-        <p className="duet-msg error">This show could not load: {error}</p>
+        <p className="duet-msg error">{t("This show could not load")}: {error}</p>
       </div>
     );
   const st = transport?.state ?? { playing: false, time: 0, duration: 0, epoch: 0 };
-  const title = loaded?.show.title ?? "Loading…";
+  const title = loaded?.show.title ?? t("Loading…");
   return (
     <div className="duet">
       <header className="duet-top">
@@ -124,18 +126,18 @@ export function DuetPage(props: { id: string }) {
         <span className="duet-title">{title}</span>
       </header>
       <main className="duet-heads" style={{ "--voices": loaded?.voices.length ?? 2 } as React.CSSProperties}>
-        {loaded && transport ? loaded.voices.map((v, i) => <Head key={i} name={v.name} track={v.track} words={v.words} show={loaded.show} transport={transport} facing={i > 0 && i === loaded.voices.length - 1 ? -1 : 1} />) : <p className="duet-msg">Loading the song…</p>}
+        {loaded && transport ? loaded.voices.map((v, i) => <Head key={i} name={v.name} track={v.track} words={v.words} show={loaded.show} transport={transport} facing={i > 0 && i === loaded.voices.length - 1 ? -1 : 1} />) : <p className="duet-msg">{t("Loading the song…")}</p>}
       </main>
       <footer className="duet-bar">
         <button className="primary large" disabled={!loaded} onClick={() => (st.playing ? transport?.pause() : transport?.play())}>
-          {st.playing ? "Pause" : st.duration > 0 && st.time >= st.duration - 0.05 ? "Again" : "Play"}
+          {st.playing ? t("Pause") : st.duration > 0 && st.time >= st.duration - 0.05 ? t("Again") : t("Play the song")}
         </button>
         <span className="duet-time">
           {clock(st.time)} / {clock(st.duration)}
         </span>
         <input
           type="range"
-          aria-label="Position in the song"
+          aria-label={t("Position in the song")}
           min={0}
           max={st.duration || 1}
           step={0.1}
@@ -179,7 +181,7 @@ function Head(props: { name: string; track: TeleTrack; words: SungWords | null; 
     };
   }
   return (
-    <Screen className="duet-head" focus title={props.name} sub={bodyLabel(track.body)} label={`${props.name} voice, ${bodyLabel(track.body)}, in 3D`}>
+    <Screen className="duet-head" focus title={props.name} sub={bodyLabel(track.body)} label={`${props.name}: ${t("voice")} ${bodyLabel(track.body)}, 3D`}>
       <AnatomyView3D feed={feedRef.current} readouts={false} overlay={overlayRef.current} />
     </Screen>
   );

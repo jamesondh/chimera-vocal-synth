@@ -267,7 +267,8 @@ async function main() {
     const s = await createServer({ server: { port: 0, strictPort: false, host: "127.0.0.1" }, logLevel: "error" });
     await s.listen();
     server = s;
-    url = s.resolvedUrls!.local[0];
+    // ?lang=en: the lint's selectors assert on the English texts (the app opens in Spanish otherwise)
+    url = new URL("?lang=en", s.resolvedUrls!.local[0]).href;
   }
   const only = arg("only");
   const onlyMode = arg("mode");
@@ -302,7 +303,8 @@ async function main() {
       for (const p of [...errs, ...warns]) console.log(`  ${p.warn ? "warn " : "ERROR"} ${p.kind.padEnd(11)} ${p.detail}`);
       if (errs.length) await page.screenshot({ path: `${out}/${w}x${h}-${state.replace(/[^a-z0-9]+/gi, "-")}.png`, fullPage: true });
     };
-    const mode = (m: string) => page.getByRole("radio", { name: new RegExp(`^${m}$`, "i") }).click();
+    // the mode radios by position in the top bar's first segmented group: the labels are language-dependent
+    const mode = (m: string) => page.locator(".topbar .segmented").first().locator("button").nth(MODES.indexOf(m as (typeof MODES)[number])).click();
     // every encoder page of the screens on the right (each page has its own labels)
     const pages = async (state: string) => {
       const tabs = page.locator(".right .enc-tab");
@@ -364,8 +366,8 @@ async function main() {
         }
       }
       if (m === "speak") {
-        // the gestural score with a phrase in it, mid-utterance
-        await page.getByRole("button", { name: /^Speak$/ }).click();
+        // the gestural score with a phrase in it, mid-utterance (the button's label is language-dependent)
+        await page.locator(".right-speak .say-actions button.primary").click();
         await check("speak (running), speaking", 900);
       }
       if (m === "bestiary") {
