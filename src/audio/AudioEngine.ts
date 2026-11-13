@@ -194,6 +194,32 @@ export class AudioEngine {
     this.send({ type: "stopSpeech" });
   }
 
+  /** The output's RMS over the fast analyser's window (~40 ms); 0 before start(). */
+  level(): number {
+    const a = this.analyserFast;
+    if (!a) return 0;
+    const buf = new Float32Array(a.fftSize);
+    a.getFloatTimeDomainData(buf);
+    let s = 0;
+    for (const x of buf) s += x * x;
+    return Math.sqrt(s / buf.length);
+  }
+
+  /**
+   * Resolves once the output has stayed below `floor` for `hold` s, or after `max` s: a clip
+   * mustn't open on the tail of what was sounding (a stopped song keeps ringing for a moment).
+   */
+  async quiet(floor = 0.003, hold = 0.15, max = 2): Promise<void> {
+    const t0 = performance.now();
+    let since = t0;
+    while (performance.now() - t0 < max * 1000) {
+      const t = performance.now();
+      if (this.level() >= floor) since = t;
+      else if (t - since >= hold * 1000) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
+
   onReady(l: () => void): () => void {
     this.readyListeners.add(l);
     return () => this.readyListeners.delete(l);

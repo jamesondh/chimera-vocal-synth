@@ -131,7 +131,7 @@ function SongControls() {
 /**
  * Sing's main button: sing the lyrics to the chosen tune, or stop. A song getting ready (audio
  * starting, the dictionary loading) counts as playing: Stop cancels it, and choosing another tune
- * replaces it. Video sings it again into a clip of the face screen (Share and Save once it's done).
+ * replaces it. Record video sings it again into a clip of the face screen (Share and Save once it's done).
  */
 function SingActions() {
   const start = useStore((s) => s.start);
@@ -143,7 +143,7 @@ function SingActions() {
   const [clip, setClip] = useState<{ file: File; url: string } | null>(null);
   /** bumped by every start and stop: a start still waiting no longer counts */
   const request = useRef(0);
-  /** bumped by every Video: a clip still being finished for an earlier one isn't offered */
+  /** bumped by every Record video: a clip still being finished for an earlier one isn't offered */
   const take = useRef(0);
   /** the clip recording now, if any (one at a time) */
   const recorder = useRef<Clip | null>(null);
@@ -187,7 +187,9 @@ function SingActions() {
             if (mine && recorder.current === mine) drop();
           },
         };
-    playTune(id, useStore.getState().body, ready, hooks)
+    // a clip waits for the last sound (the song this one replaces) to die away, or it opens on its tail
+    const go = record ? async () => (await ready(), await engine.quiet()) : ready;
+    playTune(id, useStore.getState().body, go, hooks)
       .catch(() => {})
       .finally(() => request.current === n && setPending(false));
   };
@@ -225,7 +227,7 @@ function SingActions() {
       />
       {canRecord() && (
         <Chip toggle={false} onClick={() => (recording ? stop() : sing(tune, true))} title="Sing it again and record the face into a video">
-          {recording ? "Cancel" : "Video"}
+          {recording ? "Cancel" : "Record video"}
         </Chip>
       )}
       {clip && share && (

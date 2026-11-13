@@ -345,7 +345,7 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.close();
 }
 
-// Sing's Video: sings the lyrics to the tune again into a clip to save; the face screen leaves out
+// Sing's Record video: sings the lyrics to the tune again into a clip to save; the face screen leaves out
 // its readouts while it records
 {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
@@ -354,13 +354,13 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.goto(url, { waitUntil: "networkidle" });
   await page.locator(".lyrics textarea").fill("one two three");
   await page.getByRole("combobox", { name: "Tune" }).selectOption({ label: "Playful" });
-  await page.getByRole("button", { name: /^Video$/ }).click();
+  await page.getByRole("button", { name: /^Record video$/ }).click();
   await page.getByRole("button", { name: /^Cancel$/ }).waitFor({ timeout: 10000 });
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${outDir}/video-recording.png` });
   const save = page.getByRole("link", { name: /^Save$/ });
   const saved = await save.waitFor({ timeout: 20000 }).then(() => true, () => false);
-  if (!saved) errors.push("[video] Video never offered a clip to save");
+  if (!saved) errors.push("[video] Record video never offered a clip to save");
   else {
     const [dl] = await Promise.all([page.waitForEvent("download"), save.click()]);
     const size = (await (await dl.createReadStream()).toArray()).reduce((n, b: Buffer) => n + b.length, 0);
@@ -375,7 +375,7 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.close();
 }
 
-// two taps on Video while the audio is still starting make one clip: the first start gives way (it
+// two taps on Record video while the audio is still starting make one clip: the first start gives way (it
 // used to leave a second recorder running that Cancel couldn't reach)
 {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -396,14 +396,42 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   // both taps land before the first has started the audio (a second Playwright click would wait,
   // and then find Cancel)
   await page.evaluate(() => {
-    const b = [...document.querySelectorAll<HTMLButtonElement>(".action-bar button")].find((x) => x.textContent === "Video")!;
+    const b = [...document.querySelectorAll<HTMLButtonElement>(".action-bar button")].find((x) => x.textContent === "Record video")!;
     b.click();
     b.click();
   });
   await page.getByRole("link", { name: /^Save$/ }).waitFor({ timeout: 20000 }).catch(() => errors.push("[video-twice] no clip after two taps"));
   const recorders = await page.evaluate(() => (window as unknown as { __recorders: number }).__recorders);
-  logs.push(`[video-twice] two taps on Video: ${recorders} recorder(s)`);
-  if (recorders !== 1) errors.push(`[video-twice] two taps on Video made ${recorders} recorders (want 1)`);
+  logs.push(`[video-twice] two taps on Record video: ${recorders} recorder(s)`);
+  if (recorders !== 1) errors.push(`[video-twice] two taps on Record video made ${recorders} recorders (want 1)`);
+  await page.close();
+}
+
+// Record video pressed while a song is singing: the clip starts once that song has died away (it
+// used to open on the stopped song's tail)
+{
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  page.on("pageerror", (e) => errors.push(`[video-tail] pageerror: ${e.message}`));
+  await page.addInitScript(() => {
+    const w = window as unknown as { __startLevel: number | null; __chimeraEngine?: { level(): number } };
+    w.__startLevel = null;
+    const start = MediaRecorder.prototype.start;
+    MediaRecorder.prototype.start = function (this: MediaRecorder, ...a: [number?]) {
+      w.__startLevel = w.__chimeraEngine?.level() ?? null;
+      return start.apply(this, a);
+    };
+  });
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.locator(".lyrics textarea").fill("one two three four five six seven eight");
+  await page.getByRole("button", { name: /^Sing$/ }).click();
+  await page.waitForTimeout(2500);
+  const singing = await page.evaluate(() => (window as unknown as { __chimeraEngine: { level(): number } }).__chimeraEngine.level());
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Cancel$/ }).waitFor({ timeout: 10000 });
+  const atStart = await page.evaluate(() => (window as unknown as { __startLevel: number | null }).__startLevel);
+  logs.push(`[video-tail] output rms while singing ${singing.toFixed(4)}, as the clip starts ${atStart?.toFixed(4)}`);
+  if (singing < 0.005) errors.push(`[video-tail] the song wasn't sounding when Record video was pressed (rms ${singing})`);
+  if (atStart === null || atStart >= 0.003) errors.push(`[video-tail] the clip started on the last song's tail (rms ${atStart})`);
   await page.close();
 }
 
@@ -425,7 +453,7 @@ async function run(viewport: { width: number; height: number }, tag: string) {
     };
   });
   await page.goto(url, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /^Video$/ }).click();
+  await page.getByRole("button", { name: /^Record video$/ }).click();
   await page.waitForTimeout(2500);
   await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
   await page.waitForTimeout(500);

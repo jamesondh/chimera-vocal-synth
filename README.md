@@ -29,7 +29,7 @@ for tests and the `chimera` CLI.
   notice under the box lists the symbols and marks the voice doesn't say (`chimera render speech`
   prints the same as warnings).
 - **Sing**: type words and the **Sing** button sings them to a tune picked by its mood, each line
-  fitted to a phrase of it (Tempo and Key on the Voice screen); **Video** sings it again into a
+  fitted to a phrase of it (Tempo and Key on the Voice screen); **Record video** sings it again into a
   9:16 clip to share. The keys sing the same words a syllable at a time, legato or not, onto a
   pitch roll; consonants land before the beat. Lyrics can be English or Korean (Hangul: one
   block per note, with Korean sound rules); each language is a front end ([docs/language-front-ends.md](docs/language-front-ends.md)).

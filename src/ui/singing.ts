@@ -278,7 +278,7 @@ interface TuneRun {
   hooks: TuneHooks;
 }
 
-/** What a caller (Video) does as a tune's run begins, ends or is stopped. */
+/** What a caller (Record video) does as a tune's run begins, ends or is stopped. */
 export interface TuneHooks {
   /** just before it's sent to the voice, after every wait (a throw: it isn't sung) */
   onStart?: () => void;
