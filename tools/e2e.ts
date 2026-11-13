@@ -437,6 +437,89 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.close();
 }
 
+// a recorder that fails partway (an encoder or resource failure): it lets go of the capture and the
+// face's measurements come back then, no clip is offered, and nothing throws unhandled (the clip used
+// to wait for the song's end, then reject, leaving its capture track running)
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on("pageerror", (e) => errors.push(`[video-breaks] pageerror: ${e.message}`));
+  await page.addInitScript(() => {
+    const w = window as unknown as { __unhandled: number; __tracks: MediaStreamTrack[]; __texts: string[] };
+    w.__unhandled = 0;
+    w.__tracks = [];
+    w.__texts = [];
+    window.addEventListener("unhandledrejection", () => w.__unhandled++);
+    const start = MediaRecorder.prototype.start;
+    MediaRecorder.prototype.start = function (this: MediaRecorder, ...a: [number?]) {
+      w.__tracks.push(...this.stream.getVideoTracks());
+      start.apply(this, a);
+      setTimeout(() => {
+        this.dispatchEvent(new Event("error"));
+        if (this.state !== "inactive") this.stop();
+      }, 800);
+    };
+    const fill = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (this: CanvasRenderingContext2D, t: string, ...a: [number, number]) {
+      if (w.__texts.length < 5000) w.__texts.push(t);
+      return fill.call(this, t, ...a);
+    };
+  });
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.locator(".lyrics textarea").fill("one two three four five six seven eight nine ten");
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Cancel$/ }).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(1500); // the recorder has failed; the song is still singing
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(500);
+  const mid = await page.evaluate(() => {
+    const w = window as unknown as { __tracks: MediaStreamTrack[]; __texts: string[] };
+    return { live: w.__tracks.filter((t) => t.readyState === "live").length, readouts: w.__texts.some((t) => /^RING O/.test(t)) };
+  });
+  await page.getByRole("button", { name: /^Record video$/ }).waitFor({ timeout: 30000 });
+  await page.waitForTimeout(500);
+  const save = await page.getByRole("link", { name: /^Save$/ }).count();
+  const unhandled = await page.evaluate(() => (window as unknown as { __unhandled: number }).__unhandled);
+  logs.push(`[video-breaks] recorder failed mid-song: capture tracks live ${mid.live}, readouts back ${mid.readouts}; after the song Save ${save}, unhandled rejections ${unhandled}`);
+  if (mid.live) errors.push(`[video-breaks] the capture kept running after the recorder failed (${mid.live} live track(s))`);
+  if (!mid.readouts) errors.push("[video-breaks] the face kept hiding its measurements after the recorder failed");
+  if (save) errors.push("[video-breaks] a failed recording was offered to save");
+  if (unhandled) errors.push(`[video-breaks] ${unhandled} unhandled rejection(s)`);
+  await page.close();
+}
+
+// switching 2D/3D while recording: the clip follows the face that's showing (it kept copying the
+// replaced canvas, so the video froze at the switch while the sound went on)
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on("pageerror", (e) => errors.push(`[video-3d] pageerror: ${e.message}`));
+  await page.addInitScript(() => {
+    const w = window as unknown as { __draws: boolean[] };
+    w.__draws = [];
+    const draw = CanvasRenderingContext2D.prototype.drawImage as (...a: unknown[]) => void;
+    CanvasRenderingContext2D.prototype.drawImage = function (this: CanvasRenderingContext2D, ...a: unknown[]) {
+      // the clip's frame is 720x1280: note whether what it copies is still on the page
+      if (this.canvas.width === 720 && this.canvas.height === 1280 && a[0] instanceof HTMLCanvasElement) w.__draws.push(a[0].isConnected);
+      return draw.apply(this, a);
+    } as typeof CanvasRenderingContext2D.prototype.drawImage;
+  });
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.locator(".lyrics textarea").fill("one two three four five six seven eight nine ten");
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Cancel$/ }).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(500);
+  await page.getByRole("checkbox", { name: "3D" }).check();
+  await page.waitForTimeout(1000);
+  await page.evaluate(() => ((window as unknown as { __draws: boolean[] }).__draws = []));
+  await page.waitForTimeout(500);
+  const draws = await page.evaluate(() => (window as unknown as { __draws: boolean[] }).__draws);
+  const detached = draws.filter((c) => !c).length;
+  logs.push(`[video-3d] after switching to 3D mid-clip: ${draws.length} frames, ${detached} from a canvas no longer on the page`);
+  if (!draws.length) errors.push("[video-3d] the clip drew no frames after switching to 3D");
+  if (detached) errors.push(`[video-3d] the clip kept copying the replaced 2D canvas (${detached} of ${draws.length} frames)`);
+  await page.getByRole("button", { name: /^Cancel$/ }).click();
+  await page.close();
+}
+
 // a recorder that fails to start (a type the browser claims but can't record): no clip, the Sing
 // button comes back, and the face shows its readouts again (the clean view used to stay on)
 {

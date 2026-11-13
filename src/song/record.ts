@@ -40,9 +40,16 @@ export class Clip {
   private type: string;
   /** the frame's capture track: ours to stop (the audio track is the engine's, shared) */
   private video: MediaStreamTrack[] = [];
+  /** settles once the recorder has stopped, however it stopped (stop(), cancel(), or a failure) */
+  private ended!: Promise<void>;
+  /** the recorder reported an error: what it holds isn't a whole clip */
+  private failed = false;
 
-  /** Starts recording; throws (having let go of everything it took) if the browser can't. */
-  constructor(source: HTMLCanvasElement, audio: MediaStream) {
+  /**
+   * Starts recording `source()`, read every frame (the face's canvas changes when 2D/3D is
+   * toggled); throws (having let go of everything it took) if the browser can't.
+   */
+  constructor(source: () => HTMLCanvasElement | null, audio: MediaStream) {
     this.type = pickType()!;
     recording.owner = this;
     try {
@@ -53,7 +60,7 @@ export class Clip {
     }
   }
 
-  private begin(source: HTMLCanvasElement, audio: MediaStream): void {
+  private begin(source: () => HTMLCanvasElement | null, audio: MediaStream): void {
     this.frame.width = W;
     this.frame.height = H;
     const ctx = this.frame.getContext("2d")!;
@@ -62,10 +69,11 @@ export class Clip {
       ctx.globalAlpha = 1;
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, W, H);
-      const sw = source.width, sh = source.height;
-      if (sw > 0 && sh > 0) {
+      const src = source();
+      const sw = src?.width ?? 0, sh = src?.height ?? 0;
+      if (src && sw > 0 && sh > 0) {
         const k = Math.min(W / sw, (H - FOOT) / sh);
-        ctx.drawImage(source, (W - sw * k) / 2, (H - FOOT - sh * k) / 2, sw * k, sh * k);
+        ctx.drawImage(src, (W - sw * k) / 2, (H - FOOT - sh * k) / 2, sw * k, sh * k);
       }
       label(ctx, "CHIMERA", W / 2, H - FOOT / 2, { size: 30, color: V.blue, weight: "m", ls: 0.34, align: "center" });
       this.raf = requestAnimationFrame(draw);
@@ -74,27 +82,32 @@ export class Clip {
     this.video = this.frame.captureStream(30).getVideoTracks();
     this.rec = new MediaRecorder(new MediaStream([...this.video, ...audio.getAudioTracks()]), { mimeType: this.type, videoBitsPerSecond: 5_000_000 });
     this.rec.ondataavailable = (e) => e.data.size && this.chunks.push(e.data);
+    // a recorder can also stop by itself (an encoder or resource failure): it lets go of the
+    // capture and shows the measurements again then, not when the song ends
+    this.rec.onerror = () => (this.failed = true);
+    this.ended = new Promise((resolve) => {
+      this.rec.onstop = () => {
+        this.release();
+        resolve();
+      };
+    });
     this.rec.start(500);
   }
 
-  /** Finish: the clip as a file named `name` (the extension is added). */
-  stop(name: string): Promise<File> {
+  /** Finish: the clip as a file named `name` (the extension is added); rejects if the recorder failed. */
+  async stop(name: string): Promise<File> {
     cancelAnimationFrame(this.raf);
     // the face screens show their measurements again now, not when the browser hands the file over
     if (recording.owner === this) recording.owner = null;
-    return new Promise((resolve) => {
-      this.rec.onstop = () => {
-        this.release();
-        const type = this.type.split(";")[0];
-        resolve(new File(this.chunks, `${name}.${type === "video/mp4" ? "mp4" : "webm"}`, { type }));
-      };
-      this.rec.stop();
-    });
+    if (this.rec.state !== "inactive") this.rec.stop();
+    await this.ended;
+    if (this.failed || !this.chunks.length) throw new Error("the recording failed");
+    const type = this.type.split(";")[0];
+    return new File(this.chunks, `${name}.${type === "video/mp4" ? "mp4" : "webm"}`, { type });
   }
 
   /** Throw it away. */
   cancel(): void {
-    this.rec.onstop = null;
     if (this.rec.state !== "inactive") this.rec.stop();
     this.release();
   }

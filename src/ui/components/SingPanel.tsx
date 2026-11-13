@@ -169,10 +169,10 @@ function SingActions() {
       ? {}
       : {
           onStart: () => {
-            const canvas = document.querySelector<HTMLCanvasElement>(".screen.left canvas");
+            const face = () => document.querySelector<HTMLCanvasElement>(".screen.left canvas");
             const audio = engine.recordStream();
-            if (n !== request.current || !canvas || !audio) throw new Error("not recording");
-            mine = recorder.current = new Clip(canvas, audio);
+            if (n !== request.current || !face() || !audio) throw new Error("not recording");
+            mine = recorder.current = new Clip(face, audio);
             setRecording(true);
             setClip(null);
           },
@@ -181,7 +181,9 @@ function SingActions() {
             if (!c || recorder.current !== c) return;
             recorder.current = null;
             setRecording(false);
-            void c.stop(`chimera-${id}`).then((file) => take.current === k && setClip({ file, url: URL.createObjectURL(file) }));
+            c.stop(`chimera-${id}`)
+              .then((file) => take.current === k && setClip({ file, url: URL.createObjectURL(file) }))
+              .catch((e) => console.warn("Record video:", e));
           },
           onStop: () => {
             if (mine && recorder.current === mine) drop();
