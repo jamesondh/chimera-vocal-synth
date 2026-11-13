@@ -7,10 +7,14 @@ and the CLI) under a React UI. See the README.
 
 - Do what was asked, the simplest way. Side work nobody asked for (experiments, tooling, paid
   runs) is a proposal with its cost. If the work grows well past the estimate, stop and say so.
+- Weigh every feature against README → Vision & scope; anything outside it is a proposal with
+  its cost, not work to do.
 - Before repeating or reversing earlier work, read its history (`git log -- <path>`, `git log -S`).
 - Commit small. The subject names what changed and the trap, in searchable words; the body gives
   the why, what you ruled out, what you ran (with numbers) and what you didn't test.
 - Keep each fixed bug's reproduction as a test.
+- PRs follow `CONTRIBUTING.md`: the body is written top-down, with evidence, and ends with the
+  model and harness that wrote it.
 - Code outranks this file: fix the file when they disagree. When something breaks unnoticed, add
   a rule here, with a check.
 
@@ -19,17 +23,20 @@ and the CLI) under a React UI. See the README.
 - `crates/chimera/`: the engine (no I/O). `crates/chimera-wasm/`: the browser's C ABI.
   `crates/chimera-cli/`: `chimera render | compare csd | compare tsp | diagnose | calibrate`.
 - `src/wasm/`: the UI's facade over the engine. `src/worklet/`: the AudioWorklet. `src/ui/`: React
-  and the canvas renderers.
+  and the canvas renderers. `src/song/`: Sing's tunes, fitting words to them, clip recording.
 - `tests/`: bun tests on the wasm build. `tools/`: e2e, layout lint, spectrogram, speech judges
   (`asr/` Whisper, `tsp/` the real speakers' data).
 - `docs/`: architecture, the engine contract (`rust-engine.md`), the UI look, the singer and
-  speech judges, and the hill-climb rules.
+  speech judges, the hill-climb rules, and how a language plugs in (`language-front-ends.md`).
 
 ## Rules
 
 - **The engine's contract** (`docs/rust-engine.md`): transcendental math only through
   `chimera::math`, no allocation while rendering, output independent of block size. `cargo test`
   enforces each.
+- **The voice must hold at any device sample rate** (a Bluetooth headset runs the page at 16 kHz,
+  and an airway simulated too slowly goes NaN: silence, no error). Check:
+  `cargo test -p chimera --test engine the_voice_holds`.
 - **Any change to the sound or the plans fails the golden tests, by design.** Re-bless with
   `CHIMERA_BLESS=1 cargo test --workspace --no-fail-fast`, run twice. Human-voice audio, plans
   (including the beat sounds' gestures and the beat player), the tract geometry and the human

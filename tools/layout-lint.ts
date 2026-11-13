@@ -1,8 +1,9 @@
 /**
  * Layout lint: a smoke test of the layout. Loads every mode at phone, tablet and desktop sizes in
  * headless Chromium, before and after audio starts, then some alternate states (every encoder page,
- * every creature, the 3D face, a phrase being spoken) and the duet page (`?show=`, with a short
- * duet it renders first), and fails on mistakes screenshot reviews kept missing:
+ * every creature, the 3D face, a phrase being spoken, Sing's tune and a recorded clip) and the duet
+ * page (`?show=`, with a short duet it renders first), and fails on
+ * mistakes screenshot reviews kept missing:
  *
  *  - overlap     two pieces of text or controls drawn over each other (DOM text, buttons, inputs,
  *                dials, and text drawn on canvases, which the page reports by wrapping fillText)
@@ -16,7 +17,7 @@
  *
  * Opt-outs, for things meant to sit on top of other things:
  *  - data-layout="overlay" on an element: it and its contents are exempt from overlap checks
- *    (the start prompt and the beat letter float over the face on purpose)
+ *    (the beat letter floats over the face on purpose)
  *  - data-layout="layered" on an element: its contents may overlap each other, but not anything
  *    outside it (piano keys: the black keys sit on the white ones)
  *  - data-layout="scatter" on a canvas: its text may overlap other text on the same canvas
@@ -330,8 +331,11 @@ async function main() {
       await mode(m);
       await check(m);
     }
-    await page.locator(".topbar button.primary").click();
+    // each tab's main button starts the audio: Play's breathes (then stop breathing)
+    await mode("play");
+    await page.getByRole("button", { name: /^Breathe$/ }).click();
     await page.waitForSelector(".load", { timeout: 15000 });
+    await page.getByRole("button", { name: /^Stop$/ }).click();
     for (const m of modes) {
       await mode(m);
       await check(`${m} (running)`);
@@ -341,6 +345,23 @@ async function main() {
         await page.locator(".view-toggles .toggle", { hasText: "3D" }).click();
         await check("play (running), 3D", 2500);
         await page.locator(".view-toggles .toggle", { hasText: "3D" }).click();
+      }
+      if (m === "sing") {
+        // a tune singing the lyrics, then a recorded clip offered to save
+        await page.locator(".lyrics textarea").fill("a line of words long enough to keep on singing\nand a second line to be sure");
+        await page.getByRole("button", { name: /^Sing$/ }).click();
+        await check("sing (running), a tune", 1500);
+        // a slow machine may have sung it to the end meanwhile
+        const stop = page.getByRole("button", { name: /^Stop$/ });
+        if (await stop.count()) await stop.click();
+        await page.locator(".lyrics textarea").fill("one two");
+        const video = page.getByRole("button", { name: /^Video$/ });
+        if (await video.count()) {
+          await video.click();
+          // a whole song, recorded in real time on a CPU-drawn WebGL: slow when the machine is busy
+          await page.getByRole("link", { name: /^Save$/ }).waitFor({ timeout: 90000 });
+          await check("sing (running), a clip to save");
+        }
       }
       if (m === "speak") {
         // the gestural score with a phrase in it, mid-utterance

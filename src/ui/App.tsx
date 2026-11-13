@@ -6,21 +6,20 @@ import { TubeView } from "./components/TubeView.tsx";
 import { Stroboscope } from "./components/Stroboscope.tsx";
 import { SpectrumView } from "./components/SpectrumView.tsx";
 import { VowelMap } from "./components/VowelMap.tsx";
-import { VoiceControls, VoiceToggles } from "./components/VoiceControls.tsx";
-import { Keys } from "./components/Keys.tsx";
+import { VoiceControls } from "./components/VoiceControls.tsx";
+import { Keys, MidiButton } from "./components/Keys.tsx";
+import { ActionBar, PrimaryButton } from "./components/ActionBar.tsx";
 import { Segmented, Toggle } from "./components/Controls.tsx";
-import { Screen } from "./components/Screen.tsx";
+import { Chip, Screen } from "./components/Screen.tsx";
 import { SpeakRight, speechInfo, speechSlots, speechWords } from "./components/SpeakPanel.tsx";
 import { BestiaryRight } from "./components/BestiaryPanel.tsx";
 import { CreatureView } from "./components/CreatureView.tsx";
-import { creatureById } from "../wasm/engine.ts";
 import { BeatboxRight, BeatOverlay, beatInfo, beatSlots } from "./components/BeatboxPanel.tsx";
 import { SingRight, singInfo, singWords } from "./components/SingPanel.tsx";
-import { playDemo, DEMO_SONGS } from "./singing.ts";
 import type { Mode } from "./store.ts";
 import type { BodyName } from "../worklet/protocol.ts";
 import { BodyPad } from "./components/BodyPad.tsx";
-import { bodyLabel, presetOf, PRESETS } from "./body.ts";
+import { presetOf, PRESETS } from "./body.ts";
 
 // three.js only loads when the 3D view is first shown
 const AnatomyView3D = lazy(() => import("./components/AnatomyView3D.tsx").then((m) => ({ default: m.AnatomyView3D })));
@@ -35,10 +34,6 @@ function showId(): string | null {
 
 function TopBar() {
   const started = useStore((s) => s.started);
-  const starting = useStore((s) => s.starting);
-  const start = useStore((s) => s.start);
-  const body = useStore((s) => s.body);
-  const setBody = useStore((s) => s.setBody);
   const volume = useStore((s) => s.volume);
   const setVolume = useStore((s) => s.setVolume);
   const mode = useStore((s) => s.mode);
@@ -66,34 +61,15 @@ function TopBar() {
           { value: "beatbox", label: "Beatbox" },
         ]}
       />
-      {mode !== "bestiary" && (
-        <div className="body-control">
-          <Segmented<BodyName>
-            label="Body"
-            value={presetOf(body)}
-            onChange={(b) => setBody(PRESETS[b])}
-            options={[
-              { value: "male", label: "Male" },
-              { value: "female", label: "Female" },
-              { value: "child", label: "Child" },
-            ]}
-          />
-          <BodyPad />
-        </div>
-      )}
       <div className="topbar-right">
         <label className="volume">
           <span>Volume</span>
           <input type="range" min={0} max={1} step={0.01} value={volume} onChange={(e) => setVolume(Number(e.target.value))} style={{ "--pos": `${volume * 100}%` } as React.CSSProperties} />
         </label>
-        {started ? (
+        {started && (
           <span className="load" title="Share of the audio thread's time budget used by the simulation">
             Engine load {Math.round(load * 100)} %
           </span>
-        ) : (
-          <button className="primary" onClick={() => void start()} disabled={starting}>
-            {starting ? "Starting…" : "Start audio"}
-          </button>
         )}
         <a className="repo-link" href="https://github.com/jamesondh/chimera-vocal-synth" target="_blank" rel="noreferrer" aria-label="Source code on GitHub" title="Source code on GitHub">
           <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
@@ -123,68 +99,56 @@ function ViewToggles() {
   );
 }
 
-function StartPrompt() {
-  const started = useStore((s) => s.started);
-  const starting = useStore((s) => s.starting);
-  const err = useStore((s) => s.startError);
-  const start = useStore((s) => s.start);
-  const setHold = useStore((s) => s.setHold);
-  const mode = useStore((s) => s.mode);
-  const playCall = useStore((s) => s.playCall);
-  const creature = useStore((s) => s.creature);
-  const setBeatPlaying = useStore((s) => s.setBeatPlaying);
-  if (started) return null;
-  const copy = {
-    bestiary: ["Each animal's sound comes from a simulation of its own sound source and airway.", "Start and hear a call", "Then play its calls, or hold the keys to sustain it at a pitch."],
-    beatbox: ["Every drum here is a mouth sound: lips, tongue and larynx pushing, sealing and sucking air.", "Start the beat", "Then edit the pattern, tap the pads, or hum a bass note on the keys."],
-    speak: ["Every sound here is produced by simulating air moving through a throat, mouth and nose.", "Start the voice", "Then type something and press Speak, or tap a sound in the chart."],
-    sing: ["Every sound here is produced by simulating air moving through a throat, mouth and nose.", "Start and hear a song", "Then play the keys: each note sings the next syllable of the lyrics."],
-  }[mode as "bestiary" | "beatbox" | "speak" | "sing"] ?? ["Every sound here is produced by simulating air moving through a throat, mouth and nose.", "Breathe in and start", "Then drag the tongue, lips or jaw, or play the keys."];
+/** The body, in the head's header: three presets and the triangle between them. */
+function BodyControl() {
+  const body = useStore((s) => s.body);
+  const setBody = useStore((s) => s.setBody);
   return (
-    <div className="start-prompt" data-layout="overlay">
-      <p>{copy[0]}</p>
-      <button
-        className="primary large"
-        disabled={starting}
-        onClick={async () => {
-          // the demo waits for audio itself, so a stop meanwhile (body, mode) cancels it
-          if (mode === "sing") return void playDemo(DEMO_SONGS[0].name, useStore.getState().body, start);
-          await start();
-          const first = creatureById(creature)?.calls[0];
-          if (mode === "bestiary" && first) playCall(first.id);
-          else if (mode === "beatbox") setBeatPlaying(true);
-          else if (mode === "play") setHold(true);
-        }}
-      >
-        {starting ? "Starting…" : copy[1]}
-      </button>
-      {err ? <p className="error">Audio could not start: {err}. Reload the page and try again.</p> : <p className="hint">{copy[2]}</p>}
+    <div className="body-control">
+      <Segmented<BodyName>
+        label="Body"
+        value={presetOf(body)}
+        onChange={(b) => setBody(PRESETS[b])}
+        options={[
+          { value: "male", label: "Male" },
+          { value: "female", label: "Female" },
+          { value: "child", label: "Child" },
+        ]}
+      />
+      <BodyPad />
     </div>
   );
 }
 
-/** The tall left screen: the face (or the creature) with its overlays. */
+/** The tall left screen: the face (or the creature) with its overlays. No title: it shows itself. */
 function LeftScreen() {
   const mode = useStore((s) => s.mode);
-  const body = useStore((s) => s.body);
   const threeD = useStore((s) => s.view.threeD);
   const bestiary = mode === "bestiary";
   const Face = threeD ? AnatomyView3D : AnatomyView;
   return (
-    <Screen
-      className="left"
-      focus
-      title={bestiary ? "Creature" : "Vocal tract"}
-      sub={bestiary ? "Airway / live" : `${bodyLabel(body)} / ${threeD ? "3D" : "midsagittal"}`}
-      label={bestiary ? "Live creature airway" : "Live vocal tract"}
-      tools={<ViewToggles />}
-    >
+    <Screen className="left" focus lead={bestiary ? undefined : <BodyControl />} label={bestiary ? "Live creature airway" : "Live vocal tract"} tools={<ViewToggles />}>
       <Suspense fallback={null}>
         {bestiary ? <CreatureView /> : mode === "speak" ? <Face slots={speechSlots} info={speechInfo} overlay={speechWords} /> : mode === "sing" ? <Face info={singInfo} overlay={singWords} /> : mode === "beatbox" ? <Face slots={beatSlots} info={beatInfo} showFormants={false} /> : <Face />}
       </Suspense>
       {mode === "beatbox" && <BeatOverlay />}
-      <StartPrompt />
     </Screen>
+  );
+}
+
+/** Play's main button: breathe (the voice sounds while it's on), and Whisper beside it. */
+function PlayActions() {
+  const hold = useStore((s) => s.hold);
+  const toggleBreath = useStore((s) => s.toggleBreath);
+  const voiced = useStore((s) => s.source.voiced);
+  const setSource = useStore((s) => s.setSource);
+  return (
+    <ActionBar label="Voice" onSpace={() => void toggleBreath()}>
+      <PrimaryButton label="Breathe" icon="breath" playing={hold} onClick={() => void toggleBreath()} />
+      <Chip on={!voiced} onClick={() => setSource({ voiced: !voiced })}>
+        Whisper
+      </Chip>
+    </ActionBar>
   );
 }
 
@@ -192,22 +156,23 @@ function PlayRight() {
   const f0 = useStore((s) => s.source.f0);
   return (
     <div className="right right-play">
+      <PlayActions />
       <Screen className="s-tube" title="Tube" sub="Glottis to lips">
         <TubeView />
       </Screen>
       <Screen className="s-folds" title="Vocal folds" sub="Slowed 100×">
         <Stroboscope />
       </Screen>
-      <Screen className="s-spec" title="Spectrum" sub="Resonances">
+      <Screen className="s-spec" title="Spectrum">
         <SpectrumView />
       </Screen>
       <Screen className="s-vowels" title="Vowels" sub="F1 / F2">
         <VowelMap />
       </Screen>
-      <Screen className="s-voice" title="Voice" tools={<VoiceToggles />}>
+      <Screen className="s-voice" title="Voice">
         <VoiceControls />
       </Screen>
-      <Screen className="s-keys" title="Keys" sub={`${Math.round(f0)} Hz`}>
+      <Screen className="s-keys" title="Keys" sub={`${Math.round(f0)} Hz`} tools={<MidiButton />}>
         <Keys />
       </Screen>
     </div>

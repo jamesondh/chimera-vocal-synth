@@ -4,6 +4,7 @@
  */
 import workletUrl from "../worklet/processor.ts?worker&url";
 import { chimeraModule } from "../wasm/chimera.ts";
+import { preferPlaybackSession } from "./session.ts";
 import type { ToWorklet, FromWorklet, TelemetryMessage, PlannedMessage, CreatureTelemetryMessage } from "../worklet/protocol.ts";
 import type { BodyMix } from "../wasm/types.ts";
 import type { HumanArtic } from "../wasm/types.ts";
@@ -49,6 +50,18 @@ export class AudioEngine {
     return this.latest.t.clock + Math.min(0.25, (performance.now() - this.latestAt) / 1000);
   }
 
+  private tap: MediaStreamAudioDestinationNode | null = null;
+
+  /** What the speakers play, as a media stream (to record a clip); null before start(). */
+  recordStream(): MediaStream | null {
+    if (!this.ctx || !this.master) return null;
+    if (!this.tap) {
+      this.tap = this.ctx.createMediaStreamDestination();
+      this.master.connect(this.tap);
+    }
+    return this.tap.stream;
+  }
+
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running";
   }
@@ -58,12 +71,28 @@ export class AudioEngine {
       await this.ctx.resume();
       return;
     }
-    const ctx = new AudioContext({ latencyHint: "interactive" });
+    // 48 kHz whatever the device runs at (the browser resamples): the airway's cost grows with
+    // the square of its rate, and a 192 kHz device took ~3x the CPU of 48 kHz and starved the
+    // worklet (load 120-150%, no sound; issue #33)
+    preferPlaybackSession();
+    const ctx = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+    // resume now, while the tap that called start() is still the current gesture: iOS Safari
+    // refuses a resume() that comes after the awaits below (the context stays suspended, silent)
+    const resumed = ctx.resume().catch(() => {});
     this.ctx = ctx;
     this.sampleRate = ctx.sampleRate;
-    await ctx.audioWorklet.addModule(workletUrl);
-    // the worklet instantiates the engine from the module compiled at startup (main.tsx)
-    const node = new AudioWorkletNode(ctx, "chimera", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { module: chimeraModule() } });
+    let node: AudioWorkletNode;
+    try {
+      await ctx.audioWorklet.addModule(workletUrl);
+      // the worklet instantiates the engine from the module compiled at startup (main.tsx)
+      node = new AudioWorkletNode(ctx, "chimera", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { module: chimeraModule() } });
+    } catch (e) {
+      // without its worklet the context is empty: forget it, so a retry builds the graph again
+      // instead of resuming a context with nothing in it (and reporting that the audio started)
+      this.ctx = null;
+      void ctx.close().catch(() => {});
+      throw e;
+    }
     this.node = node;
     const master = ctx.createGain();
     master.gain.value = 0.8;
@@ -126,6 +155,8 @@ export class AudioEngine {
         console.error("worklet:", m.message);
       }
     };
+    await resumed;
+    // a second chance where the first resume was refused (the result is what callers see)
     await ctx.resume();
   }
 
@@ -168,6 +199,32 @@ export class AudioEngine {
 
   stopSpeech(): void {
     this.send({ type: "stopSpeech" });
+  }
+
+  /** The output's RMS over the fast analyser's window (~40 ms); 0 before start(). */
+  level(): number {
+    const a = this.analyserFast;
+    if (!a) return 0;
+    const buf = new Float32Array(a.fftSize);
+    a.getFloatTimeDomainData(buf);
+    let s = 0;
+    for (const x of buf) s += x * x;
+    return Math.sqrt(s / buf.length);
+  }
+
+  /**
+   * Resolves once the output has stayed below `floor` for `hold` s, or after `max` s: a clip
+   * mustn't open on the tail of what was sounding (a stopped song keeps ringing for a moment).
+   */
+  async quiet(floor = 0.003, hold = 0.15, max = 2): Promise<void> {
+    const t0 = performance.now();
+    let since = t0;
+    while (performance.now() - t0 < max * 1000) {
+      const t = performance.now();
+      if (this.level() >= floor) since = t;
+      else if (t - since >= hold * 1000) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
   }
 
   onReady(l: () => void): () => void {

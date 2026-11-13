@@ -1,8 +1,13 @@
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store.ts";
-import { useSing, playDemo, stopSinging, soundingSyllable, sungNow, DEMO_SONGS } from "../singing.ts";
+import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary } from "../singing.ts";
+import { engine } from "../../audio/AudioEngine.ts";
+import { canRecord, Clip } from "../../song/record.ts";
 import { mouthWords } from "../mouthWords.ts";
 import { V } from "../colors.ts";
-import { Keys } from "./Keys.tsx";
+import { Keys, MidiButton } from "./Keys.tsx";
+import { ActionBar, PrimaryButton } from "./ActionBar.tsx";
+import { Menu } from "./Controls.tsx";
 import { PianoRoll } from "./PianoRoll.tsx";
 import { SpectrumView } from "./SpectrumView.tsx";
 import { Chip, Screen } from "./Screen.tsx";
@@ -13,10 +18,10 @@ import type { InfoFn } from "./AnatomyView.tsx";
 /** epilarynx narrowing for the singer's ring (measured: +3 to +12 dB at 2.4–3.6 kHz, adult male) */
 const RING = 0.85;
 
-/** the syllable being sung now: the demo's, or the one the held key is singing */
+/** the syllable being sung now: the tune's, or the one the held key is singing */
 function syllableNow(): string | null {
   const s = useSing.getState();
-  if (s.demo) return s.syllables[s.demoAt]?.text ?? null;
+  if (s.playing) return s.syllables[s.at]?.text ?? null;
   return soundingSyllable();
 }
 
@@ -37,22 +42,22 @@ function Lyrics() {
   const lyrics = useSing((s) => s.lyrics);
   const syllables = useSing((s) => s.syllables);
   const cursor = useSing((s) => s.cursor);
-  const demo = useSing((s) => s.demo);
-  const demoAt = useSing((s) => s.demoAt);
+  const demo = useSing((s) => s.playing);
+  const sungAt = useSing((s) => s.at);
   const setLyrics = useSing((s) => s.setLyrics);
   const setCursor = useSing((s) => s.setCursor);
-  const at = demo ? demoAt : -1;
-  const done = demo ? demoAt : cursor;
+  const at = demo ? sungAt : -1;
+  const done = demo ? sungAt : cursor;
   return (
     <div className="lyrics">
       <textarea
         value={lyrics}
         onChange={(e) => setLyrics(e.target.value)}
         onKeyDown={(e) => e.stopPropagation()}
-        rows={1}
+        rows={Math.min(4, lyrics.split("\n").length)}
         aria-label="Lyrics to sing"
         placeholder="Type the words to sing"
-        title="Each note sings the next syllable. Hold a key while you press the next one to sing legato. A lone “-” between words holds a vowel over several notes; hyphens split a word your way (“ti-ger”)."
+        title="Sing sings these words to the tune, a line to each of its phrases. Each key sings the next syllable; hold a key while you press the next one to sing legato. A lone “-” between words holds a vowel over several notes; hyphens split a word your way (“ti-ger”)."
       />
       <div className="syllables" role="group" aria-label="Syllables. Each note sings the marked one; choose another to start there.">
         {syllables.map((s, i) => (
@@ -88,6 +93,10 @@ function SongControls() {
   const setArtic = useStore((s) => s.setArtic);
   const vibrato = useSing((s) => s.vibrato);
   const setVibrato = useSing((s) => s.setVibrato);
+  const tempo = useSing((s) => s.tempo);
+  const setTempo = useSing((s) => s.setTempo);
+  const key = useSing((s) => s.key);
+  const setKey = useSing((s) => s.setKey);
   return (
     <EncoderPages
       label="Song voice"
@@ -103,6 +112,14 @@ function SongControls() {
           ],
         },
         {
+          // the tune's speed and key, from the next time Sing is pressed
+          name: "Tune",
+          encoders: [
+            { label: "Tempo", value: tempo, min: 0.5, max: 1.5, onChange: (v) => setTempo(Math.round(v * 20) / 20), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
+            { label: "Key", value: key, min: -12, max: 12, onChange: (v) => setKey(Math.round(v)), format: (v) => ({ value: (v > 0.5 ? "+" : "") + String(Math.round(v)), unit: "semitones" }) },
+          ],
+        },
+        {
           name: "Tone",
           encoders: [{ label: "Bright", value: source.brightness, min: 0, max: 1, onChange: (v) => setSource({ brightness: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) }],
         },
@@ -111,41 +128,138 @@ function SongControls() {
   );
 }
 
-function DemoSongs() {
-  const body = useStore((s) => s.body);
+/**
+ * Sing's main button: sing the lyrics to the chosen tune, or stop. A song getting ready (audio
+ * starting, the dictionary loading) counts as playing: Stop cancels it, and choosing another tune
+ * replaces it. Record video sings it again into a clip of the face screen (Share and Save once it's done).
+ */
+function SingActions() {
   const start = useStore((s) => s.start);
-  const demo = useSing((s) => s.demo);
+  const playing = useSing((s) => s.playing);
+  const tune = useSing((s) => s.tune);
+  const setTune = useSing((s) => s.setTune);
+  const [pending, setPending] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [clip, setClip] = useState<{ file: File; url: string } | null>(null);
+  /** bumped by every start and stop: a start still waiting no longer counts */
+  const request = useRef(0);
+  /** bumped by every Record video: a clip still being finished for an earlier one isn't offered */
+  const take = useRef(0);
+  /** the clip recording now, if any (one at a time) */
+  const recorder = useRef<Clip | null>(null);
+  // the audio must be running: if it failed to start, nothing is planned and the error shows
+  const ready = async () => {
+    await start();
+    if (!useStore.getState().started) throw new Error("no audio");
+  };
+  const drop = () => {
+    recorder.current?.cancel();
+    recorder.current = null;
+    setRecording(false);
+  };
+  // the clip's life is the tune's run: it starts as the tune is sent (never for a start that was
+  // cancelled), is saved when it's sung to the end, and goes when it's stopped from anywhere
+  const sing = (id: string, record = false) => {
+    const n = ++request.current;
+    const k = record ? ++take.current : take.current;
+    drop();
+    setPending(true);
+    let mine: Clip | null = null;
+    const hooks = !record
+      ? {}
+      : {
+          onStart: () => {
+            const face = () => document.querySelector<HTMLCanvasElement>(".screen.left canvas");
+            const audio = engine.recordStream();
+            if (n !== request.current || !face() || !audio) throw new Error("not recording");
+            mine = recorder.current = new Clip(face, audio);
+            setRecording(true);
+            setClip(null);
+          },
+          onEnd: () => {
+            const c = mine;
+            if (!c || recorder.current !== c) return;
+            recorder.current = null;
+            setRecording(false);
+            c.stop(`chimera-${id}`)
+              .then((file) => take.current === k && setClip({ file, url: URL.createObjectURL(file) }))
+              .catch((e) => console.warn("Record video:", e));
+          },
+          onStop: () => {
+            if (mine && recorder.current === mine) drop();
+          },
+        };
+    // a clip waits for the last sound (the song this one replaces) to die away, or it opens on its tail
+    const go = record ? async () => (await ready(), await engine.quiet()) : ready;
+    playTune(id, useStore.getState().body, go, hooks)
+      .catch(() => {})
+      .finally(() => request.current === n && setPending(false));
+  };
+  const stop = () => {
+    request.current++; // the song getting ready, if any, no longer counts
+    setPending(false);
+    stopSinging(); // its run's onStop drops the clip
+    drop();
+  };
+  useEffect(() => () => void (clip && URL.revokeObjectURL(clip.url)), [clip]);
+  // leaving Sing: nothing still starting may begin a clip, and one recording goes
+  useEffect(
+    () => () => {
+      request.current++;
+      take.current++;
+      recorder.current?.cancel();
+      recorder.current = null;
+    },
+    [],
+  );
+  const press = () => (playing || pending ? stop() : sing(tune));
+  const share = clip && typeof navigator.canShare === "function" && navigator.canShare({ files: [clip.file] });
   return (
-    <div className="demo-songs" role="group" aria-label="Demo songs">
-      {DEMO_SONGS.map((s) => (
-        <Chip
-          key={s.name}
-          on={demo === s.name}
-          onClick={async () => {
-            if (demo === s.name) {
-              stopSinging();
-              return;
-            }
-            await playDemo(s.name, body, start);
-          }}
-        >
-          {demo === s.name ? `Stop “${s.name}”` : s.name}
+    <ActionBar label="Song" onSpace={press}>
+      <PrimaryButton label="Sing" playing={(!!playing || pending) && !recording} busy={recording ? "Recording…" : null} onClick={press} />
+      <Menu
+        label="Tune"
+        icon="note"
+        value={tune}
+        options={TUNES.map((t) => ({ value: t.id, label: t.name }))}
+        onChange={(id) => {
+          setTune(id);
+          if ((playing || pending) && !recording) sing(id);
+        }}
+      />
+      {canRecord() && (
+        <Chip toggle={false} onClick={() => (recording ? stop() : sing(tune, true))} title="Sing it again and record the face into a video">
+          {recording ? "Cancel" : "Record video"}
         </Chip>
-      ))}
-    </div>
+      )}
+      {clip && share && (
+        <Chip toggle={false} tone="amber" onClick={() => void navigator.share({ files: [clip.file] }).catch(() => {})}>
+          Share
+        </Chip>
+      )}
+      {clip && (
+        <a className="chip" href={clip.url} download={clip.file.name}>
+          Save
+        </a>
+      )}
+    </ActionBar>
   );
 }
 
-/** Sing mode's right column: the piano roll, the lyrics, the spectrum with the ring, the song voice, the keys. */
+/** Sing mode's right column: the song button, the pitch roll, the lyrics, the spectrum with the ring, the song voice, the keys. */
 export function SingRight() {
+  // the pronouncing dictionary for the lyrics: here rather than on the mode switch, since the app
+  // opens on Sing without one
+  useEffect(ensureDictionary, []);
   const ring = useStore((s) => s.artic.epilarynx >= RING - 0.05);
-  const next = useSing((s) => (s.demo ? null : (s.syllables[s.cursor]?.text ?? null)));
+  const next = useSing((s) => (s.playing ? null : (s.syllables[s.cursor]?.text ?? null)));
   return (
     <div className="right right-sing">
-      <Screen className="s-roll" title="Piano roll" sub="Notes and the pitch sung">
+      <SingActions />
+      <Screen className="s-roll" title="Pitch">
         <PianoRoll />
       </Screen>
-      <Screen className="s-lyrics" title="Lyrics" sub="Each note sings the next syllable" tools={<DemoSongs />}>
+      <Screen className="s-lyrics" title="Lyrics">
         <Lyrics />
       </Screen>
       <Screen className="s-spec" title="Spectrum" sub={ring ? "Ring on" : ""}>
@@ -154,7 +268,7 @@ export function SingRight() {
       <Screen className="s-voice" title="Voice">
         <SongControls />
       </Screen>
-      <Screen className="s-keys" title="Keys" sub={next ? `Next: ${next}` : ""}>
+      <Screen className="s-keys" title="Keys" sub={next ? `Next: ${next}` : ""} tools={<MidiButton />}>
         <Keys />
       </Screen>
     </div>

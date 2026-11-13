@@ -6,7 +6,7 @@ import { defaultF0, PRESETS, sameBody, type BodyMix } from "./body.ts";
 import { creatureById } from "../wasm/engine.ts";
 import type { ParamDef } from "../wasm/types.ts";
 import { BEAT_PRESETS, BASS_NOTE, beatReady, parseBeat, type BeatStep } from "../wasm/engine.ts";
-import { singNoteOn, singNoteOff, stopSinging, ensureDictionary } from "./singing.ts";
+import { singNoteOn, singNoteOff, stopSinging } from "./singing.ts";
 import { stopSpeaking } from "./speech.ts";
 import { connectMidi, disconnectMidi, type MidiStatus } from "./midi.ts";
 
@@ -77,6 +77,8 @@ interface State {
   setArtic: (v: Partial<HumanArtic>, tipFree?: boolean) => void;
   setVolume: (v: number) => void;
   setHold: (h: boolean) => void;
+  /** Breathe: on (starting the audio first, if need be) or off */
+  toggleBreath: () => Promise<void>;
   /** a key went down (velocity 1..127; the on-screen keys send 96) */
   noteOn: (midi: number, velocity?: number) => void;
   noteOff: (midi: number) => void;
@@ -115,6 +117,14 @@ let pressSerial = 0;
 const pressOf = new Map<number, number>();
 let session = 0;
 
+/**
+ * Per-tab voice settings, kept out of the other tabs. Play's Whisper is the one switch for
+ * voicing, and no other tab shows it: left on, Speak and Sing went voiceless with no way to tell
+ * why. Beatbox closes the jaw and lips to its ready pose, and the pose stayed after leaving.
+ */
+let whisperInPlay = false;
+let poseBeforeBeat: { artic: HumanArtic; tipFree: boolean } | null = null;
+
 const FIRST_BEAT = BEAT_PRESETS[0];
 
 export const useStore = create<State>((set, get) => ({
@@ -132,13 +142,22 @@ export const useStore = create<State>((set, get) => ({
   hold: false,
   heldNotes: [],
   view: { pressure: true, particles: true, grid: false, calipers: true, threeD: false },
-  mode: "play",
+  // the app opens on Sing: hearing a song is the quickest way in (the plugin opens there too)
+  mode: "sing",
   setMode: (m) => {
     const prev = get().mode;
     if (prev === m) return;
     session++;
     // notes held across the switch would keep breathing into the other voice
     set({ mode: m, heldNotes: [] });
+    if (prev === "play" && !get().source.voiced) {
+      whisperInPlay = true;
+      get().setSource({ voiced: true });
+    }
+    if (m === "play" && whisperInPlay) {
+      whisperInPlay = false;
+      get().setSource({ voiced: false });
+    }
     // speech belongs to Speak: under a creature the human clock stops and it would resume later
     if (prev === "speak" || m === "bestiary") stopSpeaking();
     if ((prev === "bestiary") !== (m === "bestiary")) {
@@ -150,14 +169,16 @@ export const useStore = create<State>((set, get) => ({
     if (prev === "beatbox") {
       get().setBeatPlaying(false);
       engine.setMic(false);
+      if (poseBeforeBeat) get().setArtic(poseBeforeBeat.artic, poseBeforeBeat.tipFree);
+      poseBeforeBeat = null;
     }
     if (prev === "sing") stopSinging();
     // speech and song breathe by themselves: a held breath would drone under them
     if (m === "speak" || m === "sing") set({ hold: false });
-    if (m === "sing") ensureDictionary();
     if (m === "beatbox") {
       // a beatboxer waits with the jaw nearly closed; the sounds bring their own breath
       set({ hold: false });
+      poseBeforeBeat = { artic: get().artic, tipFree: get().tipFree };
       get().setArtic(beatReady(get().body));
       engine.setMic(get().mic);
     }
@@ -197,7 +218,9 @@ export const useStore = create<State>((set, get) => ({
       .start()
       .then(() => {
         const b = get().beat;
-        if (get().started && b.playing) engine.setBeat({ steps: b.steps, bpm: b.bpm, swing: b.swing, playing: true });
+        // the audio didn't start: the beat isn't playing, so its button offers Play (a retry), not Stop
+        if (!get().started) set((s) => ({ beat: { ...s.beat, playing: false } }));
+        else if (b.playing) engine.setBeat({ steps: b.steps, bpm: b.bpm, swing: b.swing, playing: true });
       });
   },
   loadBeatPreset: (name) => {
@@ -289,6 +312,15 @@ export const useStore = create<State>((set, get) => ({
   setHold: (h) => {
     set({ hold: h });
     updateGate(get());
+  },
+  toggleBreath: async () => {
+    if (get().hold) return get().setHold(false);
+    // on at once, so a second press while the audio starts turns it off again; switching tabs
+    // meanwhile clears it as any switch does (setMode)
+    get().setHold(true);
+    await get().start();
+    // the audio didn't start: nothing breathes, so the button offers Breathe (a retry) again
+    if (!get().started) get().setHold(false);
   },
   noteOn: (midi, velocity = 96) => {
     const held = get().heldNotes.filter((n) => n !== midi).concat(midi);

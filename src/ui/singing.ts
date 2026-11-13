@@ -4,7 +4,8 @@
  * (the previous syllable's coda runs straight into the next onset); a "-" in the lyrics holds
  * the vowel onto a new pitch (melisma). Releasing the sounding key while another is still down
  * glides back to that key on the same vowel. Key velocity sets the breath.
- * Demo songs are planned whole (planSong) and sent as one score.
+ * Sing sings the same words to a tune (src/song): fitted to its phrases, planned whole (planSong)
+ * and sent as one score. The words, tune, tempo and key are kept on the device.
  */
 import { create } from "zustand";
 import { engine } from "../audio/AudioEngine.ts";
@@ -12,9 +13,10 @@ import { g2p } from "./speech.ts";
 import { lyricsToSyllables, type Syllable } from "../wasm/engine.ts";
 import { planSong, planNoteOn, planNoteOff, planMelisma } from "../wasm/engine.ts";
 import { EXHALE_LABEL } from "../wasm/engine.ts";
-import { DEMO_SONGS } from "../wasm/engine.ts";
 import type { Gesture } from "../wasm/types.ts";
 import { nearestBody, type BodyMix } from "./body.ts";
+import { TUNES } from "../song/tunes.ts";
+import { fitSong, la } from "../song/fit.ts";
 
 /** A note on the piano roll, on the voice clock (s); t1 is null while it is held. */
 export interface RollNote {
@@ -40,29 +42,74 @@ interface SingState {
   cursor: number;
   /** vibrato depth on held vowels (cents) */
   vibrato: number;
-  /** the demo song playing, if any */
-  demo: string | null;
-  /** index of the demo syllable being sung (−1: none yet) */
-  demoAt: number;
+  /** the tune Sing sings the words to (a TUNES id) */
+  tune: string;
+  /** the tune's tempo, as a multiple of its own */
+  tempo: number;
+  /** semitones up or down from the tune's own key (after the body's octave) */
+  key: number;
+  /** the tune being sung, if any */
+  playing: string | null;
+  /** index in `syllables` of the one the tune is singing (−1: none, or the tune sings "la") */
+  at: number;
   setLyrics: (text: string) => void;
   setCursor: (i: number) => void;
   setVibrato: (cents: number) => void;
+  setTune: (id: string) => void;
+  setTempo: (x: number) => void;
+  setKey: (semitones: number) => void;
 }
 
+const KEPT = "chimera-sing";
+
+/** the last session's words, tune, tempo and key (anything missing or odd: the defaults) */
+function kept(): { lyrics: string; tune: string; tempo: number; key: number } {
+  const d = { lyrics: DEFAULT_LYRICS, tune: TUNES[0].id, tempo: 1, key: 0 };
+  try {
+    const k = JSON.parse(localStorage.getItem(KEPT) ?? "null") as Record<string, unknown> | null;
+    if (!k) return d;
+    return {
+      lyrics: typeof k.lyrics === "string" ? k.lyrics : d.lyrics,
+      tune: TUNES.some((t) => t.id === k.tune) ? (k.tune as string) : d.tune,
+      tempo: typeof k.tempo === "number" && k.tempo >= 0.5 && k.tempo <= 1.5 ? k.tempo : d.tempo,
+      key: typeof k.key === "number" && Math.abs(k.key) <= 12 ? Math.round(k.key) : d.key,
+    };
+  } catch {
+    return d; // no storage here (a private window): start fresh
+  }
+}
+
+const atLoad = kept();
+
 export const useSing = create<SingState>((set, get) => ({
-  lyrics: DEFAULT_LYRICS,
-  syllables: lyricsToSyllables(DEFAULT_LYRICS),
+  lyrics: atLoad.lyrics,
+  syllables: lyricsToSyllables(atLoad.lyrics),
   cursor: 0,
   vibrato: 35,
-  demo: null,
-  demoAt: -1,
+  tune: atLoad.tune,
+  tempo: atLoad.tempo,
+  key: atLoad.key,
+  playing: null,
+  at: -1,
   setLyrics: (text) => {
     stopDemo();
     set({ lyrics: text, syllables: lyricsToSyllables(text), cursor: 0 });
   },
   setCursor: (i) => set({ cursor: Math.max(0, Math.min(i, Math.max(0, get().syllables.length - 1))) }),
   setVibrato: (cents) => set({ vibrato: cents }),
+  setTune: (id) => set({ tune: id }),
+  setTempo: (x) => set({ tempo: x }),
+  setKey: (semitones) => set({ key: semitones }),
 }));
+
+useSing.subscribe((s, p) => {
+  if (s.lyrics === p.lyrics && s.tune === p.tune && s.tempo === p.tempo && s.key === p.key) return;
+  try {
+    localStorage.setItem(KEPT, JSON.stringify({ lyrics: s.lyrics, tune: s.tune, tempo: s.tempo, key: s.key }));
+  } catch {
+    // not kept: the session still works
+  }
+});
 
 /** Load the pronouncing dictionary, then re-read the lyrics with it (the cursor stays). */
 export function ensureDictionary(): void {
@@ -212,9 +259,9 @@ export function singNoteOff(midi: number, body: BodyMix): void {
   exhalesLive = true;
 }
 
-// ---- demo songs
+// ---- tunes
 
-interface DemoRun {
+interface TuneRun {
   id: number;
   /** note start/end times in plan time (s) */
   times: [number, number][];
@@ -223,14 +270,32 @@ interface DemoRun {
   /** what the mouth shows per note, and the note whose syllable it is (a melisma's parent) */
   shown: string[];
   parent: number[];
+  /** each note's syllable in the lyrics (−1: the tune sings "la") */
+  from: number[];
   end: number;
   /** voice clock of plan time 0, once the worklet has it */
   offset: number | null;
+  hooks: TuneHooks;
 }
 
-let demoRun: DemoRun | null = null;
-/** bumped by every stop: a demo still waiting for audio or the dictionary then gives up */
+/** What a caller (Record video) does as a tune's run begins, ends or is stopped. */
+export interface TuneHooks {
+  /** just before it's sent to the voice, after every wait (a throw: it isn't sung) */
+  onStart?: () => void;
+  /** sung to the end */
+  onEnd?: () => void;
+  /** stopped before the end, from anywhere (Stop, another tune, the mode or body changing) */
+  onStop?: () => void;
+}
+
+let demoRun: TuneRun | null = null;
+/** bumped by every stop: a tune still waiting for audio or the dictionary then gives up */
 let demoToken = 0;
+
+function endDemo(): void {
+  demoRun = null;
+  useSing.setState({ playing: null, at: -1 });
+}
 
 engine.onPlanned((m) => {
   const d = demoRun;
@@ -239,10 +304,14 @@ engine.onPlanned((m) => {
   d.times.forEach(([a, b], k) => addNote(d.midi[k], m.t0 + a, d.text[k], true, m.t0 + b - 0.02));
 });
 
-/** Sing a demo song (after `ready`, e.g. audio startup, resolves; unless stopped meanwhile). */
-export async function playDemo(name: string, body: BodyMix, ready?: () => Promise<void>): Promise<void> {
-  const song = DEMO_SONGS.find((s) => s.name === name);
-  if (!song) return;
+/**
+ * Sing the lyrics to tune `id` (after `ready`, e.g. audio startup, resolves; unless stopped
+ * meanwhile), at the chosen tempo and key; empty lyrics sing it on "la". Resolves whether it is
+ * singing. `hooks` follow the run: onStart only once nothing can cancel it before it's sent.
+ */
+export async function playTune(id: string, body: BodyMix, ready?: () => Promise<void>, hooks: TuneHooks = {}): Promise<boolean> {
+  const tune = TUNES.find((t) => t.id === id);
+  if (!tune) return false;
   stopSinging();
   const token = demoToken;
   await ready?.();
@@ -251,54 +320,60 @@ export async function playDemo(name: string, body: BodyMix, ready?: () => Promis
   } catch {
     // letter-to-sound rules
   }
-  if (token !== demoToken) return;
-  const syl = lyricsToSyllables(song.lyrics);
-  if (!syl.length) return;
-  const shift = song.octave[nearestBody(body)] * 12;
-  const notes = song.notes.map((n, i) => ({ midi: n[0] + shift, beats: n[1], syl: syl[i % syl.length] }));
+  if (token !== demoToken) return false;
+  const st = useSing.getState();
+  // read again: the dictionary may have arrived since the words were typed
+  const own = lyricsToSyllables(st.lyrics);
+  const words = own.length ? own : lyricsToSyllables(la(tune));
+  const { notes, from } = fitSong(tune, words, tune.octave[nearestBody(body)] * 12 + st.key);
+  if (!notes.length) return false;
+  const bpm = tune.bpm * st.tempo;
   const t0 = 0.35;
-  const plan = planSong(notes, { body, bpm: song.bpm, t0, vibrato: useSing.getState().vibrato });
-  const beat = 60 / song.bpm;
+  const plan = planSong(notes, { body, bpm, t0, vibrato: st.vibrato });
+  hooks.onStart?.();
+  const beat = 60 / bpm;
   let t = t0;
   const times = notes.map((n): [number, number] => {
     const a = t;
     t += n.beats * beat;
     return [a, t];
   });
-  const id = engine.schedule({ gestures: plan.gestures, segments: plan.segments, end: plan.end });
+  const planId = engine.schedule({ gestures: plan.gestures, segments: plan.segments, end: plan.end });
   const parent: number[] = [];
   notes.forEach((n, i) => parent.push(n.syl.melisma && i > 0 ? parent[i - 1] : i));
   const shown = parent.map((p) => written(notes[p].syl));
-  demoRun = { id, times, midi: notes.map((n) => n.midi), text: notes.map((n) => n.syl.text), shown, parent, end: plan.end, offset: null };
-  useSing.setState({ lyrics: song.lyrics, syllables: syl, cursor: 0, demo: song.name, demoAt: -1 });
+  demoRun = { id: planId, times, midi: notes.map((n) => n.midi), text: notes.map((n) => n.syl.text), shown, parent, from: own.length ? from : from.map(() => -1), end: plan.end, offset: null, hooks };
+  useSing.setState({ syllables: own, cursor: Math.min(st.cursor, Math.max(0, own.length - 1)), playing: tune.id, at: -1 });
+  return true;
 }
 
 function stopDemo(): void {
   demoToken++;
   const d = demoRun;
   if (!d) return;
-  demoRun = null;
   engine.stopSpeech();
   // notes not yet sung leave the roll; the one sounding ends now
   const t = now();
   roll.notes = roll.notes.filter((n) => !(n.demo && n.t0 > t));
   for (const n of roll.notes) if (n.demo && n.t1 !== null && n.t1 > t) n.t1 = t;
-  useSing.setState({ demo: null, demoAt: -1 });
+  endDemo();
+  d.hooks.onStop?.();
 }
 
-/** Called every frame while Sing mode is shown: follow the demo's progress. */
+/** Call every frame while Sing mode is shown: follow the tune's progress. */
 export function tickSinging(): void {
   const d = demoRun;
   if (!d || d.offset === null) return;
   const t = now() - d.offset;
   if (t > d.end + 0.4) {
-    demoRun = null;
-    useSing.setState({ demo: null, demoAt: -1 });
+    endDemo();
+    d.hooks.onEnd?.();
     return;
   }
   let k = -1;
   while (k + 1 < d.times.length && d.times[k + 1][0] <= t) k++;
-  if (k !== useSing.getState().demoAt) useSing.setState({ demoAt: k });
+  const at = k < 0 ? -1 : d.from[k];
+  if (at !== useSing.getState().at) useSing.setState({ at });
 }
 
 /** Stop everything sung (leaving Sing mode, changing body): demo, notes and endings. */
@@ -319,4 +394,4 @@ export function stopSinging(): void {
   keys = [];
 }
 
-export { DEMO_SONGS };
+export { TUNES };

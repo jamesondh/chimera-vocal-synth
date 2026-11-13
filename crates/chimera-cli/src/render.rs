@@ -13,7 +13,7 @@ use chimera::creatures::{CREATURES, creature_by_id};
 use chimera::math::{js_max, js_min, js_round, log10};
 use chimera::phonetics::beatbox::{BEAT_PRESETS, BEAT_SOUNDS, BeatStep, beat_ready, parse_beat};
 use chimera::phonetics::english::EnglishG2P;
-use chimera::phonetics::ipa::tokenize_ipa;
+use chimera::phonetics::ipa::{skipped_ipa, tokenize_ipa};
 use chimera::phonetics::planner::{
     PhraseInput, PlanOptions, plan_phrases, plan_utterance, vowel_table,
 };
@@ -48,12 +48,13 @@ pub fn g2p() -> Result<EnglishG2P, String> {
     Ok(g)
 }
 
-/// `name.toLowerCase().replace(/[^a-z]+/g, "-")`
+/// A file name from a song's name: letters of any script, everything else as one "-".
+/// (Only a-z counted, so "Ночной ветер" was written to "--male.wav".)
 fn slug(name: &str) -> String {
     let mut out = String::new();
     let mut run = false;
     for c in name.to_lowercase().chars() {
-        if c.is_ascii_lowercase() {
+        if c.is_alphabetic() {
             out.push(c);
             run = false;
         } else if !run {
@@ -62,6 +63,15 @@ fn slug(name: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod slug_tests {
+    #[test]
+    fn a_song_named_in_another_script_keeps_its_name() {
+        assert_eq!(super::slug("Twinkle, twinkle"), "twinkle-twinkle");
+        assert_eq!(super::slug("Ночной ветер"), "ночной-ветер");
+    }
 }
 
 fn ms_since(t: Instant) -> f64 {
@@ -92,6 +102,11 @@ pub fn speech(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     voice.set_source(&SourcePatch::f0(f0));
     let mut marks: Vec<(f64, String)> = Vec::new();
     let mut t0 = 0.05;
+    // what the engine will not say as typed, one warning line per kind on stderr (the render is unchanged)
+    // (the "/" between utterances is a transcription delimiter, which skipped_ipa does not report)
+    for line in skipped_ipa(&text).warnings() {
+        eprintln!("warning: {line}");
+    }
     for u in text.split('/').map(str::trim).filter(|u| !u.is_empty()) {
         let segs = tokenize_ipa(u);
         let plan = plan_utterance(
@@ -484,7 +499,9 @@ fn render_tracked(v: &mut HumanVoice, out: &mut [f32], artic: bool, tele: bool) 
 /// `render notes <in.json> <out> [body] [--artic tracks.json] [--tele voice.tele]`: `--artic` also
 /// writes the articulators over time (`{"rate", "body", "keys", "frames"}`), to animate a face in
 /// sync; `--tele` writes the voice's whole telemetry over time (see `TeleRecorder`), which the
-/// app's duet page replays on a 3D head.
+/// app's duet page replays on a 3D head. The melody file may give `"syllables"` (IPA
+/// onset/nucleus/coda per sounding note) instead of English `"lyrics"`: a language front end's
+/// output (docs/language-front-ends.md).
 pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let mut artic_out: Option<String> = None;
     let mut tele_out: Option<String> = None;
@@ -509,8 +526,14 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let bpm = j["bpm"].as_f64().ok_or("bpm missing")?;
     let vibrato = j["vibrato"].as_f64().unwrap_or(35.0);
     let raw: Vec<[f64; 2]> = serde_json::from_value(j["notes"].clone()).map_err(|e| format!("notes: {e}"))?;
-    let g = g2p()?;
-    let syl = lyrics_to_syllables(j["lyrics"].as_str().ok_or("lyrics missing")?, &g);
+    // "syllables" sing what a language front end wrote; otherwise the lyrics go through the
+    // English front end (the pronouncing dictionary)
+    let syl: Vec<Syllable> = if j.get("syllables").is_some() {
+        serde_json::from_value(j["syllables"].clone()).map_err(|e| format!("syllables: {e}"))?
+    } else {
+        let g = g2p()?;
+        lyrics_to_syllables(j["lyrics"].as_str().ok_or("lyrics missing")?, &g)
+    };
     let sounding = raw.iter().filter(|n| n[0] > 0.0).count();
     if syl.len() != sounding {
         return Err(format!("{} syllables for {sounding} notes: {}", syl.len(),

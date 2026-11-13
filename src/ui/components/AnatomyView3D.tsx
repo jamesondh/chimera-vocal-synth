@@ -11,6 +11,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Anatomy3D } from "../render/anatomy3d.ts";
 import { Petting } from "../render/petting.ts";
 import { drawReadouts } from "../render/readouts.ts";
+import { recording } from "../../song/record.ts";
 import { Glow, label } from "../render/vector.ts";
 import { engine } from "../../audio/AudioEngine.ts";
 import { sameBody } from "../body.ts";
@@ -40,9 +41,12 @@ export interface HeadFeed {
 
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
-export function AnatomyView3D(props: { slots?: SlotsFn; info?: InfoFn; showFormants?: boolean; overlay?: OverlayFn; feed?: HeadFeed; readouts?: boolean }) {
+export function AnatomyView3D(props: { slots?: SlotsFn; info?: InfoFn; showFormants?: boolean; overlay?: OverlayFn; feed?: HeadFeed; readouts?: boolean; view?: ViewFlags }) {
   const feedRef = useRef<HeadFeed | undefined>(props.feed);
   feedRef.current = props.feed;
+  // the live head's view flags, when not the face screen's toggles (the Song page's fixed look)
+  const viewRef = useRef<ViewFlags | undefined>(props.view);
+  viewRef.current = props.view;
   const readoutsRef = useRef(props.readouts ?? true);
   readoutsRef.current = props.readouts ?? true;
   const overlayRef = useRef<OverlayFn | undefined>(props.overlay);
@@ -188,7 +192,9 @@ export function AnatomyView3D(props: { slots?: SlotsFn; info?: InfoFn; showForma
         tele = engine.latest && sameBody(engine.latest.body, st.body) ? engine.latest : null;
         a = tele ? VoiceModel.articFromArray(tele.t.artic) : st.artic;
       }
-      const view = feed ? feed.view : st.view;
+      // recording a clip: the head without the measurements
+      const clean = !feed && recording.on;
+      const view = feed ? feed.view : clean ? { ...st.view, calipers: false, grid: false } : (viewRef.current ?? st.view);
       r.face.content = pet.content;
       r.face.update(tele, elapsed);
       const m = feed ? feed.model : model.current;
@@ -216,7 +222,7 @@ export function AnatomyView3D(props: { slots?: SlotsFn; info?: InfoFn; showForma
         stepTween(dt);
         controls.update(dt);
         const f = m.frame(a);
-        const readouts = readoutsRef.current;
+        const readouts = readoutsRef.current && !clean;
         if (readouts && (++fTick % 4 === 0 || formants.length === 0)) formants = m.transfer(a).formants;
         r.update(m, f, a, tele, view, dt);
         gl.render(r.scene, camera);
