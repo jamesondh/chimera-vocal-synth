@@ -6,7 +6,7 @@ use chimera::phonetics::Syllable;
 use chimera::phonetics::beatbox::{BEAT_SOUNDS, BeatStep, parse_beat};
 use chimera::phonetics::syllables::lyrics_to_syllables;
 use chimera_plugin::core::{BEAT_LATENCY, BeatSettings, Core, DEFAULT_LYRICS, Event, Mode, NOT_SPEAKING, Prepared, SAYING_PAD, Settings, Shared, Transport, UiNote, VoiceParams, drum_pad};
-use chimera_plugin::g2p;
+use chimera_plugin::{ChimeraParams, g2p};
 use chimera_plugin::speech::{SpeechSettings, plan_lines, plan_pad};
 use std::sync::atomic::Ordering;
 
@@ -1164,4 +1164,33 @@ fn a_restart_in_beatbox_comes_back_the_same() {
     assert_eq!(c.latency_samples(), (BEAT_LATENCY * FS).round() as u32);
     assert_eq!((c.engine().beat().steps().len(), c.engine().beat().bpm, c.engine().beat().swing), (4, 77.0, 0.3));
     assert!(!c.engine().beat().playing && !c.engine().beat().following());
+}
+
+/// Bitwig's two-bar bounce of the default pattern, at the default Gain (0 dB), had 2.4 % of its samples
+/// at full scale (PR #62): the close mic's make-up gain sent the hits' peaks over 1.
+#[test]
+fn the_default_beat_stays_below_full_scale() {
+    let p = ChimeraParams::default().voice();
+    for body in [BodyMix::MALE, BodyMix::FEMALE, BodyMix::CHILD] {
+        let artic = chimera::phonetics::beatbox::beat_ready(body);
+        let settings = Settings { mode: Mode::Beatbox, body, artic, ..Default::default() };
+        assert!(settings.beat.mic);
+        let shared = Shared::default();
+        let prepared = Prepared::of(&settings, &shared);
+        shared.restart(48000.0);
+        let mut c = Core::new(48000.0, &settings, &prepared, p, &shared);
+        shared.adopt(prepared);
+        let mut out = vec![0.0f32; 48000 * 6];
+        let mut beats = 0.0;
+        for block in out.chunks_mut(512) {
+            c.begin_block(&p, Transport { playing: true, position: Some(beats), beats: Some(beats), tempo: Some(96.0), samples: block.len() }, &shared);
+            c.render(block);
+            c.end_block(block.len(), &shared);
+            beats += block.len() as f64 / 48000.0 * 96.0 / 60.0;
+        }
+        let full = out.iter().filter(|x| x.abs() >= 0.999).count();
+        let rms = (out.iter().map(|x| (*x as f64).powi(2)).sum::<f64>() / out.len() as f64).sqrt();
+        eprintln!("{body:?}: peak {:.3}, {full} of {} at full scale, rms {rms:.4}", peak(&out), out.len());
+        assert!(peak(&out) < 1.0, "{body:?}: peak {}", peak(&out));
+    }
 }

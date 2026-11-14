@@ -1,6 +1,10 @@
 //! The website's close-mic chain (a low shelf, a presence peak, a fast compressor, make-up gain),
 //! which there is Web Audio nodes, in Rust for the audio thread. Close to the browser's, not identical:
 //! its `DynamicsCompressorNode` has its own knee curve and pre-delay. Allocation-free, per sample.
+//!
+//! Without that pre-delay the compressor reacts after a hit's first peak, and the make-up gain took
+//! peaks to +5 dBFS (a host's bounce at 0 dB Gain clipped). So the chain ends in a peak limiter, which
+//! leaves everything under its ceiling alone.
 
 use chimera::math::{cos, exp, ln, pow, sin, sqrt};
 
@@ -19,6 +23,10 @@ const RELEASE: f64 = 0.12;
 /// The website's make-up gain (2.2) and what `DynamicsCompressorNode` adds by itself for these settings
 /// (about 12 dB): how much a full-scale peak is turned down, to the power 0.6.
 const MAKEUP: f64 = 2.2 * 4.07;
+/// The limiter's ceiling: -1 dBFS.
+const CEILING: f64 = 0.891;
+/// How fast the limiter lets go after a peak (s).
+const LIMIT_RELEASE: f64 = 0.05;
 
 /// A biquad in transposed direct form II.
 #[derive(Clone, Copy, Debug, Default)]
@@ -88,6 +96,9 @@ pub struct CloseMic {
     release: f64,
     /// the reduction now (dB, at most 0)
     reduction: f64,
+    limit_release: f64,
+    /// the limiter's gain now (at most 1)
+    limit: f64,
 }
 
 /// Below this a level counts as silence (dB).
@@ -102,6 +113,8 @@ impl CloseMic {
             attack: exp(-1.0 / (ATTACK * fs)),
             release: exp(-1.0 / (RELEASE * fs)),
             reduction: 0.0,
+            limit_release: exp(-1.0 / (LIMIT_RELEASE * fs)),
+            limit: 1.0,
         }
     }
 
@@ -114,7 +127,13 @@ impl CloseMic {
             // turning down is the attack, coming back up the release
             let k = if want < self.reduction { self.attack } else { self.release };
             self.reduction = want + k * (self.reduction - want);
-            *s = (x * pow(10.0, self.reduction / 20.0) * MAKEUP) as f32;
+            let y = x * pow(10.0, self.reduction / 20.0) * MAKEUP;
+            // a peak over the ceiling is turned down at once, then the gain comes back up
+            self.limit = 1.0 - self.limit_release * (1.0 - self.limit);
+            if y.abs() * self.limit > CEILING {
+                self.limit = CEILING / y.abs();
+            }
+            *s = (y * self.limit) as f32;
         }
     }
 }
