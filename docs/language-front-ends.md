@@ -6,17 +6,20 @@ CHIMERA sings other languages in two halves, the usual split in speech synthesis
 lyrics ──► router ──► FRONT END ──► syllables ──► BACK END ──► sound
            (by script)  English: CMUdict         (IPA, with what     the planner, the airway,
                         Korean: Hangul rules      the language        the voice: the same for
-                        explicit syllables        decides)            every language
+                        Mandarin: pinyin lexicon  decides: aspiration, every language
+                        Pinyin: typed with tones  tones as pitch bends)
+                        Russian: spelling rules
+                        explicit syllables
 ```
 
 **A front end is phonology; the back end is physics.** A front end decides what a word's sounds
-are: which phonemes, and whether and how long a stop aspirates. The back end realises whatever
-the syllables say and knows no language's rules. When a front end says nothing, the planner keeps
-English's defaults, which is why English output doesn't change.
+are: which phonemes, whether and how long a stop aspirates, how a tone bends the pitch. The back
+end realises whatever the syllables say and knows no language's rules. When a front end says
+nothing, the planner keeps English's defaults, which is why English output doesn't change.
 
 This is the shared design for languages (#40), and the first steps of #32 live in it: the sounds
-Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3) and aspiration as the front end's call
-(step 1, with #73).
+Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3), aspiration as the front end's call
+(step 1, with #73), and pitch bends for tones (step 4).
 
 ## The built-in front ends
 
@@ -25,13 +28,18 @@ Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3) and aspiration as 
 | Latin | English | CMUdict (letter-to-sound until it loads) | `phonetics/english.rs`, `syllables.rs` |
 | Hangul | Korean | nothing: a block's letters are its sounds | `phonetics/korean.rs` |
 | Cyrillic | Russian | nothing: spelling rules, stress marked with an acute ([russian.md](russian.md)) | `phonetics/russian.rs` |
+| Han | Mandarin | `public/data/mandarin.txt.gz` (208 KB, fetched when lyrics have Han characters) | `phonetics/mandarin.rs` |
+| Latin with tones | Mandarin as pinyin | nothing (checked against Mandarin's 411 syllables) | `phonetics/mandarin.rs` (`Pinyin`) |
 
 The router (`read_lyrics` in `syllables.rs`) sends each word to the front end whose script it is
-in, so a line can mix them (`twinkle 빵야 star`). It also handles what every language shares:
-melisma marks (`-`, `~`), phrase punctuation and word ends.
+in, so a line can mix them (`我爱你 hello 빵야 nǐhǎo`). It also handles what every language
+shares: melisma marks (`-`, `~`), phrase punctuation (ASCII and full-width `，。！？`) and word ends.
 
-Characters no front end claims are skipped, as before: `Zürich` sings "Z rich". Nothing after them
-is lost.
+Pinyin and English share the Latin alphabet, so a front end may **decline** a word it scanned
+(`FrontEnd::claims`). The others then read that word as they would without it, and the one that
+declined can't claim a piece of it: `café` stays English's "caf" rather than "caf" and a pinyin
+"é". Characters no front end claims are skipped, as on main: `Zürich` sings "Z rich". Nothing after
+them is lost.
 
 `chimera syllables "<lyrics>"` prints what the front ends read, one JSON syllable per sung note:
 the quickest way to check a front end.
@@ -53,8 +61,61 @@ how long they aspirate (`vot`, voice onset time):
 | measured in the render (male; female within 3 ms) | 53 ms | 96 ms | 22 ms |
 
 Between voiced sounds a lax stop is voiced (아기 [agi]). Not modelled yet: the lower pitch that
-follows a lax stop (Seoul speakers rely on it as much as on aspiration; it needs pitch contours,
-#32 step 4) and the stiff voice of tense stops. A Korean speaker's ear is still wanted.
+follows a lax stop (Seoul speakers rely on it as much as on aspiration; a start bend could carry
+it, untried) and the stiff voice of tense stops. A Korean speaker's ear is still wanted.
+
+## Mandarin
+
+Han characters are read through a lexicon of character and phrase readings (MIT-licensed pinyin
+data, `tools/build-mandarin.ts`), longest phrase first: 银行 is yín háng, 行走 xíng zǒu. Then:
+
+- **Tone changes:** third-tone sandhi inside a phrase (你好 sings ní hǎo), and 不 and 一 before a
+  fourth tone (不会 bú huì, 一个 yí gè).
+- **Aspiration said:** p t k q ch c are aspirated with Mandarin's longer aspiration (`vot` 90 ms),
+  b d g j zh z voiceless and unaspirated, not voiced stand-ins.
+- **Tones as pitch bends** (below): 2 scoops up from below, 3 starts low, 4 starts a little high and
+  falls off the end, 1 and the neutral tone stay on the note. The melody stays as written.
+- **Medials inside the vowel:** 话 is the rising diphthong `ua` and 鸟 the three-part `iaʊ`, sung as a
+  short glide on the beat, rather than a glide squeezed before the beat with the consonants.
+- **Mandarin's own vowels:** the apical vowels ɿ (四) and ʅ (是), eng [ɤŋ], uo [uɔ], ou [əʊ].
+- **Timing:** nasal codas held long enough to tell -n from -ng, j zh z with short frication, n m f
+  long enough to hear; the off-glide of ai ao ei ou over the note's last 35%.
+- **Before a nasal coda** the vowel nasalises over its last 40% (at most 0.25 s), and before -ng
+  after ɑ the tongue body rises toward the velum.
+- **Erhua:** 一点儿 sings 一 + 点儿, one syllable ending in ɻ; a 儿 that is a word's own syllable
+  (女儿, 儿子) stays one.
+- **A vowel-initial syllable** (爱, 安) starts with a soft glottal catch, so it doesn't run into the
+  vowel before.
+
+**Pinyin** with tones is Mandarin too: tone marks (`nǐhǎo`, and `xièxie` with a neutral last
+syllable) or numbers (`ni3 hao3`, `de5`); apostrophes split syllables (`Xī'ān`), and `ü` or `v` both
+work. Third-tone sandhi applies inside a word. Pinyin claims only a word written as pinyin is:
+- every syllable real, and a vowel-initial one inside the word after an apostrophe (`Xī'ān`);
+- the first syllable's tone written; an unwritten one later is neutral, at the end (`dōngxi`) or as
+  bu, de, yi inside (`duìbuqǐ`);
+- two letters or more (a one-letter word, `a1` or `à`, is English; write 啊 in characters).
+
+So plain Latin words stay English, and so do accented English words (`café`, `résumé`, `touché`,
+`née`, `Pokémon`). The one left: `élan` is also real pinyin (é + a neutral lan), so type it
+unaccented.
+
+What each choice measured, on the scramble test (#80) where it was tuned:
+
+| Choice | Confusion it fixed | Scrambled syllable errors |
+|---|---|---|
+| unaspirated stops said (not voiced stand-ins) | | 54.8% → 48.6% |
+| tones as bends (vs none) | | 52.8% → 48.6% |
+| medials inside the vowel | 话 drifting toward 哈 | 48.6% → 44.2% |
+| apical ɿ ʅ (vs [ɨ]) | 是 heard as 虚 | 66.3% → 46.2% (apical-dense lines) |
+| nasal codas held, onset timing, eng [ɤŋ], uo [uɔ], ou [əʊ], stronger tones | named confusions each | 43.9% → 35.8% |
+| -ng approach after ɑ | uang heard as uan ×16 → ×6 | 35.8% → 34.5% |
+| off-glide over 35% | ai/ou heard as a/o | 29.5% → 26.6% |
+
+The last row is measured with #80's corrected judge (this branch, 8 scrambles × 2 voices); the
+others on #34 before that fix, so compare within a row. Now: **25.9% / 27.2%** scrambled (male /
+female) and 10% / 15% on the real poems. What's left: tone 3 (about half wrong, mostly heard as 4;
+a dip in the middle or a 214 measured no better), the sibilants (c heard as ch) and in/ing. A
+Mandarin speaker's ear is still wanted.
 
 ## The one format
 
@@ -71,7 +132,14 @@ Every front end writes the same thing, one sung syllable per sounding note:
   English's 50 ms). Each millisecond more or less than 50 moves the voice's return by a
   millisecond; the measured voice onset also depends on the place and the voice (the Korean table
   above: 45 asked gives 53–69 ms, 90 gives 96–110).
-- `nucleus`: one vowel, or a diphthong the planner knows.
+- `nucleus`: one vowel, or a diphthong the planner knows. Falling ones (aɪ eɪ aʊ oʊ ɔɪ əʊ) hold
+  their first vowel and glide off at the note's end; rising ones (ia iɛ iɑ iʊ ua uo uɔ uɑ uə yɛ) sing
+  a short glide on the beat (a quarter of the vowel, at most 120 ms) and hold the second;
+  triphthongs (iaʊ iəʊ uaɪ ueɪ) do both. The apical vowels ɿ ʅ are calibrated vowels too.
+- A consonant may say its sung `"dur"` (s); unsaid, its spoken length × 0.8.
+- `pitch`: bends at the note's start, middle or end (below).
+- `nasalLead`: nasalise this fraction of the vowel before a nasal coda (unsaid: none).
+- `offglide`: the share of a falling diphthong's note its off-glide takes (unsaid: 20%).
 - A melisma note is `"melisma": true` with the same nucleus; its coda moves to the run's last note.
 - `text` is what the lyrics panel and the piano roll show.
 - `wordEnd` and `phraseEnd` may be left out (false).
@@ -80,6 +148,22 @@ Any front end's output can be frozen to JSON, edited and sung with `"syllables"`
 `"lyrics"`, in `render notes` and duet melody files. Use it to fix a reading
 by hand, or to sing a language that has no front end yet.
 
+## Pitch bends
+
+Tones, pitch accent or a scoop need the pitch to move inside a note (#32 step 4). A syllable's
+`pitch` is a list of bends, each `st` semitones from the note at the vowel's `start`, `middle` or
+`end`, over `len` of the vowel but at most `max` seconds:
+
+```json
+"pitch": [{"at": "start", "len": 0.45, "max": 0.25, "st": -3.5}]
+```
+
+The melody stays as written; a bend only colours part of the note. A start bend begins in the
+onset, so the consonants already sing its pitch and a rise starts low rather than at the note. A
+middle bend is centred on the vowel (a dip or a peak inside it). A melisma continues at its written
+pitches. The planner draws bends without knowing what they mean: a language's tones are a table in
+its front end (Mandarin's is `tone_bends`). A syllable without bends sings exactly as before.
+
 ## Adding a language
 
 1. **Map its sounds onto the inventory.** Add missing ones between their neighbours, as
@@ -87,10 +171,12 @@ by hand, or to sing a language that has no front end yet.
    it appends new entries and leaves existing ones alone.
 2. **Write the front end**: implement `FrontEnd` (which characters start and continue its words,
    and word → syllables; `word_after` also gets the word before, for words that lean on each
-   other, as a Russian preposition with no vowel does), then add it to the router's list in `lyrics_to_syllables`. A front end
-   that needs data should load it like CMUdict: a gzipped file in `public/data/`, fetched only when
-   the lyrics need it.
-3. **Say the phonology** in the syllables (aspiration and its length). Build `Syllable` and
+   other, as a Russian preposition with no vowel does; `claims` lets it decline a word in a script
+   it shares), then add it to the one router list, `lyrics_to_syllables_with`, which the app, the
+   wasm engine and the CLI all read lyrics through. A front end that needs data loads it like the
+   Mandarin lexicon: a gzipped file in `public/data/`, fetched only when the lyrics need it.
+3. **Say the phonology** in the syllables (aspiration and its length, pitch bends, consonant
+   lengths, the nucleus). Build `Syllable` and
    `Segment` values with `..Default::default()` so later fields don't break you.
 4. **Leave English unchanged.** Tuning the shared voice goes through `docs/hill-climb/README.md`.
 5. **Run the scramble test**, below, and **have a native speaker listen.**
@@ -138,4 +224,8 @@ in for a native listener; the test says where to look and whether a change moved
 - **Latin-script languages.** Routing by script can't tell Turkish or German from English, so
   Latin text is English. The second Latin-script front end brings an explicit language choice,
   with English the default (#40).
-- **Tone and pitch accent** need pitch contours (#32 step 4).
+- **Bends on live notes:** a key pressed in Sing or a note from the plugin (`plan_note_on`) sings
+  the note's pitch.
+- **Tones in speech:** Speak doesn't read Mandarin yet; its tone contours and speech tuning come
+  next, from #48, onto this front end.
+- **IPA tone letters** (`˥˩`, #52) don't write bends yet.
