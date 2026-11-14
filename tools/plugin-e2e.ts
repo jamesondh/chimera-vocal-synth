@@ -60,9 +60,18 @@ const tele = () => page.evaluate(() => (window as never as { __chimeraEngine: { 
 const next = () => page.locator(".syl.next").textContent();
 const params = () => fetch(`${base}/params`).then((r) => r.json() as Promise<Record<string, number>>);
 
+// as WKWebView on a Mac, where the page sends clipboard shortcuts to Rust (pluginBridge.ts)
+await page.addInitScript(() => Object.defineProperty(navigator, "platform", { get: () => "MacIntel" }));
+
 try {
   await page.goto(base, { waitUntil: "load" });
   await page.waitForSelector(".topbar");
+  // what the page sends Rust, to look at
+  await page.evaluate(() => {
+    const ipc = window.ipc!, send = ipc.postMessage.bind(ipc);
+    const sent: string[] = ((window as never as { __sent: string[] }).__sent = []);
+    ipc.postMessage = (m: string) => (sent.push(m), send(m));
+  });
 
   // ---- what the plugin shows
   const modes = await page.locator(".topbar [role=radiogroup] [role=radio], .topbar .segmented button").allTextContents();
@@ -242,6 +251,14 @@ try {
   await until("Rust is in Speak", async () => (await state()).settings.mode === "speak");
   const say = page.getByRole("textbox", { name: "Text to speak" });
   await say.fill("Hello there.\nNice to meet you.");
+  // in Bitwig ⌘C and ⌘V did nothing here: no Edit menu sends them to the webview, so the page asks Rust
+  const edits = () => page.evaluate(() => (window as never as { __sent: string[] }).__sent.map((m) => JSON.parse(m)).filter((m) => m.type === "edit").map((m) => m.action));
+  await say.press("Meta+A");
+  await say.press("Meta+C");
+  await say.press("Meta+V");
+  await page.getByRole("radio", { name: /^speak$/i }).press("Meta+V");
+  check("⌘A, ⌘C and ⌘V in the text box go to Rust, and not elsewhere", JSON.stringify(await edits()) === '["selectAll","copy","paste"]', await edits());
+  check("and the text box keeps its text", (await say.inputValue()) === "Hello there.\nNice to meet you.");
   await until("each line of the text is a line", async () => (await page.locator(".say-line").count()) === 2);
   const nextLine = () => page.locator(".say-line.next").textContent();
   check("the first is next", (await nextLine()) === "Hello there.");

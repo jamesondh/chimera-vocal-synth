@@ -63,6 +63,29 @@ export function grip(action: "begin" | "move" | "end" | "reset"): void {
   ipc({ type: "grip", action });
 }
 
+/**
+ * ⌘C, ⌘X, ⌘V and ⌘A in a text field. On macOS the host's Edit menu sends these to the webview, and a
+ * host without one (Bitwig's plugin process) leaves them doing nothing, so Rust sends them instead.
+ * Not in a web browser (Linux), or on Windows, whose WebView2 handles Ctrl+C itself.
+ */
+const EDIT_KEYS: Record<string, string> = { c: "copy", x: "cut", v: "paste", a: "selectAll" };
+export function clipboardShortcuts(): void {
+  if (!/Mac/.test(navigator.platform) || document.documentElement.classList.contains("in-browser")) return;
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      const action = EDIT_KEYS[e.key.toLowerCase()];
+      if (!action || !e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      const t = e.target as HTMLElement;
+      if (!(t instanceof HTMLTextAreaElement || t instanceof HTMLInputElement || t.isContentEditable)) return;
+      // otherwise a host that does send it would do it twice
+      e.preventDefault();
+      ipc({ type: "edit", action });
+    },
+    true,
+  );
+}
+
 /** Split a message for the worklet into host parameters and what the project saves. */
 export function sendToPlugin(m: ToWorklet): void {
   switch (m.type) {

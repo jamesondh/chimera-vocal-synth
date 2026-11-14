@@ -202,6 +202,12 @@ Page to Rust, `window.ipc.postMessage` with JSON, handled on the main thread:
 `note`, `lyrics`, `cursor`, `body`, `mode`, `artic`, `source` (for `voiced` and `f0`), `hold`,
 `param { id, value: plain }`.
 
+**Copy and paste.** On macOS a host's Edit menu sends ⌘C and ⌘V to the webview, as `copy:` and `paste:`
+down the responder chain. A host with no such menu (Bitwig's plugin process) leaves the text boxes taking
+typing but not those, so in a text field the page takes ⌘X, ⌘C, ⌘V and ⌘A itself and sends `edit`, and
+Rust calls the same action on the WKWebView. Pasting that way isn't the page reading the clipboard, so
+WebKit doesn't ask first. Windows' WebView2 handles Ctrl+C itself, and on Linux it's a web browser.
+
 Parameter gestures: the page's bridge sends `begin` before the first value and `end` 300 ms after
 the last, so no control needs to know about hosts. Rust remembers which gestures are open and ends
 them when the window closes. The page's timer dies with it, and clap-wrapper's VST3 layer ignores

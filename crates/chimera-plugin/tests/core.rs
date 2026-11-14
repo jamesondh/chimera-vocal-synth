@@ -1194,3 +1194,32 @@ fn the_default_beat_stays_below_full_scale() {
         assert!(peak(&out) < 1.0, "{body:?}: peak {}", peak(&out));
     }
 }
+
+/// In Bitwig the Speak box took typing but not ⌘C or ⌘V (PR #62): with no Edit menu to send them, the
+/// page sends them to the editor. They aren't part of the project, so a restore doesn't make them stale.
+#[test]
+fn clipboard_shortcuts_reach_the_editor() {
+    use chimera_plugin::bridge::{Bridge, EditAction, ParamHost};
+    use std::sync::{Arc, Mutex};
+    struct Host(Arc<Mutex<Vec<EditAction>>>);
+    impl ParamHost for Host {
+        fn begin(&self, _: &str) {}
+        fn set(&self, _: &str, _: f32) {}
+        fn end(&self, _: &str) {}
+        fn values(&self) -> Vec<(String, f32)> {
+            Vec::new()
+        }
+        fn edit(&self, action: EditAction) {
+            self.0.lock().unwrap().push(action);
+        }
+    }
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let shared = Arc::new(Shared::default());
+    let bridge = Bridge::new(Arc::new(ChimeraParams::default()), shared.clone(), Box::new(Host(seen.clone())));
+    let rev = shared.revision.load(Ordering::Relaxed);
+    shared.restart(FS);
+    for action in ["cut", "copy", "paste", "selectAll"] {
+        bridge.command(&format!(r#"{{"rev":{rev},"type":"edit","action":"{action}"}}"#));
+    }
+    assert_eq!(*seen.lock().unwrap(), [EditAction::Cut, EditAction::Copy, EditAction::Paste, EditAction::SelectAll]);
+}

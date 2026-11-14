@@ -19,7 +19,7 @@ use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::http::{Request, Response};
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
-use crate::bridge::{Bridge, GripAction, GuiHost, ParamHost, WINDOW_DEFAULT, WINDOW_MAX, WINDOW_MIN, page_zoom};
+use crate::bridge::{Bridge, EditAction, GripAction, GuiHost, ParamHost, WINDOW_DEFAULT, WINDOW_MAX, WINDOW_MIN, page_zoom};
 use crate::core::Shared;
 use crate::ChimeraParams;
 
@@ -137,6 +137,14 @@ impl ParamHost for WindowHost {
                 self.resize(WINDOW_DEFAULT);
                 self.settle();
             }
+        }
+    }
+    fn edit(&self, action: EditAction) {
+        let Some(cell) = self.webview.upgrade() else { return };
+        // this runs inside the webview's own handlers, never while it's being built
+        let Ok(webview) = cell.try_borrow() else { return };
+        if let Some(webview) = webview.as_ref() {
+            platform::edit(webview, action);
         }
     }
     /// The page's zoom follows the host's view, whichever way that came to change, and once the

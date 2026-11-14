@@ -18,7 +18,7 @@ use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::{Rect, WebContext, WebView};
 
 use super::HOST_CHROME;
-use crate::bridge::{Bridge, page_zoom};
+use crate::bridge::{Bridge, EditAction, page_zoom};
 
 /// The host passes its scale on, and sizes to it are physical.
 pub const HOST_SCALES: bool = true;
@@ -84,6 +84,9 @@ pub fn fit_screen((width, height): (u32, u32), scale: f64) -> (u32, u32) {
 }
 
 pub fn after_build(_webview: &WebView) {}
+
+/// WebView2 takes Ctrl+C and the rest itself, and the page only asks on macOS.
+pub fn edit(_webview: &WebView, _action: EditAction) {}
 
 /// The monitor's DPI, which WebView2 scales the page by (96 is 100 %).
 pub fn monitor_dpi(view: View) -> u32 {

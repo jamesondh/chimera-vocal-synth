@@ -15,7 +15,7 @@ use raw_window_handle::{AppKitWindowHandle, HandleError, HasWindowHandle, RawWin
 use wry::{WebView, WebViewExtMacOS};
 
 use super::HOST_CHROME;
-use crate::bridge::{Bridge, page_zoom};
+use crate::bridge::{Bridge, EditAction, page_zoom};
 
 /// macOS scales for us: sizes are in points.
 pub const HOST_SCALES: bool = false;
@@ -75,6 +75,22 @@ pub fn after_build(webview: &WebView) {
     let wk = webview.webview();
     // SAFETY: `setAutoresizingMask:` takes an NSUInteger, on the main thread we're on
     let _: () = unsafe { msg_send![&*wk, setAutoresizingMask: FOLLOW_SUPERVIEW] };
+}
+
+/// A clipboard shortcut, as the Edit menu would send it: to the webview, which acts on the field with
+/// the focus. Pasting this way isn't the page reading the clipboard, so WebKit doesn't ask first.
+pub fn edit(webview: &WebView, action: EditAction) {
+    let wk = webview.webview();
+    let none: *const AnyObject = null();
+    // SAFETY: NSResponder actions WKWebView implements, taking a sender, on the main thread we're on
+    unsafe {
+        let _: () = match action {
+            EditAction::Cut => msg_send![&*wk, cut: none],
+            EditAction::Copy => msg_send![&*wk, copy: none],
+            EditAction::Paste => msg_send![&*wk, paste: none],
+            EditAction::SelectAll => msg_send![&*wk, selectAll: none],
+        };
+    }
 }
 
 /// The view changed size: the webview follows it by itself, and the page's zoom follows here.

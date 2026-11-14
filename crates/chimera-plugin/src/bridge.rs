@@ -60,6 +60,17 @@ pub enum GripAction {
     Reset,
 }
 
+/// A clipboard shortcut in a text field. A host's menu bar normally sends these to the webview, and in
+/// a host without an Edit menu (Bitwig's plugin process, for one) nothing does, so the page asks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EditAction {
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+}
+
 /// How the page's parameter changes and the window's grip reach the host, and the parameters' values.
 pub trait ParamHost: Send + Sync {
     fn begin(&self, id: &str);
@@ -69,6 +80,8 @@ pub trait ParamHost: Send + Sync {
     fn values(&self) -> Vec<(String, f32)>;
     /// The editor needs the host's view for this: see `editor.rs`.
     fn grip(&self, _action: GripAction) {}
+    /// The editor needs the webview for this: see `editor/macos.rs`.
+    fn edit(&self, _action: EditAction) {}
     /// Called for every poll, on the main thread.
     fn tick(&self) {}
 }
@@ -138,6 +151,7 @@ enum Command {
     Param { id: String, value: f32 },
     ParamEnd { id: String },
     Grip { action: GripAction },
+    Edit { action: EditAction },
     Speech { text: Option<String>, ipa: Option<bool>, rate: Option<f64> },
     SpeechCursor { index: usize },
     /// say the next line
@@ -325,6 +339,7 @@ impl Bridge {
             }
             // the host's too; it isn't part of a project, so a restore doesn't make it stale
             Command::Grip { action } => self.host.grip(action),
+            Command::Edit { action } => self.host.edit(action),
             command => {
                 let _together = self.shared.transaction();
                 // checked again now that no restore can be under way
@@ -488,7 +503,7 @@ impl Bridge {
                 };
                 shared.send_pad(plan_pad(&ipa, body, rate));
             }
-            Command::Param { .. } | Command::ParamEnd { .. } | Command::Grip { .. } => {}
+            Command::Param { .. } | Command::ParamEnd { .. } | Command::Grip { .. } | Command::Edit { .. } => {}
         }
     }
 

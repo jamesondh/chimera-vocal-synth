@@ -3,7 +3,7 @@
  * polling (docs/plugin.md, "One owner for each value"). Only the plugin's editor imports this.
  */
 import { engine } from "../audio/AudioEngine.ts";
-import { ARTIC_PARAMS, SOURCE_PARAMS, dbToVolume, gestureOpen, setRevision } from "../audio/pluginBridge.ts";
+import { ARTIC_PARAMS, SOURCE_PARAMS, clipboardShortcuts, dbToVolume, gestureOpen, setRevision } from "../audio/pluginBridge.ts";
 import type { BeatStep, BodyMix, HumanArtic, Syllable, VoiceSource } from "../wasm/engine.ts";
 import { TELE_LABELS, decodeTelemetry } from "../worklet/telemetry.ts";
 import { clearPluginNotes, followPluginNote, roll, useSing } from "./singing.ts";
@@ -197,6 +197,7 @@ export async function attachToPlugin(): Promise<void> {
   // for the end-to-end test: what the piano roll holds isn't in the DOM
   (window as unknown as { __chimeraRoll: typeof roll }).__chimeraRoll = roll;
   document.documentElement.classList.add("plugin-page");
+  clipboardShortcuts();
   // no timeout: there's no loop yet to try again, and a host busy loading a project may take a while
   adopt(await getJson<Snapshot>("/state", null));
   analysers = engine.pluginAnalysers();
