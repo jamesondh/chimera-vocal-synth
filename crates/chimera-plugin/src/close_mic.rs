@@ -3,8 +3,8 @@
 //! its `DynamicsCompressorNode` has its own knee curve and pre-delay. Allocation-free, per sample.
 //!
 //! Without that pre-delay the compressor reacts after a hit's first peak, and the make-up gain took
-//! peaks to +5 dBFS (a host's bounce at 0 dB Gain clipped). So the chain ends in a peak limiter, which
-//! leaves everything under its ceiling alone.
+//! peaks to +5 dBFS (a host's bounce at 0 dB Gain clipped). So the chain ends in a peak limiter. Below its
+//! ceiling it does nothing, except for the 50 ms or so after a peak it turned down, while it lets go.
 
 use chimera::math::{cos, exp, ln, pow, sin, sqrt};
 

@@ -416,7 +416,8 @@ from it. `CloseMic` is the same chain in Rust on the audio thread, per sample an
 only in Beatbox with Close Mic on (saved, on by default). It isn't bit-identical to the browser's: the
 browser's compressor looks 6 ms ahead and this one doesn't, so a hit's first peak gets the whole make-up
 gain. The default pattern peaked at +5 dBFS, and a host's bounce at 0 dB Gain clipped, so the chain ends in
-a peak limiter at -1 dBFS (instant attack, 50 ms release) that leaves anything under it alone.
+a peak limiter at -1 dBFS (instant attack, 50 ms release). It changes nothing that stays under that,
+except the 50 ms or so after a peak it turned down, while it lets go.
 
 **State.** `Settings` gains `speech { text, ipa, rate, startLine }` and `beat { steps, bpm, swing,
 preset, mic, follow }`, each with defaults, so older projects load. `playing` isn't saved. Entering
