@@ -60,6 +60,11 @@ front() {
 dialogs() {
   osascript -e 'tell application "System Events" to tell process "REAPER"
     repeat with w in windows
+      -- a REAPER newer than the one installed says so, over everything (7.86, November 2026)
+      if name of w is "REAPER New Version Notification" then
+        click button "Close" of w
+        return "Close to: a new version"
+      end if
       set names to name of buttons of w
       repeat with answer in {"No", "Still Evaluating", "Still evaluating", "I agree", "OK"}
         if names contains (answer as text) then
