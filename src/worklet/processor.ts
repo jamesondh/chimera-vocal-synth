@@ -22,7 +22,7 @@ type Fn = (...a: number[]) => number;
 type Exports = { memory: WebAssembly.Memory } & Record<string, Fn>;
 
 const ARTIC_KEYS = CONTROL_KEYS.slice(0, 17);
-const SOURCE_KEYS = ["f0", "glide", "pressure", "breathiness", "tension", "fry", "roughness", "vibratoDepth", "vibratoRate", "drift", "voiced", "brightness"];
+const SOURCE_KEYS = ["f0", "glide", "pressure", "breathiness", "tension", "fry", "roughness", "vibratoDepth", "vibratoRate", "drift", "voiced", "brightness", "glottis"];
 /** scalars at the head of the human telemetry block (crates/chimera-wasm/src/lib.rs) */
 const TELE_HEADER = 16;
 /** gestures taken from one schedule message */
@@ -122,7 +122,7 @@ class ChimeraProcessor extends AudioWorkletProcessor {
         const v = this.values();
         for (const [k, val] of Object.entries(m.values)) {
           const i = SOURCE_KEYS.indexOf(k);
-          if (i >= 0) v[i] = typeof val === "boolean" ? (val ? 1 : 0) : (val as number);
+          if (i >= 0) v[i] = typeof val === "boolean" ? (val ? 1 : 0) : typeof val === "string" ? (val === "twoMass" ? 1 : 0) : (val as number);
         }
         x.engine_set_source(h);
         break;

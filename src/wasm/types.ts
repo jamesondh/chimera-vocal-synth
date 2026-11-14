@@ -123,6 +123,8 @@ export interface VoiceSource {
   voiced: boolean;
   /** 0 dark … 1 bright (default 0.25: as tension sets it) */
   brightness: number;
+  /** vocal-fold model: "parametric" (default, the drawn pulse) or "twoMass" (self-oscillating folds) */
+  glottis?: "parametric" | "twoMass";
 }
 
 export interface VoiceTelemetry {
