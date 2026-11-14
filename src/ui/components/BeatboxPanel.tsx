@@ -10,6 +10,7 @@ import { EncoderPages } from "./Encoder.tsx";
 import { Spectrogram } from "./Spectrogram.tsx";
 import type { InfoFn, SlotsFn } from "./AnatomyView.tsx";
 import { V } from "../colors.ts";
+import { MAX_BEAT_STEPS } from "../../wasm/wire.ts";
 
 const AIR: Record<Airstream, string> = {
   pulmonic: "Breath out",
@@ -180,7 +181,7 @@ function Transport() {
             {
               name: "Tempo",
               encoders: [
-                { label: "Tempo", value: beat.bpm, min: 60, max: 180, onChange: (v) => setTempo({ bpm: Math.round(v) }), format: (v) => ({ value: String(Math.round(v)), unit: "bpm" }) },
+                { label: "Tempo", value: beat.bpm, min: 60, max: 240, onChange: (v) => setTempo({ bpm: Math.round(v) }), format: (v) => ({ value: String(Math.round(v)), unit: "bpm" }) },
                 { label: "Swing", value: beat.swing, min: 0, max: 0.6, onChange: (v) => setTempo({ swing: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
               ],
             },
@@ -191,7 +192,7 @@ function Transport() {
         <span className="dim">Beat as text</span>
         <input
           value={text}
-          title="B kick, t hat, Pf snare, K rimshot, ^K inward, ! click, m hum (m:43 sets its note), . rest"
+          title={`B kick, t hat, Pf snare, K rimshot, ^K inward, ! click, m hum (m:43 sets its note), . rest. Up to ${MAX_BEAT_STEPS} steps.`}
           placeholder="B . t . | Pf . t ."
           spellCheck={false}
           onFocus={() => (editing.current = true)}
