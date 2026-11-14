@@ -47,6 +47,8 @@ const F_NATURAL: f64 = 125.0;
 /// the lower mass's rest gap is this much wider than the upper's: a slightly convergent glottis,
 /// which is what lets the folds take energy from the flow and start vibrating
 const CONVERGENCE: f64 = 0.004;
+/// fractional lengthening of the folds per octave of pitch
+const ELONGATION: f64 = 0.3;
 /// deepest the folds can be pressed into each other at rest (cm, half-overlap, at Q ≤ 1)
 const MAX_PRESS: f64 = 0.016;
 
@@ -177,7 +179,12 @@ impl TriangularGlottis {
 
         // ---- controls → fold geometry
         let size = self.folds.size;
-        let len = LENGTH * size;
+        // the folds lengthen as the cricothyroid raises the pitch (Titze 1994, ch. 8; VocalTractLab's
+        // folds lengthen with f0 too): ELONGATION per octave above the body's low register, for two
+        // octaves. Without it a high note's stiffer, smaller swing left the voice ~5 dB quieter per
+        // octave than the parametric pulse, which keeps its size at any pitch.
+        let octaves = clamp(log2(f0 * size / F_NATURAL), 0.0, 2.0);
+        let len = LENGTH * size * (1.0 + ELONGATION * octaves);
         let sc = self.sm_coef;
         // a glottal stop presses the folds together and shuts the cartilaginous gap
         self.closure_sm += sc * (p.closure - self.closure_sm);

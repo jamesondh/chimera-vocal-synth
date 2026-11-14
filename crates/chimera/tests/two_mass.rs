@@ -229,3 +229,26 @@ fn the_folds_do_not_allocate() {
     let n = ALLOCS.with(|n| n.get()) - before;
     assert_eq!(n, 0, "rendering with the two-mass folds allocated {n} times");
 }
+
+#[test]
+fn the_folds_sing_about_as_loud_as_the_pulse() {
+    // Heard by the owner (2026-11-14): the folds were 5 dB (male) to 11 dB (female) softer than the
+    // parametric pulse at the same settings, which masked every comparison between them. The folds
+    // must not take the pulse's small-body cut (it answers to the pulse's brightness).
+    for (body, f0) in [(BODY_MALE, 110.0), (BODY_MALE, 220.0), (BODY_FEMALE, 220.0), (BODY_FEMALE, 440.0)] {
+        let level = |glottis: GlottisModel| {
+            let mut v = HumanVoice::new(48000.0, body, oversample_for(48000.0));
+            v.set_source(&SourcePatch { f0: Some(f0), tension: Some(0.55), glottis: Some(glottis), ..Default::default() });
+            v.set_gate(1.0);
+            let mut out = vec![0.0f32; 48000];
+            for c in out.chunks_mut(128) {
+                v.render(c);
+            }
+            let t = &out[24000..];
+            10.0 * (t.iter().map(|x| (*x as f64).powi(2)).sum::<f64>() / t.len() as f64).log10()
+        };
+        let d = level(GlottisModel::TwoMass) - level(GlottisModel::Parametric);
+        println!("{} at {f0} Hz: folds {d:+.1} dB against the pulse", body.name);
+        assert!(d.abs() < 3.0, "{} at {f0} Hz: folds {d:+.1} dB against the pulse", body.name);
+    }
+}

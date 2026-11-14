@@ -83,8 +83,9 @@ branching (nasal tract, sinuses, piriform fossae, two bronchi, vocal sacs, OEC).
   Tension sets the folds' rest gap (lax and apart = breathy, pushed together = pressed), so the
   open quotient and H1–H2 come out of the mechanics. The larynx height presses the folds above
   0.3 cm (fully by 1.3 cm), the source half of a raised-larynx voice, the tract being the other
-  half. Pitch perturbation is jitter, vibrato and drift; shimmer, fry, diplophonia and chaos are
-  the parametric source's only.
+  half. The folds lengthen with pitch (0.3 per octave, two octaves), and a make-up gain keeps
+  them within ±2 dB of the pulse's level. Pitch perturbation is jitter, vibrato and drift;
+  shimmer, fry, diplophonia and chaos are the parametric source's only.
 * **Ventricular folds**: second valve above the glottis, entrains at f0/2 for growl /
   kargyraa; static narrowing for harshness. **Epilarynx** narrowing for twang/ring.
 * **Syrinx (birds)**: two independent labial oscillators (Gardner–Mindlin normal form

@@ -141,6 +141,24 @@ pub const LARYNX_PRESS_FROM: f64 = 0.3;
 pub const LARYNX_PRESS_FULL: f64 = 1.3;
 pub const LARYNX_PRESS: f64 = 0.03;
 
+/// The two-mass folds' output against the parametric pulse's: their flow is smoother (less energy
+/// where the ear is most sensitive), so at the same settings they sounded 5 dB quieter (male); this
+/// centres them on the pulse (within ±2 dB, 110-440 Hz, tests/two_mass.rs).
+pub const FOLD_GAIN: f64 = 1.35;
+
+/// Smaller bodies radiate more high-frequency (derivative) energy at their higher f0 with the
+/// parametric pulse, so their output is turned down (a ramp from the adult female's scale up to
+/// the adult male's, so blended bodies have no step).
+fn pulse_body_gain(sc: f64) -> f64 {
+    if sc >= 1.0 {
+        1.0
+    } else if sc <= 0.9 {
+        0.55
+    } else {
+        0.55 + 0.45 * (sc - 0.9) / 0.1
+    }
+}
+
 pub const SCOPE_POINTS: usize = 256;
 const SCOPE_LEN: usize = 4096;
 
@@ -182,6 +200,8 @@ pub struct HumanVoice {
     pub folds: TriangularGlottis,
     /// the folds' rest gap set by the source (cm), before the larynx height presses them
     base_rest: f64,
+    /// extra output gain while the two-mass folds sing (see `FOLD_GAIN`)
+    folds_gain: f64,
     pub artic: ArticulatorBank,
     pub source: VoiceSource,
     dec: Decimator,
@@ -254,6 +274,7 @@ impl HumanVoice {
             glottis: crate::sources::glottis::ParametricGlottis::new(fs),
             folds: TriangularGlottis::new(fs),
             base_rest: 0.0,
+            folds_gain: FOLD_GAIN,
             artic: ArticulatorBank::new(),
             source: DEFAULT_SOURCE,
             dec: Decimator::new(m),
@@ -299,14 +320,7 @@ impl HumanVoice {
         v.airway.net.snap_to_targets();
         // smaller bodies radiate more high-frequency (derivative) energy at their higher f0
         // (a ramp from the adult female's scale up to the adult male's, so blended bodies have no step)
-        let sc = v.airway.body.scale;
-        v.output_gain *= if sc >= 1.0 {
-            1.0
-        } else if sc <= 0.9 {
-            0.55
-        } else {
-            0.55 + 0.45 * (sc - 0.9) / 0.1
-        };
+        v.output_gain *= pulse_body_gain(v.airway.body.scale);
         v.apply_source();
         v
     }
@@ -385,7 +399,9 @@ impl HumanVoice {
         // apart and never closing when lax, overlapping when pressed); shorter folds for smaller bodies
         self.base_rest = FOLD_REST_LAX - FOLD_REST_SPAN * s.tension;
         let sc = self.airway.body.scale;
-        self.folds.folds.size = js_max(0.4, sc * sc * sc * sc);
+        self.folds.folds.size = js_max(0.4, sc * sc);
+        // the folds don't brighten with a smaller body as the pulse does, so they keep its level
+        self.folds_gain = FOLD_GAIN / pulse_body_gain(sc);
     }
 
     /// Instantaneous f0 the active fold model is aiming at (Hz).
@@ -423,6 +439,7 @@ impl HumanVoice {
         let ph_first = self.airway.pharynx.first_node();
         let or_first = self.airway.oral.first_node();
         let two_mass = self.source.glottis == GlottisModel::TwoMass;
+        let out_gain = if two_mass { self.output_gain * self.folds_gain } else { self.output_gain };
         for o in out.iter_mut() {
             for _ in 0..m {
                 if self.ctrl_counter <= 0 {
@@ -438,7 +455,7 @@ impl HumanVoice {
                 let y = net.step();
                 if self.dec.push(y) {
                     // output sample
-                    let mut v = self.dec.value * self.output_gain;
+                    let mut v = self.dec.value * out_gain;
                     // DC blocker
                     let hp = v - self.dc_x + self.dc_coef * self.dc_y;
                     self.dc_x = v;
