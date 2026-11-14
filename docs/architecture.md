@@ -84,9 +84,11 @@ branching (nasal tract, sinuses, piriform fossae, two bronchi, vocal sacs, OEC).
   open quotient and H1–H2 come out of the mechanics. The larynx height presses the folds above
   0.3 cm (fully by 1.3 cm), the source half of a raised-larynx voice, the tract being the other
   half. The folds lengthen with pitch (0.3 per octave, two octaves), and a make-up gain keeps
-  them within ±2 dB of the pulse's level. Brightness shapes the folds' closure (the area the
-  airway sees is `peak · (A/peak)^γ`, γ 1.10 → 0.75 for brightness 0 → 1), so a bright guide
-  is bright with either source; female voices above ~350 Hz stay darker than the pulse. Pitch perturbation is jitter, vibrato and drift;
+  them within ±2 dB of the pulse's level. Brightness shapes the folds' closure (while they
+  close, the area the airway sees is `peak · (A/peak)^γ`, γ 1.10 → 0.75 for brightness 0 → 1),
+  so a bright guide is bright with either source; female voices above ~350 Hz stay darker than
+  the pulse. Pressing closes more abruptly too: a raised larynx and tension above 0.55 each
+  lower γ by up to half an octave. Whisper and abduction part the folds along their length. Pitch perturbation is jitter, vibrato and drift;
   shimmer, fry, diplophonia and chaos are the parametric source's only.
 * **Ventricular folds**: second valve above the glottis, entrains at f0/2 for growl /
   kargyraa; static narrowing for harshness. **Epilarynx** narrowing for twang/ring.

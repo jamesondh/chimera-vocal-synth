@@ -49,6 +49,10 @@ const F_NATURAL: f64 = 125.0;
 const CONVERGENCE: f64 = 0.004;
 /// fractional lengthening of the folds per octave of pitch
 const ELONGATION: f64 = 0.3;
+/// rest half-gap added when no vibration is asked for (whisper), cm at Q ≤ 1: well apart
+const WHISPER_REST: f64 = 0.1;
+/// how much of the posterior opening (abduction / length, cm) also parts the folds along their length
+const ABDUCT_REST: f64 = 0.5;
 /// deepest the folds can be pressed into each other at rest (cm, half-overlap, at Q ≤ 1)
 const MAX_PRESS: f64 = 0.016;
 
@@ -104,6 +108,8 @@ pub struct TriangularGlottis {
     cycle_q: f64,
     rng: Rng,
     voice_coef: f64,
+    /// size / Q of the last sample (the scale of the folds' gaps and swing)
+    gap_scale: f64,
     // vibratory area: this cycle's highest so far, and the last cycle's peak (closure shaping)
     area_hi: f64,
     area_peak: f64,
@@ -152,6 +158,7 @@ impl TriangularGlottis {
             cycle_q: 1.0,
             rng: Rng::new(777),
             voice_coef: 1.0 - exp(-TAU * 25.0 / fs),
+            gap_scale: 1.0,
             area_hi: 0.0,
             area_peak: 0.1,
             area_prev: 0.0,
@@ -225,7 +232,12 @@ impl TriangularGlottis {
         let sc = self.sm_coef;
         // a glottal stop presses the folds together and shuts the cartilaginous gap
         self.closure_sm += sc * (p.closure - self.closure_sm);
-        self.rest_sm += sc * (self.folds.rest - 0.12 * p.closure - self.rest_sm);
+        // whisper (no vibratory amplitude asked for) parts the folds outright; abduction (voiceless
+        // consonants, /h/) parts the vocal processes, which spreads along the folds as well as
+        // opening the posterior triangle (as VocalTractLab's rest displacements do for voiceless
+        // sounds). Without it a whisper at a firm breath vibrated fully (pressure 15 cmH2O).
+        let parted = if p.amplitude > 0.0 { 0.0 } else { WHISPER_REST };
+        self.rest_sm += sc * (self.folds.rest - 0.12 * p.closure + parted + ABDUCT_REST * p.abduction / len - self.rest_sm);
         // abduction (cm²) opens the posterior end: a triangle of that area, apex at the commissure
         self.post_sm += sc * (p.abduction / len - self.post_sm);
         self.chink_sm += sc * (p.chink - self.chink_sm);
@@ -239,6 +251,7 @@ impl TriangularGlottis {
         // smaller folds deflect less under the same pressure (force ∝ size², stiffness ∝ size), so
         // the gap scales with their size too
         let gap_scale = size / js_max(1.0, q);
+        self.gap_scale = gap_scale;
         // pressing saturates (a tanh knee at MAX_PRESS): overlap beyond it would hold the folds shut
         // at speaking pressures, a silence no singer produces by pressing (they push harder)
         let rest = if self.rest_sm < 0.0 { -MAX_PRESS * tanh(-self.rest_sm / MAX_PRESS) } else { self.rest_sm };
@@ -318,7 +331,8 @@ impl TriangularGlottis {
             self.x2_lo = self.x2;
             self.x2_hi = self.x2;
         }
-        self.voicing += self.voice_coef * (clamp(self.swing / 0.04, 0.0, 1.0) - self.voicing);
+        // the swing shrinks with stiffer, smaller folds as their gaps do: judged against the same scale
+        self.voicing += self.voice_coef * (clamp(self.swing / (0.04 * self.gap_scale), 0.0, 1.0) - self.voicing);
 
         // closure shape (brightness), scaled by the last cycle's peak so that it changes the pulse's
         // shape and not its size. The masses are a two-point sketch of a fold; how abruptly the real

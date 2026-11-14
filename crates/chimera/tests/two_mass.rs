@@ -311,3 +311,77 @@ fn the_folds_leave_no_denormal_states() {
         }
     }
 }
+
+/// Periodicity of the output's second half at lags 2.5-20 ms (normalised autocorrelation peak).
+fn periodicity(out: &[f32]) -> f64 {
+    let x: Vec<f64> = out[out.len() / 2..].iter().map(|s| *s as f64).collect();
+    let e: f64 = x.iter().map(|s| s * s).sum();
+    if e <= 0.0 {
+        return 0.0;
+    }
+    let mut best: f64 = 0.0;
+    for lag in 120..960 {
+        let r: f64 = (0..x.len() - lag).map(|i| x[i] * x[i + lag]).sum();
+        best = best.max(r / e);
+    }
+    best
+}
+
+#[test]
+fn a_whisper_stays_unvoiced_at_any_breath() {
+    // Review finding: the folds ignored `voiced: false`, so a whisper at a firm breath vibrated
+    // (pressure 15 cmH2O: voicing 1.00, a 110 Hz flow).
+    for pressure in [8.0, 15.0, 20.0] {
+        let mut v = HumanVoice::new(48000.0, BODY_MALE, oversample_for(48000.0));
+        v.set_source(&SourcePatch { f0: Some(110.0), pressure: Some(pressure), voiced: Some(false), glottis: Some(GlottisModel::TwoMass), ..Default::default() });
+        v.set_gate(1.0);
+        let mut out = vec![0.0f32; 48000];
+        for c in out.chunks_mut(128) {
+            v.render(c);
+        }
+        let p = periodicity(&out);
+        println!("whisper at {pressure} cmH2O: voicing {:.2}, periodicity {p:.2}", v.voicing());
+        assert!(v.voicing() < 0.1 && p < 0.5, "whisper at {pressure} cmH2O voiced: voicing {:.2}, periodicity {p:.2}", v.voicing());
+    }
+}
+
+#[test]
+fn a_voiceless_abduction_stops_the_folds() {
+    // The planner abducts the folds 0.22-0.36 cm² for voiceless consonants; held, the folds stop
+    // even at a firm breath, and start again when it ends.
+    use chimera::control::score::{ControlKey, Gesture, Targets};
+    let mut v = HumanVoice::new(48000.0, BODY_MALE, oversample_for(48000.0));
+    v.set_source(&SourcePatch { f0: Some(110.0), pressure: Some(15.0), glottis: Some(GlottisModel::TwoMass), ..Default::default() });
+    v.set_gate(1.0);
+    v.schedule(&[Gesture::new(0.5, 1.5, 0.03, 0.03, 1.0, Targets::default().with(ControlKey::ABDUCTION, 0.3))]);
+    let mut buf = [0.0f32; 128];
+    let mut at = |v: &mut HumanVoice, t: f64| {
+        while v.clock < t {
+            v.render(&mut buf);
+        }
+        v.voicing()
+    };
+    let before = at(&mut v, 0.45);
+    let during = at(&mut v, 1.45);
+    let after = at(&mut v, 2.2);
+    println!("voicing before / during / after the abduction: {before:.2} / {during:.2} / {after:.2}");
+    assert!(before > 0.7 && during < 0.1 && after > 0.7, "{before:.2} / {during:.2} / {after:.2}");
+}
+
+#[test]
+fn voicing_reads_full_at_high_pitch() {
+    // Review finding: the voicing telemetry judged the swing in absolute cm, which shrinks with
+    // pitch; a child at 600 Hz read 0.28 while vibrating fully (the scope locks above 0.2).
+    use chimera::anatomy::human::BODY_CHILD;
+    for (body, f0) in [(BODY_MALE, 110.0), (BODY_MALE, 440.0), (BODY_FEMALE, 880.0), (BODY_CHILD, 600.0)] {
+        let mut v = HumanVoice::new(48000.0, body, oversample_for(48000.0));
+        v.set_source(&SourcePatch { f0: Some(f0), glottis: Some(GlottisModel::TwoMass), ..Default::default() });
+        v.set_gate(1.0);
+        let mut out = vec![0.0f32; 48000];
+        for c in out.chunks_mut(128) {
+            v.render(c);
+        }
+        println!("{} at {f0} Hz: voicing {:.2}", body.name, v.voicing());
+        assert!(v.voicing() > 0.7, "{} at {f0} Hz: voicing {:.2}", body.name, v.voicing());
+    }
+}

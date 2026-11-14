@@ -149,7 +149,7 @@ pub const LARYNX_PRESS: f64 = 0.03;
 
 /// The two-mass folds' output against the parametric pulse's: their flow is smoother (less energy
 /// where the ear is most sensitive), so at the same settings they sounded 5 dB quieter (male); this
-/// centres them on the pulse (within ±2 dB, 110-440 Hz, tests/two_mass.rs).
+/// centres them on the pulse (measured within ±2 dB, 110-440 Hz; tests/two_mass.rs allows 3).
 pub const FOLD_GAIN: f64 = 1.35;
 
 /// Smaller bodies radiate more high-frequency (derivative) energy at their higher f0 with the
@@ -347,7 +347,13 @@ impl HumanVoice {
     }
 
     pub fn set_source(&mut self, values: &SourcePatch) {
+        let was = self.source.glottis;
         values.apply(&mut self.source);
+        if self.source.glottis == GlottisModel::TwoMass && was != GlottisModel::TwoMass {
+            // start the folds afresh: what they held when last used (pitch trim, peak, smoothed
+            // controls) is stale. Switching mid-note still steps the level; nothing switches live.
+            self.folds = TriangularGlottis::new(self.fs);
+        }
         self.apply_source();
     }
 

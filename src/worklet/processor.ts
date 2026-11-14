@@ -122,7 +122,7 @@ class ChimeraProcessor extends AudioWorkletProcessor {
         const v = this.values();
         for (const [k, val] of Object.entries(m.values)) {
           const i = SOURCE_KEYS.indexOf(k);
-          if (i >= 0) v[i] = typeof val === "boolean" ? (val ? 1 : 0) : typeof val === "string" ? (val === "twoMass" ? 1 : 0) : (val as number);
+          if (i >= 0) v[i] = typeof val === "boolean" ? (val ? 1 : 0) : typeof val === "string" ? (val === "twoMass" ? 1 : val === "parametric" ? 0 : NaN) : (val as number);
         }
         x.engine_set_source(h);
         break;
