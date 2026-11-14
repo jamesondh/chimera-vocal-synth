@@ -446,6 +446,9 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             gestures.push(Gesture::new(t0, t1, r, r, 6.0, one(ControlKey::F0, s.f0.unwrap())).label("pitch"));
         }
     }
+    if rate > 1.0 {
+        shorten_timing(&mut gestures, rate);
+    }
     Plan { gestures, segments: planned, end }
 }
 
@@ -467,6 +470,17 @@ fn palatal_body(def: &PhonemeDef, body: BodyMix) -> Option<ArticPatch> {
         }
     }
     (!out.is_empty() && def.place != "palatal" && def.manner != Manner::Glottal).then_some(out)
+}
+
+/// Fast speech: segments shrink by the rate, so the gestures' ramps and release holds must shrink
+/// too. With fixed ones, a stop's closure outlasted the short vowel after it: at rate 1.8 the /ɑ/
+/// of "ɑtɑtɑ" never opened (tests/fast_speech.rs). Pitch and breath gestures keep their ramps.
+fn shorten_timing(gestures: &mut [Gesture], rate: f64) {
+    for g in gestures.iter_mut().filter(|g| !g.targets.has(ControlKey::F0) && !g.targets.has(ControlKey::BREATH)) {
+        g.ramp_in /= rate;
+        g.ramp_out /= rate;
+        g.release_hold = g.release_hold.map(|h| h / rate);
+    }
 }
 
 /// Front-to-back order of the oral places of articulation.
