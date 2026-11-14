@@ -19,7 +19,7 @@ use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::http::{Request, Response};
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
-use crate::bridge::{Bridge, EditAction, GripAction, GuiHost, ParamHost, WINDOW_DEFAULT, WINDOW_MAX, WINDOW_MIN, page_zoom};
+use crate::bridge::{Bridge, EditAction, GripAction, GuiHost, ParamHost, WINDOW_DEFAULT, WINDOW_MAX, WINDOW_MIN};
 use crate::core::Shared;
 use crate::ChimeraParams;
 
@@ -204,8 +204,7 @@ fn build(view: platform::View, size: (u32, u32), bridge: &Arc<Bridge>, context: 
     }));
     match built {
         Ok(Ok(webview)) => {
-            platform::after_build(&webview);
-            let _ = webview.zoom(page_zoom(size));
+            platform::after_build(&webview, size);
             Some(webview)
         }
         Ok(Err(err)) => {

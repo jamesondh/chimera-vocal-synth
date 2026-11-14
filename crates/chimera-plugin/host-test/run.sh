@@ -21,11 +21,11 @@ esac
 # shellcheck source=/dev/null
 source "$here/$system/host-ui.sh"
 
-# Where the tabs are in the page, from screenshots of it in WKWebView. The tabs move with the zoom:
-# Beatbox's by little, so this suits any window, and Play's by more, so this is for the size the grip
-# leaves it, 924 x 564. The page zooms out below LAYOUT_MIN (page_zoom in src/bridge.rs).
-PLAY_X=453
-BEATBOX_X=612
+# Where the tabs' middles are in the page: from its right edge, as the top bar keeps them there, and
+# from its top (measured in the UI harness). The page is scaled below LAYOUT_MIN (page_zoom in
+# src/bridge.rs), and since it's drawn scaled, text included, these hold at any window size.
+PLAY_FROM_RIGHT=811
+BEATBOX_FROM_RIGHT=656
 TAB_Y=26
 LAYOUT_W=1120
 LAYOUT_H=800
@@ -62,12 +62,12 @@ wait_for_nag() {
   echo "::warning::REAPER's nag didn't come and go"
 }
 
-# A tab in the page, wherever the window is and whatever its zoom: x in the page, window's x y w h
+# A tab in the page, wherever the window is and whatever its zoom: x from the page's right edge, window's x y w h
 click_tab() {
   local zoom view_h tab_x tab_y
   view_h=$(($5 - CHROME))
   zoom=$(awk -v w="$4" -v h="$view_h" -v lw="$LAYOUT_W" -v lh="$LAYOUT_H" 'BEGIN { z = w / lw; if (h / lh < z) z = h / lh; if (z > 1) z = 1; print z }')
-  tab_x=$(awk -v x="$2" -v z="$zoom" -v t="$1" 'BEGIN { printf "%d", x + z * t }')
+  tab_x=$(awk -v x="$2" -v w="$4" -v z="$zoom" -v t="$1" 'BEGIN { printf "%d", x + w - z * t }')
   tab_y=$(awk -v y="$3" -v z="$zoom" -v c="$CHROME" -v t="$TAB_Y" 'BEGIN { printf "%d", y + c + z * t }')
   echo "zoom $zoom, clicking at $tab_x,$tab_y"
   click "$tab_x" "$tab_y"
@@ -85,7 +85,7 @@ editor() { # format
     echo "::warning::$fmt shows REAPER's generic sliders, not the plugin's view"
     return 0
   fi
-  click_tab "$BEATBOX_X" "$x" "$y" "$w" "$h"
+  click_tab "$BEATBOX_FROM_RIGHT" "$x" "$y" "$w" "$h"
   sleep 3
   shot "$fmt-beatbox"
   gx=$((x + w - GRIP_INSET))
@@ -134,7 +134,7 @@ run_reaper() { # formats, and a project to reopen instead of starting afresh
         shot-*) shot "${step#shot-}" ;;
         click-play-*)
           read -r bx by bw bh <<<"$(bounds)" || true
-          case "${bh:-}" in '' | *[!0-9]*) echo "no window to click" ;; *) click_tab "$PLAY_X" "$bx" "$by" "$bw" "$bh" ;; esac
+          case "${bh:-}" in '' | *[!0-9]*) echo "no window to click" ;; *) click_tab "$PLAY_FROM_RIGHT" "$bx" "$by" "$bw" "$bh" ;; esac
           ;;
         reopened-*)
           bounds >"$out/$step.txt"

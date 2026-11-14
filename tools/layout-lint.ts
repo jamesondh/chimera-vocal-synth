@@ -51,6 +51,10 @@ const MODES = ["play", "speak", "sing", "bestiary", "beatbox"] as const;
 /** with `--plugin` and `--url` of the UI harness: the window sizes and modes the plugin has */
 const PLUGIN_VIEWPORTS: { w: number; h: number }[] = [
   { w: 1120, h: 800 }, // LAYOUT_MIN in crates/chimera-plugin/src/bridge.rs: a smaller window is this, zoomed out
+  // a window smaller than that one way only is laid out larger the other way, scaled: these are the first
+  // size with the grip dragged up to the least height (1280 x 500) or in to the least width (720 x 800)
+  { w: 2048, h: 800 },
+  { w: 1120, h: 1244 },
   { w: 1280, h: 800 }, // the first size
   { w: 1440, h: 900 },
   { w: 1920, h: 1080 },

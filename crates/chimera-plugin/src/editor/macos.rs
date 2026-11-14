@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use nih_plug::prelude::ParentWindowHandle;
 use objc2::runtime::AnyObject;
-use objc2::{class, msg_send};
+use objc2::{class, msg_send, sel};
 use objc2_core_foundation::{CGPoint, CGRect};
 use raw_window_handle::{AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle};
 use wry::{WebView, WebViewExtMacOS};
@@ -70,11 +70,43 @@ pub fn fit_screen((width, height): (u32, u32), _scale: f64) -> (u32, u32) {
     (width.min(room.size.width as u32).max(1), height.min((room.size.height - HOST_CHROME).max(0.0) as u32).max(1))
 }
 
-/// wry fixes a child's size; this one follows the host's view whenever that changes.
-pub fn after_build(webview: &WebView) {
+/// `_WKLayoutModeDynamicSizeComputedFromViewScale`: the page is laid out at the view's size divided by
+/// the view scale, and drawn scaled.
+const LAYOUT_FROM_VIEW_SCALE: usize = 2;
+
+/// Whether this WKWebView has the view scale (WebKit's, since macOS 10.11, but not public).
+fn has_view_scale(wk: &AnyObject) -> bool {
+    // SAFETY: `respondsToSelector:` on an NSObject
+    unsafe { msg_send![wk, respondsToSelector: sel!(_setViewScale:)] && msg_send![wk, respondsToSelector: sel!(_setLayoutMode:)] }
+}
+
+/// wry fixes a child's size; this one follows the host's view whenever that changes. The page fits a
+/// smaller window by the view scale, not `pageZoom`: under a page zoom, WebKit keeps text of 9 px and
+/// more at 9 px or larger (its "smart minimum" font size), so at the smallest windows the labels outgrew
+/// their buttons and the page outgrew the window. A view scale scales the drawing, so text shrinks with
+/// everything else.
+pub fn after_build(webview: &WebView, size: (u32, u32)) {
     let wk = webview.webview();
     // SAFETY: `setAutoresizingMask:` takes an NSUInteger, on the main thread we're on
     let _: () = unsafe { msg_send![&*wk, setAutoresizingMask: FOLLOW_SUPERVIEW] };
+    if has_view_scale(&wk) {
+        // SAFETY: an `_WKLayoutMode` (NSUInteger), on the main thread
+        let _: () = unsafe { msg_send![&*wk, _setLayoutMode: LAYOUT_FROM_VIEW_SCALE] };
+    }
+    fit(webview, size);
+}
+
+/// The page's scale for a view of this size.
+fn fit(webview: &WebView, size: (u32, u32)) {
+    let wk = webview.webview();
+    if has_view_scale(&wk) {
+        // WebKit raises an exception for a scale that isn't positive, which would take the host down
+        let scale: f64 = page_zoom(size).clamp(0.05, 1.0);
+        // SAFETY: a CGFloat in range, on the main thread
+        let _: () = unsafe { msg_send![&*wk, _setViewScale: scale] };
+    } else {
+        let _ = webview.zoom(page_zoom(size));
+    }
 }
 
 /// A clipboard shortcut, as the Edit menu would send it: to the webview, which acts on the field with
@@ -93,9 +125,9 @@ pub fn edit(webview: &WebView, action: EditAction) {
     }
 }
 
-/// The view changed size: the webview follows it by itself, and the page's zoom follows here.
+/// The view changed size: the webview follows it by itself, and the page's scale follows here.
 pub fn follow(webview: &WebView, _view: View, size: (u32, u32), _scale: f64) {
-    let _ = webview.zoom(page_zoom(size));
+    fit(webview, size);
 }
 
 /// macOS keeps the page's scale itself.

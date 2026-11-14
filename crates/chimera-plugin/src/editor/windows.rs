@@ -83,7 +83,9 @@ pub fn fit_screen((width, height): (u32, u32), scale: f64) -> (u32, u32) {
     (width.min(room_w.max(0.0) as u32).max(1), height.min((room_h - HOST_CHROME).max(0.0) as u32).max(1))
 }
 
-pub fn after_build(_webview: &WebView) {}
+pub fn after_build(webview: &WebView, size: (u32, u32)) {
+    let _ = webview.zoom(page_zoom(size));
+}
 
 /// WebView2 takes Ctrl+C and the rest itself, and the page only asks on macOS.
 pub fn edit(_webview: &WebView, _action: EditAction) {}

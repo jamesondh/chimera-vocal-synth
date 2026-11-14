@@ -252,13 +252,23 @@ included: a window hanging off the screen would have its grip there too, with no
 size is left alone, so a project opened on a larger screen gets its size back.
 
 - **Larger than the layout needs:** the screens take the room, as on the website.
-- **Smaller than `LAYOUT_MIN` (1120 x 800):** the page is zoomed out (`WKWebView.pageZoom`) until it
-  fits, so the layout stays the same, smaller. The website's own answer to a narrow window is a stacked
-  page that scrolls, and in a plugin what's below the fold might as well not be there. The layout lint's
-  `--plugin` mode fails if the page scrolls at `LAYOUT_MIN`.
+- **Smaller than `LAYOUT_MIN` (1120 x 800):** the page is scaled down until it fits, so the layout stays
+  the same, smaller. The website's own answer to a narrow window is a stacked page that scrolls, and in a
+  plugin what's below the fold might as well not be there. So the page is always laid out at least
+  `LAYOUT_MIN` in both directions, and the layout lint's `--plugin` mode fails if it scrolls at
+  `LAYOUT_MIN` or at the shapes the grip makes when it's dragged one way only (2048 x 800, 1120 x 1244).
+- **On macOS that's WKWebView's view scale, not its `pageZoom`** (`_setViewScale:` with the layout mode
+  `_WKLayoutModeDynamicSizeComputedFromViewScale`, WebKit's since macOS 10.11 though not public; without
+  them it falls back to `pageZoom`). Under a page zoom WebKit keeps any text of 9 px or more at 9 px or
+  larger, its "smart minimum" font size, so below about a 0.75 zoom the labels outgrew their buttons and
+  the page outgrew the window (seen in Bitwig, and in the REAPER test's own screenshots). WebKit's trunk
+  has since scaled that minimum by the zoom, which shipping macOS doesn't have yet. A view scale scales the
+  drawing instead, so text shrinks with everything else. On Windows WebView2's zoom does it; Chromium's
+  minimum is 6 px, so only text under 9.6 px would stop shrinking, and it hasn't been looked at there.
 - **The page has no scrollbar.** With a mouse, macOS shows classic scrollbars, which would sit beside the
-  grip. The wheel still scrolls: on a display that isn't Retina, text shrinks less than the rest of the
-  page, so around a 0.7 zoom Beatbox's keys run off the bottom.
+  grip.
+- **Known limit:** at the tallest, narrowest windows (720 x 2160) the 2D tract's lip-area label runs off
+  the side of its canvas.
 
 nih-plug answers `can_resize` with false, so a host isn't meant to drag the border. Patching that means
 forking nih-plug, so the window has its own grip in the corner, as many plugins do. It sits 6 px in,
