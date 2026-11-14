@@ -1,7 +1,7 @@
 //! Real-time factor of the voices (single core): `cargo run --release -p chimera --example bench`.
 use chimera::anatomy::human::BODY_MALE;
 use chimera::control::score::Gesture;
-use chimera::voice::human_voice::{HumanVoice, SourcePatch};
+use chimera::voice::human_voice::{GlottisModel, HumanVoice, SourcePatch};
 use std::time::Instant;
 
 fn main() {
@@ -9,10 +9,10 @@ fn main() {
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/tests/golden/voice.json")).unwrap()).unwrap();
     let s = v.as_array().unwrap().iter().find(|s| s["name"] == "speech-male").unwrap();
     let gs: Vec<Gesture> = serde_json::from_value(s["ops"][0]["gestures"].clone()).unwrap();
-    for os in [2usize, 1] {
+    for (os, glottis) in [(2usize, GlottisModel::Parametric), (1, GlottisModel::Parametric), (2, GlottisModel::TwoMass)] {
         let fs = 48000.0;
         let mut voice = HumanVoice::new(fs, BODY_MALE, os);
-        voice.set_source(&SourcePatch::f0(110.0));
+        voice.set_source(&SourcePatch { f0: Some(110.0), glottis: Some(glottis), ..Default::default() });
         let mut g2 = gs.clone();
         for g in g2.iter_mut() {
             g.t0 += 0.03;
@@ -28,6 +28,7 @@ fn main() {
             voice.render(&mut out);
         }
         let dt = t0.elapsed().as_secs_f64();
-        println!("human male os={os}: {:.1}% of one core in real time ({:.2} ms per 128-sample block)", 100.0 * dt / secs, 1000.0 * dt / (n / 128) as f64);
+        let name = if glottis == GlottisModel::TwoMass { ", two-mass folds" } else { "" };
+        println!("human male os={os}{name}: {:.1}% of one core in real time ({:.2} ms per 128-sample block)", 100.0 * dt / secs, 1000.0 * dt / (n / 128) as f64);
     }
 }

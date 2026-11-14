@@ -10,6 +10,19 @@ use crate::control::articulators::ArticulatorBank;
 use crate::control::score::{Blended, ControlKey, Gesture, GestureScore, Label, N_CONTROL};
 use crate::math::{PI, clamp, exp, js_max, js_min, js_sign, js_trunc_i32, pow, sqrt, tanh};
 use crate::physics::CM_H2O;
+use crate::sources::two_mass::TriangularGlottis;
+
+/// Which vocal-fold model makes the voice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GlottisModel {
+    /// a drawn area pulse (`sources::glottis`): the classic CHIMERA sound
+    #[default]
+    Parametric,
+    /// self-oscillating folds (`sources::two_mass`): pressed, normal and breathy voice come from
+    /// how the folds are set, and a raised larynx presses them
+    TwoMass,
+}
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -40,13 +53,16 @@ pub struct VoiceSource {
     /// the model can, so there is little room to darken and a lot to brighten.
     #[serde(default = "default_brightness")]
     pub brightness: f64,
+    /// the vocal-fold model
+    #[serde(default)]
+    pub glottis: GlottisModel,
 }
 
 fn default_brightness() -> f64 {
     DEFAULT_SOURCE.brightness
 }
 
-pub const DEFAULT_SOURCE: VoiceSource = VoiceSource { f0: 110.0, glide: 0.06, pressure: 8.0, breathiness: 0.15, tension: 0.5, fry: 0.0, roughness: 0.1, vibrato_depth: 0.0, vibrato_rate: 6.0, drift: 5.0, voiced: true, brightness: 0.25 };
+pub const DEFAULT_SOURCE: VoiceSource = VoiceSource { f0: 110.0, glide: 0.06, pressure: 8.0, breathiness: 0.15, tension: 0.5, fry: 0.0, roughness: 0.1, vibrato_depth: 0.0, vibrato_rate: 6.0, drift: 5.0, voiced: true, brightness: 0.25, glottis: GlottisModel::Parametric };
 
 /// `Partial<VoiceSource>`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -76,6 +92,8 @@ pub struct SourcePatch {
     pub voiced: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub brightness: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub glottis: Option<GlottisModel>,
 }
 
 impl SourcePatch {
@@ -87,13 +105,13 @@ impl SourcePatch {
         macro_rules! set {
             ($($f:ident),*) => { $( if let Some(x) = self.$f { s.$f = x; } )* };
         }
-        set!(f0, glide, pressure, breathiness, tension, fry, roughness, vibrato_depth, vibrato_rate, drift, voiced, brightness);
+        set!(f0, glide, pressure, breathiness, tension, fry, roughness, vibrato_depth, vibrato_rate, drift, voiced, brightness, glottis);
     }
     pub fn merge(&mut self, o: &SourcePatch) {
         macro_rules! set {
             ($($f:ident),*) => { $( if o.$f.is_some() { self.$f = o.$f; } )* };
         }
-        set!(f0, glide, pressure, breathiness, tension, fry, roughness, vibrato_depth, vibrato_rate, drift, voiced, brightness);
+        set!(f0, glide, pressure, breathiness, tension, fry, roughness, vibrato_depth, vibrato_rate, drift, voiced, brightness, glottis);
     }
     pub fn from_source(s: &VoiceSource) -> Self {
         SourcePatch {
@@ -109,9 +127,19 @@ impl SourcePatch {
             drift: Some(s.drift),
             voiced: Some(s.voiced),
             brightness: Some(s.brightness),
+            glottis: Some(s.glottis),
         }
     }
 }
+
+/// Two-mass folds' rest gap (cm) at tension 0, and how much full tension closes it.
+pub const FOLD_REST_LAX: f64 = 0.02;
+pub const FOLD_REST_SPAN: f64 = 0.04;
+/// Larynx height (template cm, + raised) where it starts to press the folds, where it presses them
+/// fully, and how much (cm of rest gap) it presses then.
+pub const LARYNX_PRESS_FROM: f64 = 0.3;
+pub const LARYNX_PRESS_FULL: f64 = 1.3;
+pub const LARYNX_PRESS: f64 = 0.03;
 
 pub const SCOPE_POINTS: usize = 256;
 const SCOPE_LEN: usize = 4096;
@@ -150,6 +178,10 @@ pub struct HumanVoice {
     pub fs: f64,
     pub airway: HumanAirway,
     pub glottis: crate::sources::glottis::ParametricGlottis,
+    /// the two-mass folds, used when `source.glottis` is `TwoMass` (they read `glottis.params`)
+    pub folds: TriangularGlottis,
+    /// the folds' rest gap set by the source (cm), before the larynx height presses them
+    base_rest: f64,
     pub artic: ArticulatorBank,
     pub source: VoiceSource,
     dec: Decimator,
@@ -220,6 +252,8 @@ impl HumanVoice {
             fs,
             airway,
             glottis: crate::sources::glottis::ParametricGlottis::new(fs),
+            folds: TriangularGlottis::new(fs),
+            base_rest: 0.0,
             artic: ArticulatorBank::new(),
             source: DEFAULT_SOURCE,
             dec: Decimator::new(m),
@@ -347,6 +381,34 @@ impl HumanVoice {
         g.vibrato_rate = s.vibrato_rate;
         g.drift = s.drift;
         g.effort = clamp((s.pressure.abs() - 3.0) / 10.0, 0.0, 1.0);
+        // the two-mass folds: tension sets how hard they are pressed together (rest gap, cm:
+        // apart and never closing when lax, overlapping when pressed); shorter folds for smaller bodies
+        self.base_rest = FOLD_REST_LAX - FOLD_REST_SPAN * s.tension;
+        let sc = self.airway.body.scale;
+        self.folds.folds.size = js_max(0.4, sc * sc * sc * sc);
+    }
+
+    /// Instantaneous f0 the active fold model is aiming at (Hz).
+    pub fn f0_now(&self) -> f64 {
+        match self.source.glottis {
+            GlottisModel::Parametric => self.glottis.f0_now,
+            GlottisModel::TwoMass => self.folds.f0_now,
+        }
+    }
+
+    /// How strongly the folds are vibrating, 0..1.
+    pub fn voicing(&self) -> f64 {
+        match self.source.glottis {
+            GlottisModel::Parametric => self.glottis.voicing,
+            GlottisModel::TwoMass => self.folds.voicing,
+        }
+    }
+
+    fn cycle_phase(&self) -> f64 {
+        match self.source.glottis {
+            GlottisModel::Parametric => self.glottis.cycle_phase(),
+            GlottisModel::TwoMass => self.folds.cycle_phase(),
+        }
     }
 
     /// Render `out.len()` output samples.
@@ -360,6 +422,7 @@ impl HumanVoice {
         let n_or = self.airway.n_or;
         let ph_first = self.airway.pharynx.first_node();
         let or_first = self.airway.oral.first_node();
+        let two_mass = self.source.glottis == GlottisModel::TwoMass;
         for o in out.iter_mut() {
             for _ in 0..m {
                 if self.ctrl_counter <= 0 {
@@ -369,7 +432,8 @@ impl HumanVoice {
                 let net = &mut self.airway.net;
                 self.p_lung_now += self.p_lung_step;
                 net.set_fixed_pressure(lungs, self.p_lung_now);
-                let a = self.glottis.next(net.p[sub_node] - net.p[supra]);
+                let dp = net.p[sub_node] - net.p[supra];
+                let a = if two_mass { self.folds.next(dp, &self.glottis.params) } else { self.glottis.next(dp) };
                 net.set_port_area(gp, a);
                 let y = net.step();
                 if self.dec.push(y) {
@@ -405,7 +469,7 @@ impl HumanVoice {
                     // glottal scope at output rate
                     self.scope_area[self.scope_pos] = a as f32;
                     self.scope_flow[self.scope_pos] = net.u[gp] as f32;
-                    let ph = self.glottis.cycle_phase();
+                    let ph = self.cycle_phase();
                     if ph < self.last_phase {
                         self.cycle_starts[self.cycle_idx & 7] = self.scope_pos;
                         self.cycle_idx += 1;
@@ -518,6 +582,13 @@ impl HumanVoice {
         let g = js_max(0.002, if self.score_f0.is_some() { 0.03 } else { self.source.glide });
         self.f0 *= pow(f0_target / self.f0, 1.0 - exp(-dt / g));
         self.glottis.params.f0 = self.f0;
+        // a raised larynx presses the folds together (Laver's "raised larynx voice"; Sundberg &
+        // Askenfelt 1983, Shipp 1987): above LARYNX_PRESS_FROM cm the rest gap closes, fully by
+        // LARYNX_PRESS_FULL; a lowered larynx slackens them a little
+        let lar = self.artic.x.larynx;
+        let press = clamp((lar - LARYNX_PRESS_FROM) / (LARYNX_PRESS_FULL - LARYNX_PRESS_FROM), 0.0, 1.0)
+            - 0.3 * clamp((-lar - LARYNX_PRESS_FROM) / (LARYNX_PRESS_FULL - LARYNX_PRESS_FROM), 0.0, 1.0);
+        self.folds.folds.rest = self.base_rest - LARYNX_PRESS * press;
         // smoothed mean flow per tract node (for particle speeds)
         let a = 1.0 - exp(-dt / 0.03);
         let n_ph = self.airway.n_ph;
@@ -584,7 +655,7 @@ impl HumanVoice {
         // phase-locked glottal scope: two most recent complete cycles
         let mut start = (self.scope_pos + SCOPE_LEN - 1024) % SCOPE_LEN;
         let mut len = 1024usize;
-        if self.cycle_idx >= 3 && self.glottis.voicing > 0.2 {
+        if self.cycle_idx >= 3 && self.voicing() > 0.2 {
             let c2 = self.cycle_starts[(self.cycle_idx - 3) & 7];
             let c0 = self.cycle_starts[(self.cycle_idx - 1) & 7];
             let span = (c0 + SCOPE_LEN - c2) % SCOPE_LEN;
@@ -620,8 +691,8 @@ impl HumanVoice {
         out.flow.clear();
         out.flow.extend(self.flow_sm.iter().map(|x| *x as f32));
         out.velum_port = self.airway.frame.as_ref().map_or(0.0, |f| f.velum_port);
-        out.f0 = self.glottis.f0_now;
-        out.voicing = self.glottis.voicing;
+        out.f0 = self.f0_now();
+        out.voicing = self.voicing();
         out.p_lung = self.p_lung_now / CM_H2O; // the pressure applied, not the ramp's target
         out.out_rms = out_rms;
         out.noise_level = noise_level;
