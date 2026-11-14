@@ -75,8 +75,21 @@ branching (nasal tract, sinuses, piriform fossae, two bronchi, vocal sacs, OEC).
   oral closure all emerge from the tract. Perturbations: jitter, shimmer, vibrato with
   drift, 1/f flutter, diplophonia/period doubling, vocal fry (low f0, short OQ, double
   pulses), falsetto (sinusoidal, incomplete closure).
-* **Two-mass vocal folds (advanced)**: Ishizaka–Flanagan with collision; self-oscillating;
-  pitch tracked by a feedback controller on the tension factor Q.
+* **Two-mass vocal folds (opt-in: source `glottis: "twoMass"`)** (`sources/two_mass.rs`):
+  Ishizaka–Flanagan masses with collision, driven each sample by the airway's transglottal
+  pressure (Steinecke–Herzel flow separation), on a triangular glottis as in VocalTractLab's
+  `TriangularGlottis`: abduction opens the posterior end, so the folds can close in front and
+  leak behind. Self-oscillating; pitch held by a per-cycle feedback loop on the tension factor Q.
+  Tension sets the folds' rest gap (lax and apart = breathy, pushed together = pressed), so the
+  open quotient and H1–H2 come out of the mechanics. The larynx height presses the folds above
+  0.3 cm (fully by 1.3 cm), the source half of a raised-larynx voice, the tract being the other
+  half. The folds lengthen with pitch (0.3 per octave, two octaves), and a make-up gain keeps
+  them within ±2 dB of the pulse's level. Brightness shapes the folds' closure (while they
+  close, the area the airway sees is `peak · (A/peak)^γ`, γ 1.10 → 0.75 for brightness 0 → 1),
+  so a bright guide is bright with either source; female voices above ~350 Hz stay darker than
+  the pulse. Pressing closes more abruptly too: a raised larynx and tension above 0.55 each
+  lower γ by up to half an octave. Whisper and abduction part the folds along their length. Pitch perturbation is jitter, vibrato and drift;
+  shimmer, fry, diplophonia and chaos are the parametric source's only.
 * **Ventricular folds**: second valve above the glottis, entrains at f0/2 for growl /
   kargyraa; static narrowing for harshness. **Epilarynx** narrowing for twang/ring.
 * **Syrinx (birds)**: two independent labial oscillators (Gardner–Mindlin normal form
@@ -192,6 +205,13 @@ and the commit history actually cite, and says where they cite nothing.
   posterior glottal chink that stays open through closure follows Södersten & Lindestad (1990)
   (experiment 3); the 6 Hz default vibrato rate follows Prame (1994) (experiment 9). The log
   cites more papers for experiments that were reverted; those changes aren't in the engine.
+- **Two-mass vocal folds** (`sources/two_mass.rs`): the masses, springs and damping ratios are
+  Ishizaka & Flanagan's (1972, Bell Syst. Tech. J. 51); the pressures on the masses follow
+  Steinecke & Herzel (1995, JASA 97); the triangular glottis follows Birkholz, Kröger &
+  Neuschaefer-Rube (2011, "Synthesis of breathy, normal, and pressed phonation using a two-mass
+  model with a triangular glottis", Interspeech), as in VocalTractLab. Written from the papers'
+  descriptions: no VocalTractLab code is used. The larynx-to-adduction coupling's direction
+  follows Sundberg & Askenfelt (1983); its size is CHIMERA's own.
 - **Pronunciation**: the CMU Pronouncing Dictionary (bundled, BSD licence).
 
 ### Standard methods
@@ -218,8 +238,7 @@ Rayleigh–Plesset oscillators behind some creature sounds.
   the group or its work, so we can't say CHIMERA builds on it. Physical vocal-tract models share
   a lot of ground, so the resemblance may not point to a borrowing.
 
-The two-mass (Ishizaka–Flanagan) folds named in section 2 were designed but never built, so they
-aren't a source of the current sound.
+The two-mass folds of section 2 are opt-in; the default sound is still the parametric pulse.
 
 ### Data and tools that measure the voice
 
