@@ -59,9 +59,9 @@ pub struct FoldSetting {
     pub rest: f64,
     /// length scale of the folds (1 = adult male template)
     pub size: f64,
-    /// closure shape: the glottal area is passed out as `peak · (A / peak)^closure`. 1 leaves the
-    /// masses' own closure; below 1 the area falls to zero more steeply at the end of the closing
-    /// phase (an abrupt closure: a brighter voice), above 1 more gently (a darker one).
+    /// closure shape: while the glottis closes, its area is passed out as `peak · (A / peak)^closure`.
+    /// 1 leaves the masses' own closure; below 1 the area falls to zero more steeply at the end of
+    /// the closing phase (an abrupt closure: a brighter voice), above 1 more gently (a darker one).
     pub closure: f64,
 }
 
@@ -107,6 +107,7 @@ pub struct TriangularGlottis {
     // vibratory area: this cycle's highest so far, and the last cycle's peak (closure shaping)
     area_hi: f64,
     area_peak: f64,
+    area_prev: f64,
     /// open fraction of the last cycle (telemetry, tests)
     pub open_quotient: f64,
     open_count: f64,
@@ -153,6 +154,7 @@ impl TriangularGlottis {
             voice_coef: 1.0 - exp(-TAU * 25.0 / fs),
             area_hi: 0.0,
             area_peak: 0.1,
+            area_prev: 0.0,
             open_quotient: 0.0,
             open_count: 0.0,
             area: 0.0,
@@ -299,8 +301,12 @@ impl TriangularGlottis {
         // pressures on the masses use their own areas.
         let mut am = js_max(0.0, amin);
         self.area_hi = js_max(self.area_hi, am);
+        let closing = am < self.area_prev;
+        self.area_prev = am;
         let g = self.folds.closure;
-        if g != 1.0 && am > 0.0 {
+        // closing phase only: an abrupt closure is what brightens a voice; shaping the opening too
+        // fattened the pulse and raised H1-H2, hiding the pressed folds' lower H1-H2
+        if g != 1.0 && am > 0.0 && closing {
             let peak = js_max(self.area_peak, 1e-4);
             am = if am < peak { peak * pow(am / peak, g) } else { am };
         }

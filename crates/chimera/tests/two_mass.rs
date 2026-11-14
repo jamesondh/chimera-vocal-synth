@@ -174,6 +174,8 @@ fn a_raised_larynx_presses_the_folds() {
         assert!(high.rms > 0.01, "{who}: raised larynx stopped the folds");
         assert!(high.oq < mid.oq - 0.03 && low.oq > mid.oq, "{who}: open quotient");
         assert!(high.h1h2 < mid.h1h2 - 1.0, "{who}: H1-H2");
+        // and the pressed folds close more abruptly: a brighter voice (Gauffin & Sundberg 1989)
+        assert!(high.hf > mid.hf + 0.5, "{who}: a raised larynx didn't brighten the folds ({:.1} against {:.1} dB)", high.hf, mid.hf);
     }
 }
 

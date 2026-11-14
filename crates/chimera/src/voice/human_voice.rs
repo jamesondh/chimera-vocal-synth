@@ -138,6 +138,9 @@ pub const FOLD_REST_SPAN: f64 = 0.04;
 /// How strongly brightness shapes the two-mass folds' closure (octaves of closure exponent per unit
 /// of brightness): brightness 1 closes with exponent 0.75, 0 with 1.10.
 pub const FOLD_BRIGHT: f64 = 0.553;
+/// How much fully pressed folds (larynx at `LARYNX_PRESS_FULL`, or tension 1) sharpen their
+/// closure, in octaves of the closure exponent: pressed voice closes abruptly.
+pub const FOLD_PRESS_SHARP: f64 = 0.5;
 /// Larynx height (template cm, + raised) where it starts to press the folds, where it presses them
 /// fully, and how much (cm of rest gap) it presses then.
 pub const LARYNX_PRESS_FROM: f64 = 0.3;
@@ -203,6 +206,8 @@ pub struct HumanVoice {
     pub folds: TriangularGlottis,
     /// the folds' rest gap set by the source (cm), before the larynx height presses them
     base_rest: f64,
+    /// the folds' closure exponent set by the source (brightness, tension), before the larynx
+    fold_closure: f64,
     /// extra output gain while the two-mass folds sing (see `FOLD_GAIN`)
     folds_gain: f64,
     pub artic: ArticulatorBank,
@@ -277,6 +282,7 @@ impl HumanVoice {
             glottis: crate::sources::glottis::ParametricGlottis::new(fs),
             folds: TriangularGlottis::new(fs),
             base_rest: 0.0,
+            fold_closure: 1.0,
             folds_gain: FOLD_GAIN,
             artic: ArticulatorBank::new(),
             source: DEFAULT_SOURCE,
@@ -406,7 +412,10 @@ impl HumanVoice {
         // brightness shapes the folds' closure: at its default the masses close as they do; fully
         // bright, as abruptly as the parametric pulse at full brightness (2-5 kHz against 0-1 kHz
         // within 2 dB, tests/two_mass.rs)
-        self.folds.folds.closure = pow(2.0, -FOLD_BRIGHT * (s.brightness - DEFAULT_SOURCE.brightness));
+        // and pressing harder than the guides' 0.55 closes them more abruptly, as pressed voice does
+        // (Gauffin & Sundberg 1989); the larynx adds to it each control step
+        self.fold_closure = pow(2.0, -FOLD_BRIGHT * (s.brightness - DEFAULT_SOURCE.brightness) - FOLD_PRESS_SHARP * js_max(0.0, s.tension - 0.55) / 0.45);
+        self.folds.folds.closure = self.fold_closure;
         // the folds don't brighten with a smaller body as the pulse does, so they keep its level
         self.folds_gain = FOLD_GAIN / pulse_body_gain(sc);
     }
@@ -613,6 +622,7 @@ impl HumanVoice {
         let press = clamp((lar - LARYNX_PRESS_FROM) / (LARYNX_PRESS_FULL - LARYNX_PRESS_FROM), 0.0, 1.0)
             - 0.3 * clamp((-lar - LARYNX_PRESS_FROM) / (LARYNX_PRESS_FULL - LARYNX_PRESS_FROM), 0.0, 1.0);
         self.folds.folds.rest = self.base_rest - LARYNX_PRESS * press;
+        self.folds.folds.closure = self.fold_closure * pow(2.0, -FOLD_PRESS_SHARP * press);
         // smoothed mean flow per tract node (for particle speeds)
         let a = 1.0 - exp(-dt / 0.03);
         let n_ph = self.airway.n_ph;
