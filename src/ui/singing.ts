@@ -80,6 +80,8 @@ function kept(): { lyrics: string; tune: string; tempo: number; key: number } {
 }
 
 const atLoad = kept();
+/** the player's words while a demo song's are in the lyrics */
+let ownWords: string | null = null;
 
 export const useSing = create<SingState>((set, get) => ({
   lyrics: atLoad.lyrics,
@@ -97,7 +99,20 @@ export const useSing = create<SingState>((set, get) => ({
   },
   setCursor: (i) => set({ cursor: Math.max(0, Math.min(i, Math.max(0, get().syllables.length - 1))) }),
   setVibrato: (cents) => set({ vibrato: cents }),
-  setTune: (id) => set({ tune: id }),
+  setTune: (id) => {
+    const words = TUNES.find((t) => t.id === id)?.lyrics;
+    const lyrics = get().lyrics;
+    const asWritten = TUNES.some((t) => t.lyrics === lyrics);
+    if (words !== undefined) {
+      // a demo song brings its words; the player's own come back with a mood
+      if (!asWritten) ownWords = lyrics;
+      if (lyrics !== words) get().setLyrics(words);
+    } else if (asWritten && ownWords !== null) {
+      get().setLyrics(ownWords);
+      ownWords = null;
+    }
+    set({ tune: id });
+  },
   setTempo: (x) => set({ tempo: x }),
   setKey: (semitones) => set({ key: semitones }),
 }));
@@ -325,7 +340,15 @@ export async function playTune(id: string, body: BodyMix, ready?: () => Promise<
   // read again: the dictionary may have arrived since the words were typed
   const own = lyricsToSyllables(st.lyrics);
   const words = own.length ? own : lyricsToSyllables(la(tune));
-  const { notes, from } = fitSong(tune, words, tune.octave[nearestBody(body)] * 12 + st.key);
+  const shift = tune.octave[nearestBody(body)] * 12 + st.key;
+  // a demo song's own words, unedited: a syllable to each note as written (as `chimera render song`)
+  const { notes, from } =
+    tune.lyrics !== undefined && st.lyrics === tune.lyrics && own.length
+      ? {
+          notes: tune.phrases[0].map(([midi, beats], i) => ({ midi: midi + shift, beats, syl: own[i % own.length] })),
+          from: tune.phrases[0].map((_, i) => i % own.length),
+        }
+      : fitSong(tune, words, shift);
   if (!notes.length) return false;
   const bpm = tune.bpm * st.tempo;
   const t0 = 0.35;

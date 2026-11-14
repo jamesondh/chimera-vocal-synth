@@ -218,6 +218,46 @@ describe("Sing mode, live keys", () => {
     engineStub.schedule = schedule;
   });
 
+  test("every demo song can be chosen and sings its own words a syllable to a note; the player's words come back with a mood", async () => {
+    // #87's tunes menu left out the contributed demo songs ("Ночной ветер", Daisy Bell)
+    const { DEMO_SONGS } = await import("../src/wasm/engine.ts");
+    const { TUNES } = await import("../src/song/tunes.ts");
+    const melodies = TUNES.map((t) => JSON.stringify(t.phrases.flat()));
+    for (const d of DEMO_SONGS) expect(melodies).toContain(JSON.stringify(d.notes.map(([m, b]) => [m, b])));
+    const songs = TUNES.filter((t) => t.lyrics !== undefined);
+    expect(songs.map((t) => t.name)).toContain("Ночной ветер");
+    voice = new WasmVoice(FS);
+    const sing = useSing.getState;
+    let sent: { gestures: Gesture[] } | null = null;
+    const schedule = engineStub.schedule as typeof fakeEngine.schedule;
+    engineStub.schedule = (plan: { gestures: Gesture[] }) => ((sent = plan), schedule(plan));
+    sing().setLyrics("my own words");
+    for (const song of songs) {
+      sing().setTune(song.id);
+      expect(sing().lyrics).toBe(song.lyrics!);
+      expect(await playTune(song.id, MALE, () => Promise.resolve())).toBe(true);
+      expect(sent).not.toBeNull();
+      // a syllable to each note: the n-th note is sung while the n-th syllable is lit
+      const beat = 60 / song.bpm;
+      const n = Math.min(5, song.phrases[0].length - 1);
+      const start = song.phrases[0].slice(0, n).reduce((t, [, b]) => t + b * beat, 0.35);
+      planned({ type: "planned", id: 1, t0: voice.clock - start - 0.01, end: 0 });
+      tickSinging();
+      expect(sing().at).toBe(n % sing().syllables.length);
+      stopSinging();
+    }
+    sing().setTune("joyful");
+    expect(sing().lyrics).toBe("my own words");
+    // edited words are fitted to the song like any tune's
+    sing().setTune(songs[0].id);
+    sing().setLyrics("new words");
+    expect(await playTune(songs[0].id, MALE, () => Promise.resolve())).toBe(true);
+    stopSinging();
+    engineStub.schedule = schedule;
+    sing().setTune("dreamy");
+    sing().setLyrics("Hello there");
+  });
+
   test("empty lyrics sing the tune on la, highlighting nothing", async () => {
     voice = new WasmVoice(FS);
     const sing = useSing.getState;
