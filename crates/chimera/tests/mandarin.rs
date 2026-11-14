@@ -3,7 +3,7 @@
 use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::korean::Korean;
 use chimera::phonetics::mandarin::{Mandarin, MandarinLexicon, Pinyin, tone_bends};
-use chimera::phonetics::syllables::{English, read_lyrics};
+use chimera::phonetics::syllables::{English, FrontEnd, read_lyrics};
 use chimera::phonetics::{Edge, Syllable};
 
 const LEX: &str = "举\tju3\n风\tfeng1\n多\tduo1\n头\ttou2\n鸟\tniao3\n光\tguang1\n四\tsi4\n是\tshi4\n点\tdian3\n哪\tna3\n儿\ter2\n女\tnv3\n子\tzi5\n块\tkuai4\n一会儿\tyi1 hui4 er5\n天\ttian1\n你\tni3\n好\thao3\n我\two3\n不\tbu4\n会\thui4\n银\tyin2\n行\txing2\n银行\tyin2 hang2\n走\tzou3\n的\tde5\n跑\tpao3\n一\tyi1\n个\tge4\n绿\tlv4\n学\txue2\n吃\tchi1\n爱\tai4\n去\tqu4\n";
@@ -92,9 +92,26 @@ fn pinyin_with_tones_is_mandarin_and_without_is_english() {
     // sings "Z rich ber" as on main (review of #78: it sang "Z ber")
     let e: Vec<String> = typed("hello café it's Zürich über").into_iter().map(|x| x.0).collect();
     assert_eq!(e, ["hel", "lo", "caf", "it's", "Z", "rich", "ber"]);
-    // a one-letter word with a tone number stays English; with marks it is pinyin
-    let a: Vec<(String, String)> = typed("a1 ā").into_iter().map(|x| (x.0, x.1)).collect();
-    assert_eq!(a.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["a", "ā"]);
+    // a one-letter word stays English ("room a1", French "à")
+    let a: Vec<String> = typed("a1 à").into_iter().map(|x| x.0).collect();
+    assert_eq!(a, ["a"]); // "à" isn't English's (accented letters are skipped, as on main)
+}
+
+#[test]
+fn accented_english_words_stay_english() {
+    // pinyin's spelling rules keep these out (review of #85: 12 of 42 were read as pinyin): a toned
+    // word starts with a written tone, an unwritten one inside is only bu, de or yi (résumé,
+    // touché, lamé), a vowel-initial syllable inside needs an apostrophe (née, matinée, mélange,
+    // brûlée), and n, ng, m are syllables only as whole words (Pokémon, détente)
+    for w in ["café", "résumé", "cliché", "naïve", "brûlée", "Pokémon", "touché", "détente", "matinée", "née", "lamé", "saké", "mélange", "à"] {
+        assert!(!Pinyin.claims(w), "{w} read as pinyin");
+    }
+    // the one left: é + lan is real pinyin with a neutral last syllable
+    assert!(Pinyin.claims("élan"));
+    // and real pinyin still reads, including a neutral bu or de inside and apostrophes
+    for w in ["nǐhǎo", "xièxie", "dōngxi", "duìbuqǐ", "kànbujiàn", "Xī'ān", "Tiān'ānmén", "nǚ'ér", "ni3hao3", "zhong1guo2", "xǐhuan", "bú"] {
+        assert!(Pinyin.claims(w), "{w} not read as pinyin");
+    }
 }
 
 #[test]

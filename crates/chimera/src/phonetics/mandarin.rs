@@ -499,6 +499,8 @@ fn parse_pinyin(word: &str) -> Option<Vec<(String, String)>> {
         return None;
     }
     let mut out = Vec::new();
+    // whether each syllable's tone was written (a mark or a number), and its letters
+    let mut written: Vec<(bool, String)> = Vec::new();
     for (letters, digit) in pieces.into_iter().filter(|p| !p.0.is_empty()) {
         let base: String = letters.iter().map(|l| l.1).collect();
         let cuts = split_syllables(&base)?;
@@ -509,7 +511,9 @@ fn parse_pinyin(word: &str) -> Option<Vec<(String, String)>> {
             if marks.len() > 1 {
                 return None;
             }
-            let tone = marks.first().copied().or(if n + 1 == cuts.len() { digit } else { None }).unwrap_or(5);
+            let number = if n + 1 == cuts.len() { digit } else { None };
+            written.push((!marks.is_empty() || number.is_some(), base[start..end].to_string()));
+            let tone = marks.first().copied().or(number).unwrap_or(5);
             let mut text: String = span.iter().map(|l| l.0).collect();
             if n + 1 == cuts.len() && digit.is_some() && marks.is_empty() {
                 text.push(char::from(b'0' + tone));
@@ -517,6 +521,14 @@ fn parse_pinyin(word: &str) -> Option<Vec<(String, String)>> {
             out.push((text, format!("{}{tone}", &base[start..end])));
             start = end;
         }
+    }
+    // a toned word starts with a written tone; after that an unwritten one is neutral, at the end
+    // (xièxie, dōngxi) or as bu, de, yi inside (duìbuqǐ, kànbujiàn). English words with accents
+    // break this: résumé (su unwritten inside), touché (tou unwritten first)
+    let last = written.len() - 1;
+    let neutral_inside = |b: &str| matches!(b, "bu" | "de" | "yi");
+    if !written[0].0 || written.iter().enumerate().any(|(i, (w, b))| !w && i > 0 && i < last && !neutral_inside(b)) {
+        return None;
     }
     Some(out)
 }
@@ -528,7 +540,17 @@ fn split_syllables(base: &str) -> Option<Vec<usize>> {
             return true;
         }
         for end in (at + 1..=base.len().min(at + 6)).rev() {
-            if valid_syllable(&base[at..end]) {
+            let s = &base[at..end];
+            // pinyin's spelling: a syllable starting with a, o or e after another needs an apostrophe
+            // (Xī'ān), so née isn't né + e; the syllabic nasals are whole words (嗯 n), so Pokémon
+            // isn't po ké mo + n
+            if at > 0 && matches!(s.as_bytes()[0], b'a' | b'o' | b'e') {
+                continue;
+            }
+            if matches!(s, "n" | "ng" | "m" | "hm" | "hng") && !(at == 0 && end == base.len()) {
+                continue;
+            }
+            if valid_syllable(s) {
                 out.push(end);
                 if go(base, end, out) {
                     return true;
@@ -550,9 +572,8 @@ impl FrontEnd for Pinyin {
         self.starts(c) || c.is_ascii_digit() || c == '\''
     }
     fn claims(&self, word: &str) -> bool {
-        // a one-letter word with a tone number is English ("room a1"); 啊 and 饿 take marks (ā, è)
-        let numbered = word.chars().any(|c| c.is_ascii_digit());
-        if numbered && word.chars().filter(|c| c.is_alphabetic()).count() < 2 {
+        // a one-letter word is English ("room a1", French "à"); write 啊 and 饿 in characters
+        if word.chars().filter(|c| c.is_alphabetic()).count() < 2 {
             return false;
         }
         parse_pinyin(word).is_some()

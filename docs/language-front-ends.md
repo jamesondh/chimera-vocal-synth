@@ -87,12 +87,17 @@ data, `tools/build-mandarin.ts`), longest phrase first: 银行 is yín háng, �
 - **A vowel-initial syllable** (爱, 安) starts with a soft glottal catch, so it doesn't run into the
   vowel before.
 
-**Pinyin** with tones is Mandarin too: tone marks (`nǐhǎo`, `xièxie`, an unmarked syllable inside a
-marked word being neutral) or numbers (`ni3 hao3`, `de5`); apostrophes split syllables (`Xī'ān`),
-and `ü` or `v` both work. Third-tone sandhi applies inside a word. Pinyin claims only a word that
-parses fully into real syllables and carries tones, so plain Latin words stay English. Two
-ambiguities: an accented English word that is also toned pinyin (`résumé`) reads as pinyin, so type
-it unaccented; and a one-letter word with a tone number (`a1`) stays English, so write 啊 as `ā`.
+**Pinyin** with tones is Mandarin too: tone marks (`nǐhǎo`, and `xièxie` with a neutral last
+syllable) or numbers (`ni3 hao3`, `de5`); apostrophes split syllables (`Xī'ān`), and `ü` or `v` both
+work. Third-tone sandhi applies inside a word. Pinyin claims only a word written as pinyin is:
+- every syllable real, and a vowel-initial one inside the word after an apostrophe (`Xī'ān`);
+- the first syllable's tone written; an unwritten one later is neutral, at the end (`dōngxi`) or as
+  bu, de, yi inside (`duìbuqǐ`);
+- two letters or more (a one-letter word, `a1` or `à`, is English; write 啊 in characters).
+
+So plain Latin words stay English, and so do accented English words (`café`, `résumé`, `touché`,
+`née`, `Pokémon`). The one left: `élan` is also real pinyin (é + a neutral lan), so type it
+unaccented.
 
 What each choice measured, on the scramble test (#80) where it was tuned:
 
