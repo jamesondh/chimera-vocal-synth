@@ -135,6 +135,9 @@ impl SourcePatch {
 /// Two-mass folds' rest gap (cm) at tension 0, and how much full tension closes it.
 pub const FOLD_REST_LAX: f64 = 0.02;
 pub const FOLD_REST_SPAN: f64 = 0.04;
+/// How strongly brightness shapes the two-mass folds' closure (octaves of closure exponent per unit
+/// of brightness): brightness 1 closes with exponent 0.75, 0 with 1.10.
+pub const FOLD_BRIGHT: f64 = 0.553;
 /// Larynx height (template cm, + raised) where it starts to press the folds, where it presses them
 /// fully, and how much (cm of rest gap) it presses then.
 pub const LARYNX_PRESS_FROM: f64 = 0.3;
@@ -400,6 +403,10 @@ impl HumanVoice {
         self.base_rest = FOLD_REST_LAX - FOLD_REST_SPAN * s.tension;
         let sc = self.airway.body.scale;
         self.folds.folds.size = js_max(0.4, sc * sc);
+        // brightness shapes the folds' closure: at its default the masses close as they do; fully
+        // bright, as abruptly as the parametric pulse at full brightness (2-5 kHz against 0-1 kHz
+        // within 2 dB, tests/two_mass.rs)
+        self.folds.folds.closure = pow(2.0, -FOLD_BRIGHT * (s.brightness - DEFAULT_SOURCE.brightness));
         // the folds don't brighten with a smaller body as the pulse does, so they keep its level
         self.folds_gain = FOLD_GAIN / pulse_body_gain(sc);
     }

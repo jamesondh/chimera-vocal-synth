@@ -59,9 +59,13 @@ pub struct FoldSetting {
     pub rest: f64,
     /// length scale of the folds (1 = adult male template)
     pub size: f64,
+    /// closure shape: the glottal area is passed out as `peak · (A / peak)^closure`. 1 leaves the
+    /// masses' own closure; below 1 the area falls to zero more steeply at the end of the closing
+    /// phase (an abrupt closure: a brighter voice), above 1 more gently (a darker one).
+    pub closure: f64,
 }
 
-pub const DEFAULT_FOLDS: FoldSetting = FoldSetting { rest: 0.0, size: 1.0 };
+pub const DEFAULT_FOLDS: FoldSetting = FoldSetting { rest: 0.0, size: 1.0, closure: 1.0 };
 
 #[derive(Clone, Debug)]
 pub struct TriangularGlottis {
@@ -100,6 +104,9 @@ pub struct TriangularGlottis {
     cycle_q: f64,
     rng: Rng,
     voice_coef: f64,
+    // vibratory area: this cycle's highest so far, and the last cycle's peak (closure shaping)
+    area_hi: f64,
+    area_peak: f64,
     /// open fraction of the last cycle (telemetry, tests)
     pub open_quotient: f64,
     open_count: f64,
@@ -144,6 +151,8 @@ impl TriangularGlottis {
             cycle_q: 1.0,
             rng: Rng::new(777),
             voice_coef: 1.0 - exp(-TAU * 25.0 / fs),
+            area_hi: 0.0,
+            area_peak: 0.1,
             open_quotient: 0.0,
             open_count: 0.0,
             area: 0.0,
@@ -283,7 +292,19 @@ impl TriangularGlottis {
         }
         self.voicing += self.voice_coef * (clamp(self.swing / 0.04, 0.0, 1.0) - self.voicing);
 
-        let a = js_max(0.0, amin) + self.chink_sm * (1.0 - 0.92 * self.closure_sm);
+        // closure shape (brightness), scaled by the last cycle's peak so that it changes the pulse's
+        // shape and not its size. The masses are a two-point sketch of a fold; how abruptly the real
+        // medial surface meets along its length and depth is what brightness sets (the parametric
+        // source's closure sharpness, for the folds). Only the area the airway sees is shaped: the
+        // pressures on the masses use their own areas.
+        let mut am = js_max(0.0, amin);
+        self.area_hi = js_max(self.area_hi, am);
+        let g = self.folds.closure;
+        if g != 1.0 && am > 0.0 {
+            let peak = js_max(self.area_peak, 1e-4);
+            am = if am < peak { peak * pow(am / peak, g) } else { am };
+        }
+        let a = am + self.chink_sm * (1.0 - 0.92 * self.closure_sm);
         self.area = a;
         a
     }
@@ -291,6 +312,10 @@ impl TriangularGlottis {
     /// A cycle ended: measure it and trim Q toward the requested pitch.
     fn cycle(&mut self, f0: f64, jitter: f64) {
         let period = self.since;
+        if self.area_hi > 1e-4 {
+            self.area_peak = self.area_hi;
+        }
+        self.area_hi = 0.0;
         self.swing = self.x2_hi - self.x2_lo;
         self.x2_lo = self.x2;
         self.x2_hi = self.x2;

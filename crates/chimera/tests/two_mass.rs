@@ -252,3 +252,66 @@ fn the_folds_sing_about_as_loud_as_the_pulse() {
         assert!(d.abs() < 3.0, "{} at {f0} Hz: folds {d:+.1} dB against the pulse", body.name);
     }
 }
+
+/// 2-5 kHz against 0-1 kHz in the voice's long-term spectrum (dB), and its level (dB).
+fn colour(body: HumanBody, f0: f64, glottis: GlottisModel, bright: f64) -> (f64, f64) {
+    let fs = 48000.0;
+    let mut v = HumanVoice::new(fs, body, oversample_for(fs));
+    v.set_source(&SourcePatch { f0: Some(f0), tension: Some(0.55), brightness: Some(bright), glottis: Some(glottis), ..Default::default() });
+    v.set_gate(1.0);
+    let n = 48000;
+    let mut out = vec![0.0f32; n];
+    for c in out.chunks_mut(128) {
+        v.render(c);
+    }
+    let x: Vec<f64> = out[n / 2..].iter().map(|s| *s as f64).collect();
+    let nfft = 4096;
+    let (mut lo, mut hi) = (0.0, 0.0);
+    let mut k = 0;
+    while k + nfft <= x.len() {
+        for b in 1..nfft / 2 {
+            let f = b as f64 * fs / nfft as f64;
+            if f < 1000.0 || (2000.0..5000.0).contains(&f) {
+                let w = std::f64::consts::TAU * b as f64 / nfft as f64;
+                let (mut re, mut im) = (0.0, 0.0);
+                for (i, s) in x[k..k + nfft].iter().enumerate() {
+                    let h = 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / nfft as f64).cos();
+                    re += s * h * (w * i as f64).cos();
+                    im += s * h * (w * i as f64).sin();
+                }
+                if f < 1000.0 { lo += re * re + im * im } else { hi += re * re + im * im }
+            }
+        }
+        k += nfft * 2;
+    }
+    let level = 10.0 * (x.iter().map(|s| s * s).sum::<f64>() / x.len() as f64).log10();
+    (10.0 * (hi / 3.0 / lo).log10(), level)
+}
+
+#[test]
+fn brightness_brightens_the_folds_as_it_does_the_pulse() {
+    // Heard by the owner (2026-11-14): the folds sounded darker than the pulse. The guides sing at
+    // brightness 1, which only sharpened the parametric pulse's closure. Now it shapes the folds'
+    // closure too: at its default nothing changes, and fully bright the folds' colour (2-5 kHz
+    // against 0-1 kHz) lands near the pulse's.
+    for (body, f0) in [(BODY_MALE, 147.0), (BODY_FEMALE, 294.0)] {
+        let pulse = colour(body, f0, GlottisModel::Parametric, 1.0);
+        let [dark, mid, bright] = [0.0, 0.25, 1.0].map(|b| colour(body, f0, GlottisModel::TwoMass, b));
+        println!("{} at {f0} Hz: folds 0/0.25/1 {:.1} / {:.1} / {:.1} dB, pulse at 1 {:.1} dB; level {:.1} / {:.1} / {:.1}", body.name, dark.0, mid.0, bright.0, pulse.0, dark.1, mid.1, bright.1);
+        assert!(dark.0 < mid.0 - 1.0 && mid.0 < bright.0 - 4.0, "{}: brightness doesn't order the folds' colour", body.name);
+        assert!((bright.0 - pulse.0).abs() < 3.0, "{}: fully bright folds {:.1} dB, pulse {:.1} dB", body.name, bright.0, pulse.0);
+        assert!((bright.1 - mid.1).abs() < 2.5, "{}: brightness changed the level by {:.1} dB", body.name, bright.1 - mid.1);
+    }
+}
+
+#[test]
+#[ignore = "exploration: colour against pitch"]
+fn colour_by_pitch() {
+    for (body, f0s) in [(BODY_MALE, [110.0, 147.0, 196.0, 262.0]), (BODY_FEMALE, [262.0, 330.0, 392.0, 523.0])] {
+        for f0 in f0s {
+            let p = colour(body, f0, GlottisModel::Parametric, 1.0);
+            let t = colour(body, f0, GlottisModel::TwoMass, 1.0);
+            println!("{} {f0}: pulse {:.1} folds {:.1} (diff {:+.1}); level pulse {:.1} folds {:.1}", body.name, p.0, t.0, t.0 - p.0, p.1, t.1);
+        }
+    }
+}
