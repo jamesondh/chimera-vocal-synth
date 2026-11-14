@@ -600,6 +600,7 @@ impl HumanVoice {
         // of the whole airway (see `AirwayNetwork::flush_tiny`): nothing is nothing
         crate::airway::network::tiny(&mut self.gate);
         self.glottis.flush_tiny();
+        self.folds.flush_tiny();
         crate::airway::network::tiny(&mut self.dc_x);
         crate::airway::network::tiny(&mut self.dc_y);
         crate::airway::network::tiny(&mut self.lim_env);
@@ -672,7 +673,7 @@ impl HumanVoice {
         use crate::airway::network::is_denormal;
         let own = [self.gate, self.dc_x, self.dc_y, self.lim_env, self.p_lung_now];
         let artic = ArticKey::ALL.iter().filter(|k| is_denormal(self.artic.x.get(**k))).count() + self.artic.v.iter().filter(|v| is_denormal(**v)).count();
-        self.airway.net.denormal_states() + self.glottis.denormal_states() + own.iter().filter(|x| is_denormal(**x)).count() + self.flow_sm.iter().filter(|x| is_denormal(**x)).count() + artic
+        self.airway.net.denormal_states() + self.glottis.denormal_states() + self.folds.denormal_states() + own.iter().filter(|x| is_denormal(**x)).count() + self.flow_sm.iter().filter(|x| is_denormal(**x)).count() + artic
     }
 
     /// Fill a telemetry snapshot and reset the accumulators.

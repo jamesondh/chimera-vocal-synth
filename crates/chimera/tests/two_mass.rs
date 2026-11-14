@@ -36,7 +36,6 @@ struct Take {
     rms: f64,
     /// high-frequency share of the output (dB): mean squared first difference over mean square
     hf: f64,
-    peak_area: f64,
 }
 
 fn sing(body: HumanBody, fs: f64, f0: f64, tension: f64, breathiness: f64, larynx: f64) -> Take {
@@ -48,14 +47,12 @@ fn sing(body: HumanBody, fs: f64, f0: f64, tension: f64, breathiness: f64, laryn
     let mut out = vec![0.0f32; n];
     let mut flow = Vec::with_capacity(n);
     let mut oq = Vec::new();
-    let mut peak_area: f64 = 0.0;
     for (i, c) in out.chunks_mut(1).enumerate() {
         v.render(c);
         if i > n / 2 {
             if i % 64 == 0 {
                 oq.push(v.folds.open_quotient);
             }
-            peak_area = peak_area.max(v.folds.area);
             flow.push(v.airway.net.u[v.airway.glottis_port]);
         }
     }
@@ -63,11 +60,11 @@ fn sing(body: HumanBody, fs: f64, f0: f64, tension: f64, breathiness: f64, laryn
     let rms = (x.iter().map(|s| s * s).sum::<f64>() / x.len() as f64).sqrt();
     let d: f64 = x.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
     let e: f64 = x.iter().map(|s| s * s).sum();
-    // f0 from zero crossings of the autocorrelation's peak (simple, adequate for a steady tone)
+    // f0 from the autocorrelation's peak (simple, adequate for a steady tone)
     let f0m = autocorr_f0(&x, fs, f0);
     let h1h2 = harmonic_db(&flow, fs, f0m, 1) - harmonic_db(&flow, fs, f0m, 2);
     let oq = oq.iter().sum::<f64>() / oq.len().max(1) as f64;
-    Take { f0: f0m, oq, h1h2, rms, hf: 10.0 * (d / e.max(1e-30)).log10(), peak_area }
+    Take { f0: f0m, oq, h1h2, rms, hf: 10.0 * (d / e.max(1e-30)).log10() }
 }
 
 fn autocorr_f0(x: &[f64], fs: f64, guess: f64) -> f64 {
@@ -99,22 +96,6 @@ fn harmonic_db(x: &[f64], fs: f64, f0: f64, k: usize) -> f64 {
         im += s * h * (w * i as f64).sin();
     }
     10.0 * (re * re + im * im).max(1e-30).log10()
-}
-
-#[test]
-#[ignore = "exploration: prints a table"]
-fn survey() {
-    for (name, body, f0s) in [("male", BODY_MALE, [110.0, 220.0, 330.0]), ("female", BODY_FEMALE, [220.0, 440.0, 660.0])] {
-        for f0 in f0s {
-            for (t, b, lar) in [(0.0, 0.3, 0.0), (0.5, 0.15, 0.0), (1.0, 0.0, 0.0), (0.5, 0.15, 0.8), (0.5, 0.15, 1.3), (0.5, 0.15, -0.8)] {
-                let r = sing(body, 48000.0, f0, t, b, lar);
-                println!(
-                    "{name:6} f0 {f0:5.0} tension {t:.1} breath {b:.2} larynx {lar:+.1}: f0 {:7.1} oq {:.2} H1-H2 {:5.1} hf {:6.1} rms {:.3} peakA {:.3}",
-                    r.f0, r.oq, r.h1h2, r.hf, r.rms, r.peak_area
-                );
-            }
-        }
-    }
 }
 
 fn two_mass(body: HumanBody, fs: f64) -> HumanVoice {
@@ -307,13 +288,26 @@ fn brightness_brightens_the_folds_as_it_does_the_pulse() {
 }
 
 #[test]
-#[ignore = "exploration: colour against pitch"]
-fn colour_by_pitch() {
-    for (body, f0s) in [(BODY_MALE, [110.0, 147.0, 196.0, 262.0]), (BODY_FEMALE, [262.0, 330.0, 392.0, 523.0])] {
-        for f0 in f0s {
-            let p = colour(body, f0, GlottisModel::Parametric, 1.0);
-            let t = colour(body, f0, GlottisModel::TwoMass, 1.0);
-            println!("{} {f0}: pulse {:.1} folds {:.1} (diff {:+.1}); level pulse {:.1} folds {:.1}", body.name, p.0, t.0, t.0 - p.0, p.1, t.1);
+fn the_folds_leave_no_denormal_states() {
+    // As the parametric source (tests/denormals.rs): once the breath is let go or the folds part,
+    // every decaying state of the folds ends at zero, not among the slow denormal numbers.
+    for disturb in [SourcePatch::default(), SourcePatch { voiced: Some(false), ..Default::default() }] {
+        let mut v = two_mass(BODY_MALE, 48000.0);
+        let mut buf = [0.0f32; 128];
+        for _ in 0..375 {
+            v.render(&mut buf);
+        }
+        if disturb.voiced.is_some() {
+            v.set_source(&disturb);
+        } else {
+            v.set_gate(0.0);
+        }
+        for second in 1..=30 {
+            for _ in 0..375 {
+                v.render(&mut buf);
+            }
+            assert_eq!(v.folds.denormal_states(), 0, "{:?}: denormal fold states {second} s later", disturb.voiced);
+            assert_eq!(v.denormal_states(), 0, "{:?}: denormal voice states {second} s later", disturb.voiced);
         }
     }
 }

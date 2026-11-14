@@ -163,6 +163,32 @@ impl TriangularGlottis {
         }
     }
 
+    /// The states that decay toward zero once the breath stops or the folds part.
+    fn decaying(&mut self) -> [&mut f64; 15] {
+        [
+            &mut self.x1, &mut self.x2, &mut self.v1, &mut self.v2, &mut self.rest_sm, &mut self.post_sm, &mut self.chink_sm, &mut self.closure_sm,
+            &mut self.x2_mean, &mut self.x2_lo, &mut self.x2_hi, &mut self.swing, &mut self.voicing, &mut self.area_prev, &mut self.area,
+        ]
+    }
+
+    /// How many of the decaying states are denormal (for tests: none should be).
+    pub fn denormal_states(&self) -> usize {
+        [
+            self.x1, self.x2, self.v1, self.v2, self.rest_sm, self.post_sm, self.chink_sm, self.closure_sm, self.x2_mean, self.x2_lo, self.x2_hi, self.swing, self.voicing, self.area_prev, self.area,
+        ]
+        .iter()
+        .filter(|x| crate::airway::network::is_denormal(**x))
+        .count()
+    }
+
+    /// Zero the states that have decayed to nothing (see `AirwayNetwork::flush_tiny`). Called at
+    /// control rate.
+    pub fn flush_tiny(&mut self) {
+        for x in self.decaying() {
+            crate::airway::network::tiny(x);
+        }
+    }
+
     /// Phase within the current cycle, 0..1 (restarts at each opening).
     pub fn cycle_phase(&self) -> f64 {
         js_min(1.0, self.since / js_max(1.0, self.period))
