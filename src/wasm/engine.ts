@@ -20,6 +20,7 @@ interface Catalog {
   articSpecs: Record<ArticKey, ArticSpec>;
   defaultSource: VoiceSource;
   exhaleLabel: string;
+  inhaleLabel: string;
   bassNote: number;
   beatSounds: BeatSound[];
   beatPresets: BeatPreset[];
@@ -40,6 +41,8 @@ export const ARTIC_SPECS: Readonly<Record<ArticKey, ArticSpec>> = CATALOG.articS
 export const DEFAULT_SOURCE: Readonly<VoiceSource> = CATALOG.defaultSource;
 /** label of the end-of-breath-group abduction (a live note can drop it when the next one starts) */
 export const EXHALE_LABEL: string = CATALOG.exhaleLabel;
+/** label of the breath drawn in at a phrase end inside a melody (planSong's `breath`) */
+export const INHALE_LABEL: string = CATALOG.inhaleLabel;
 /** default hum note of the beatbox bass (MIDI) */
 export const BASS_NOTE: number = CATALOG.bassNote;
 export const BEAT_SOUNDS: readonly BeatSound[] = CATALOG.beatSounds;
@@ -159,8 +162,18 @@ export function planPhrases(phrases: { segments: Segment[]; intonation?: "statem
   return call("planPhrases", { phrases: phrases.map((p) => ({ segments: p.segments, intonation: p.intonation, pause: p.pause })), options });
 }
 
-export function planSong(notes: SungNote[], options: { body: BodyMix; bpm: number; t0: number; vibrato: number; breath?: number }): Plan {
-  return call("planSong", { notes, options });
+/**
+ * `breath`: seconds of audible breath at each phrase end inside the melody (none named: none).
+ * `breathLevel`: how hard that breath is drawn in, as a multiple of the engine's own (1, or none
+ * named: the engine's, a lung pressure of −0.8 times the singing pressure). It scales the inhale
+ * gestures' pressure here, as Sing's keys scale a note's breath by its velocity; the engine
+ * plans one level.
+ */
+export function planSong(notes: SungNote[], options: { body: BodyMix; bpm: number; t0: number; vibrato: number; breath?: number; breathLevel?: number }): Plan {
+  const { breathLevel, ...o } = options;
+  const plan: Plan = call("planSong", { notes, options: o });
+  if (breathLevel !== undefined && breathLevel !== 1) for (const g of plan.gestures) if (g.label === INHALE_LABEL && g.targets.breath !== undefined) g.targets = { ...g.targets, breath: g.targets.breath * breathLevel };
+  return plan;
 }
 
 export function planNoteOn(syl: Syllable, midi: number, options: { body: BodyMix; vibrato: number; tag: number; legatoFrom?: { syl: Syllable; midi: number } }): Gesture[] {

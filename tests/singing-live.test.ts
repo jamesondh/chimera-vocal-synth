@@ -316,10 +316,21 @@ describe("Sing mode, live keys", () => {
     // kept on the device with the tune's other settings
     expect(JSON.parse(stored.get("chimera-sing")!).breath).toBe(0.45);
 
-    // off again: the first plan, to the byte
+    // its level: only the pressure of the breath drawn in changes, by the factor chosen; at 1 nothing does
+    const pressure = (p: Plan) => inhales(p).map((g) => g.targets.breath).filter((x) => x !== undefined);
+    expect(pressure(on)).toEqual([-0.8, -0.8]);
+    sing().setBreathLevel(2);
+    const loud = await sung();
+    expect(pressure(loud)).toEqual([-1.6, -1.6]);
+    const rest = (p: Plan) => JSON.stringify({ ...p, gestures: p.gestures.filter((g) => !(g.label === "inhale" && g.targets.breath !== undefined)) });
+    expect(rest(loud)).toBe(rest(on));
+    expect(JSON.parse(stored.get("chimera-sing")!).breathLevel).toBe(2);
+
+    // off again, the level still at 2: the first plan, to the byte
     sing().setBreath(0);
     expect(JSON.stringify(await sung())).toBe(JSON.stringify(off));
     expect(JSON.parse(stored.get("chimera-sing")!).breath).toBe(0);
+    sing().setBreathLevel(1);
     sing().setTempo(1);
     engineStub.schedule = schedule;
     sing().setLyrics("Hello there");
