@@ -5,7 +5,7 @@
  * the vowel onto a new pitch (melisma). Releasing the sounding key while another is still down
  * glides back to that key on the same vowel. Key velocity sets the breath.
  * Sing sings the same words to a tune (src/song): fitted to its phrases, planned whole (planSong)
- * and sent as one score. The words, tune, tempo and key are kept on the device.
+ * and sent as one score. The words, tune, tempo, key and breath are kept on the device.
  */
 import { create } from "zustand";
 import { engine } from "../audio/AudioEngine.ts";
@@ -32,6 +32,14 @@ export const roll: { notes: RollNote[] } = { notes: [] };
 
 export const DEFAULT_LYRICS = "Hello there, I am a voice made of air.";
 
+/**
+ * The breath Sing can take at a phrase end inside the tune (s, from the end of one phrase's sound
+ * to the next one's first): under 0.25 s the engine has no time to draw one in (the gap would be
+ * silent), and a singer's breath inside a line is rarely longer than 0.6 s.
+ */
+export const BREATH_MIN = 0.25;
+export const BREATH_MAX = 0.6;
+
 /** sung when the lyrics are empty */
 const AH: Syllable = { text: "ah", onset: [], nucleus: { ipa: "ɑ", stress: 1 }, coda: [], wordEnd: true, phraseEnd: false };
 
@@ -48,6 +56,8 @@ interface SingState {
   tempo: number;
   /** semitones up or down from the tune's own key (after the body's octave) */
   key: number;
+  /** the breath taken at a phrase end inside the tune (s, BREATH_MIN to BREATH_MAX); 0: none, the short lift */
+  breath: number;
   /** the tune being sung, if any */
   playing: string | null;
   /** index in `syllables` of the one the tune is singing (−1: none, or the tune sings "la") */
@@ -58,13 +68,14 @@ interface SingState {
   setTune: (id: string) => void;
   setTempo: (x: number) => void;
   setKey: (semitones: number) => void;
+  setBreath: (seconds: number) => void;
 }
 
 const KEPT = "chimera-sing";
 
-/** the last session's words, tune, tempo and key (anything missing or odd: the defaults) */
-function kept(): { lyrics: string; tune: string; tempo: number; key: number } {
-  const d = { lyrics: DEFAULT_LYRICS, tune: TUNES[0].id, tempo: 1, key: 0 };
+/** the last session's words, tune, tempo, key and breath (anything missing or odd: the defaults) */
+function kept(): { lyrics: string; tune: string; tempo: number; key: number; breath: number } {
+  const d = { lyrics: DEFAULT_LYRICS, tune: TUNES[0].id, tempo: 1, key: 0, breath: 0 };
   try {
     const k = JSON.parse(localStorage.getItem(KEPT) ?? "null") as Record<string, unknown> | null;
     if (!k) return d;
@@ -73,6 +84,7 @@ function kept(): { lyrics: string; tune: string; tempo: number; key: number } {
       tune: TUNES.some((t) => t.id === k.tune) ? (k.tune as string) : d.tune,
       tempo: typeof k.tempo === "number" && k.tempo >= 0.5 && k.tempo <= 1.5 ? k.tempo : d.tempo,
       key: typeof k.key === "number" && Math.abs(k.key) <= 12 ? Math.round(k.key) : d.key,
+      breath: typeof k.breath === "number" && k.breath >= BREATH_MIN && k.breath <= BREATH_MAX ? k.breath : d.breath,
     };
   } catch {
     return d; // no storage here (a private window): start fresh
@@ -91,6 +103,7 @@ export const useSing = create<SingState>((set, get) => ({
   tune: atLoad.tune,
   tempo: atLoad.tempo,
   key: atLoad.key,
+  breath: atLoad.breath,
   playing: null,
   at: -1,
   setLyrics: (text) => {
@@ -115,12 +128,13 @@ export const useSing = create<SingState>((set, get) => ({
   },
   setTempo: (x) => set({ tempo: x }),
   setKey: (semitones) => set({ key: semitones }),
+  setBreath: (seconds) => set({ breath: seconds }),
 }));
 
 useSing.subscribe((s, p) => {
-  if (s.lyrics === p.lyrics && s.tune === p.tune && s.tempo === p.tempo && s.key === p.key) return;
+  if (s.lyrics === p.lyrics && s.tune === p.tune && s.tempo === p.tempo && s.key === p.key && s.breath === p.breath) return;
   try {
-    localStorage.setItem(KEPT, JSON.stringify({ lyrics: s.lyrics, tune: s.tune, tempo: s.tempo, key: s.key }));
+    localStorage.setItem(KEPT, JSON.stringify({ lyrics: s.lyrics, tune: s.tune, tempo: s.tempo, key: s.key, breath: s.breath }));
   } catch {
     // not kept: the session still works
   }
@@ -352,7 +366,8 @@ export async function playTune(id: string, body: BodyMix, ready?: () => Promise<
   if (!notes.length) return false;
   const bpm = tune.bpm * st.tempo;
   const t0 = 0.35;
-  const plan = planSong(notes, { body, bpm, t0, vibrato: st.vibrato });
+  // no breath chosen: no `breath` is sent at all, and the plan is the one sung before the voice could breathe in
+  const plan = planSong(notes, { body, bpm, t0, vibrato: st.vibrato, ...(st.breath > 0 ? { breath: st.breath } : {}) });
   hooks.onStart?.();
   const beat = 60 / bpm;
   let t = t0;
