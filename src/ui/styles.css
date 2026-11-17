@@ -1331,7 +1331,9 @@ button.primary.large {
   font-size: 11px;
   line-height: 1.5;
   letter-spacing: 0.06em;
-  color: var(--red);
+  /* lighter and heavier than the rest: full --red in the light strokes was hard to read */
+  font-weight: 500;
+  color: color-mix(in srgb, var(--red) 55%, var(--white));
 }
 
 /* a menu (a song, a pattern, what the keys play): a native select in the vector look */

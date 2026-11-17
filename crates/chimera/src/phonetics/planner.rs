@@ -183,6 +183,34 @@ const BREATHY_ABDUCTION: f64 = 0.1;
 /// the next segment
 const BREATHY_RELEASE: f64 = 0.08;
 
+/// A trill's strikes, `TRILL_HZ` a second: the share of each cycle spent at the place, the
+/// ramps (s), the articulator speed, and how far (cm) the tongue is pulled back between strikes.
+/// The tongue is too slow (13 Hz) to strike 26 times a second and reopen: at 26 Hz it hovered
+/// near the ridge with the voicing all but gone; and above speed 6 it overshot and bounced.
+const TRILL_HZ: f64 = 20.0;
+const TRILL_STRIKE: f64 = 0.45;
+const TRILL_RAMP: f64 = 0.004;
+const TRILL_SPEED: f64 = 3.5;
+const TRILL_OPEN: f64 = 1.6;
+
+/// where a trill's articulator is pulled back to between strikes: away from the place by
+/// `TRILL_OPEN` (cm) for the tongue, by an open lip gap for the lips
+fn trill_open(closed: &ArticPatch) -> ArticPatch {
+    let mut open = ArticPatch::default();
+    for (k, v) in closed.iter() {
+        match k {
+            ArticKey::TtY | ArticKey::TbY => {
+                open.set(k, v - TRILL_OPEN);
+            }
+            ArticKey::LipAp => {
+                open.set(k, v + 0.4);
+            }
+            _ => {}
+        }
+    }
+    open
+}
+
 /// velum port area (cm²) of a nasalized vowel, and the ramps of its lowering and raising (s)
 const NASAL_VOWEL_PORT: f64 = 0.3;
 const NASAL_VOWEL_RAMP: f64 = 0.04;
@@ -300,12 +328,20 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             Manner::Stop | Manner::Nasal => add_oral(&def.targets, t0, t1, 1.55, def.ipa),
             Manner::Tap => add_oral(&def.targets, t0, t1, 2.8, def.ipa),
             Manner::Trill => {
-                // driven trill: rapid alternation of near-closure and release at ~26 Hz
-                let n = js_max(2.0, js_round(dur * 26.0));
+                // driven trill: the articulator strikes the place and is pulled back between
+                // strikes, so the voice carries on through it. Each strike is its own short gesture
+                // with tight ramps: with a stop's 30 ms ramp-in and 18 ms ramp-out the strikes
+                // overlapped into one held near-closure and the voice stopped for ~90 ms (Spanish
+                // "perro" sounded wrong; tests/trill.rs)
+                let n = js_max(2.0, js_round(dur * TRILL_HZ));
                 let mut k = 0.0;
                 while k < n {
                     let a = t0 + (k / n) * dur;
-                    add_oral(&def.targets, a, a + 0.35 / 26.0, 3.2, def.ipa);
+                    let b = a + TRILL_STRIKE * dur / n;
+                    gestures.push(Gesture::new(a, b, TRILL_RAMP, TRILL_RAMP, 40.0, artic_targets(&def.targets)).speed(TRILL_SPEED).release_hold(TRILL_RAMP).label(def.ipa));
+                    if k + 1.0 < n {
+                        gestures.push(Gesture::new(b + 2.0 * TRILL_RAMP, a + dur / n - TRILL_RAMP, TRILL_RAMP, TRILL_RAMP, 40.0, artic_targets(&trill_open(&def.targets))).speed(TRILL_SPEED).label(def.ipa));
+                    }
                     k += 1.0;
                 }
             }

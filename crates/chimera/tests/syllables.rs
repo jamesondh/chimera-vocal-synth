@@ -77,6 +77,24 @@ fn sung(text: &str) -> String {
 }
 
 #[test]
+fn korean_step_stem_keeps_p_before_consonants_and_l_before_h() {
+    for (text, expected) in [("밟다", "pʰ45ap.t˭a"), ("밟고", "pʰ45ap.k˭o"), ("밟는", "pʰ45am.nɯn"), ("밟히다", "pʰ45al.pʰ90i.da")] {
+        assert_eq!(sung(text), expected, "{text}");
+    }
+}
+
+#[test]
+fn korean_stem_exceptions_preserve_liaison_and_unrelated_clusters() {
+    for (text, expected) in [("읽다", "ik.t˭a"), ("읽어", "il.gʌ"), ("닭고기", "tʰ45ak.k˭o.gi"), ("밟아", "pʰ45al.ba"), ("넓어", "nʌl.bʌ"), ("여덟", "jʌ.dʌl")] {
+        assert_eq!(sung(text), expected, "{text}");
+    }
+    let syllables = lyrics_to_syllables("읽고 밟히다", &word);
+    assert_eq!(syllables.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["읽", "고", "밟", "히", "다"]);
+    assert_eq!(syllables.iter().filter(|s| s.word_end).count(), 2);
+    assert!(syllables.iter().all(|s| s.nucleus.dur.is_none()));
+}
+
+#[test]
 fn hangul_sings_one_syllable_per_block_with_korean_sound_rules() {
     assert_eq!(sung("빵야"), "p˭aŋ.ja"); // ㅇ coda stays; tense ㅃ is voiceless and unaspirated
     assert_eq!(sung("먹어"), "mʌ.gʌ"); // a coda moves onto a silent ㅇ, voiced between vowels

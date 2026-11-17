@@ -269,6 +269,13 @@ async function run(viewport: { width: number; height: number }, tag: string) {
     return { human: !!e?.latest, creature: !!e?.latestCreature };
   });
   logs.push(`[${tag}] back to play: ${JSON.stringify(human)}`);
+  // a device that keeps up keeps the full rate through the whole run (the fallback is for slow ones)
+  const rate = await page.evaluate(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.ctx?.sampleRate ?? -1;
+  });
+  logs.push(`[${tag}] rate after the run: ${rate} Hz`);
+  if (rate !== 48000) errors.push(`[${tag}] this machine fell back to ${rate} Hz (it keeps up at 48 kHz)`);
   await page.close();
 }
 
@@ -344,6 +351,84 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   });
   logs.push(`[device-rate] a 192 kHz device runs the voice at ${rate} Hz`);
   if (rate !== 48000) errors.push(`[device-rate] the voice ran at ${rate} Hz on a 192 kHz device (want 48000)`);
+  await page.close();
+}
+
+// a device too slow for 48 kHz falls back to 32 kHz and keeps sounding; one too slow for that says
+// so (issues #86, #113). The patched node adds to the load the worklet reports: at 48 kHz only
+// (it keeps up at 32), or at every rate. "-gesture": the browser holds the 32 kHz context, built
+// without a gesture, until there is one (its resume() doesn't settle till then): the rebuild must
+// still finish, and the next tap must bring the sound back.
+for (const slowAt of ["48000", "any", "48000-gesture"]) {
+  const tag = `slow-${slowAt}`;
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on("pageerror", (e) => errors.push(`[${tag}] pageerror: ${e.message}`));
+  await page.addInitScript((slowAt) => {
+    if (slowAt.endsWith("-gesture")) {
+      let gestured = false;
+      window.addEventListener("pointerdown", () => (gestured = true), { capture: true });
+      const Device = window.AudioContext, resume = Device.prototype.resume;
+      window.AudioContext = class extends Device {
+        constructor(o?: AudioContextOptions) {
+          super(o);
+          // (the autoplay switch starts a context after its constructor: hold it at each start)
+          // (only a tap after it counts: the one that started the audio came before)
+          if (this.sampleRate === 32000) gestured = false;
+          if (this.sampleRate === 32000) this.addEventListener("statechange", () => !gestured && this.state === "running" && void this.suspend());
+        }
+        override resume(): Promise<void> {
+          return this.sampleRate !== 32000 || gestured ? resume.call(this) : new Promise<void>(() => {});
+        }
+      };
+    }
+    const Node = window.AudioWorkletNode;
+    const onmessage = Object.getOwnPropertyDescriptor(MessagePort.prototype, "onmessage")!;
+    window.AudioWorkletNode = class extends Node {
+      constructor(ctx: BaseAudioContext, name: string, o?: AudioWorkletNodeOptions) {
+        super(ctx, name, o);
+        const port = this.port, slow = slowAt === "any" || String(ctx.sampleRate) === slowAt.split("-")[0];
+        let h: ((e: MessageEvent) => void) | null = null;
+        Object.defineProperty(port, "onmessage", {
+          get: () => h,
+          set(f: ((e: MessageEvent) => void) | null) {
+            h = f;
+            onmessage.set!.call(port, f && ((e: MessageEvent) => f(slow && "load" in e.data ? ({ data: { ...e.data, load: e.data.load + 1.5 } } as MessageEvent) : e)));
+          },
+        });
+      }
+    };
+  }, slowAt);
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.getByRole("radio", { name: "Play" }).click();
+  await page.getByRole("button", { name: /^Breathe$/ }).click();
+  // the start's warm-up and the averaging, at each rate
+  await page.waitForTimeout(10000);
+  const state = await page.evaluate(() => {
+    // @ts-expect-error debug handle
+    const e = window.__chimeraEngine;
+    return { rate: e?.ctx?.sampleRate ?? -1, rms: e?.latest?.t?.outRms ?? -1 };
+  });
+  if (slowAt.endsWith("-gesture")) {
+    const held = await page.evaluate(() => {
+      // @ts-expect-error debug handle
+      return window.__chimeraEngine?.ctx?.state;
+    });
+    await page.locator(".wordmark").click();
+    await page.waitForTimeout(1500);
+    state.rms = await page.evaluate(() => {
+      // @ts-expect-error debug handle
+      return window.__chimeraEngine?.latest?.t?.outRms ?? -1;
+    });
+    logs.push(`[${tag}] the 32 kHz context was ${held} until a tap`);
+    if (held !== "suspended") errors.push(`[${tag}] the held context was ${held} before the tap (the test's patch didn't hold it)`);
+  }
+  const warned = await page.getByText(/This device can't keep up/).isVisible();
+  const badge = await page.getByText(/· 32 kHz/).isVisible();
+  logs.push(`[${tag}] slow device: runs at ${state.rate} Hz, rms ${state.rms.toFixed(4)}, 32 kHz shown ${badge}, warning ${warned}`);
+  if (state.rate !== 32000) errors.push(`[${tag}] a device too slow for 48 kHz ran at ${state.rate} Hz (want 32000)`);
+  if (!badge) errors.push(`[${tag}] the top bar doesn't say the voice runs at 32 kHz`);
+  if (!(state.rms > 0.01)) errors.push(`[${tag}] the breath stopped sounding across the fallback (rms ${state.rms})`);
+  if (warned !== (slowAt === "any")) errors.push(`[${tag}] the can't-keep-up warning ${warned ? "showed" : "didn't show"}`);
   await page.close();
 }
 
@@ -599,6 +684,6 @@ await run({ width: 1440, height: 980 }, "desktop");
 await run({ width: 390, height: 844 }, "mobile");
 await browser.close();
 console.log("console errors:", errors.length ? "\n" + errors.join("\n") : "none");
-console.log(logs.filter((l) => /load|rate|warn|transcription|example|creature|held|back to|beatbox|silence|sing|octave|retry|tongue|song|video/i.test(l)).slice(0, 52).join("\n"));
+console.log(logs.filter((l) => /load|rate|slow|warn|transcription|example|creature|held|back to|beatbox|silence|sing|octave|retry|tongue|song|video/i.test(l)).slice(0, 52).join("\n"));
 // a run that collected errors fails, so CI and agents can't read it as a pass
 if (errors.length) process.exit(1);
