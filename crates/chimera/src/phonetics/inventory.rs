@@ -147,6 +147,8 @@ const UVU_STOP: Tg = &[(TbX, 1.55), (TbY, 7.6)];
 const NONE: Tg = &[];
 const ALVPAL_FRIC: Tg = &[(TtX, 5.85), (TtY, 9.5), (TbX, 3.6), (TbY, 7.75), (Jaw, 0.3), (LipProt, 0.0), (LipWidth, 0.7)];
 const ALVPAL_STOP: Tg = &[(TtX, 5.85), (TtY, 10.0), (TbX, 3.6), (TbY, 8.1), (LipProt, 0.0), (LipWidth, 0.7)];
+const EMPHATIC_ALV_FRIC: Tg = &[(TtX, 6.3), (TtY, 9.15), (Jaw, 0.3), (Root, -0.65), (TbX, 2.8), (TbY, 7.0)];
+const EMPHATIC_ALV_STOP: Tg = &[(TtX, 6.25), (TtY, 9.68), (Root, -0.65), (TbX, 2.8), (TbY, 7.0)];
 
 const TIP_CURL: &[ArticKey] = &[TtX, TtY, TtCurl];
 
@@ -200,6 +202,12 @@ fn base() -> Vec<PhonemeDef> {
         c("ɦ", "voiced glottal fricative", M::Glottal, Voiced, "glottal", t(NONE), &[], 0.08).glot(Glottal::Breathy),
         c("ɬ", "voiceless lateral fricative", M::Fricative, Voiceless, "alveolar", tg(ALV_STOP, &[(Lateral, 0.35)]), &[TtX, TtY, Lateral], 0.12),
         c("ɮ", "voiced lateral fricative", M::Fricative, Voiced, "alveolar", tg(ALV_STOP, &[(Lateral, 0.45)]), &[TtX, TtY, Lateral], 0.09),
+        // Arabic emphatics combine an alveolar constriction with tongue-root retraction.
+        c("sˤ", "voiceless emphatic alveolar fricative", M::Fricative, Voiceless, "alveolar", t(EMPHATIC_ALV_FRIC), &[TtX, TtY, Jaw, Root, TbX, TbY], 0.12),
+        c("zˤ", "voiced emphatic alveolar fricative", M::Fricative, Voiced, "alveolar", t(EMPHATIC_ALV_FRIC), &[TtX, TtY, Jaw, Root, TbX, TbY], 0.09),
+        c("tˤ", "voiceless emphatic alveolar stop", M::Stop, Voiceless, "alveolar", t(EMPHATIC_ALV_STOP), &[TtX, TtY, Root, TbX, TbY], 0.075),
+        c("dˤ", "voiced emphatic alveolar stop", M::Stop, Voiced, "alveolar", t(EMPHATIC_ALV_STOP), &[TtX, TtY, Root, TbX, TbY], 0.06),
+        c("ðˤ", "voiced emphatic dental fricative", M::Fricative, Voiced, "dental", t(&[(TtX, 6.85), (TtY, 8.5), (Root, -0.65), (TbX, 2.8), (TbY, 7.0)]), &[TtX, TtY, Root, TbX, TbY], 0.09),
         // affricates
         c("ts", "voiceless alveolar affricate", M::Affricate, Voiceless, "alveolar", t(ALV_STOP), &TIP, 0.14).rel("s"),
         c("dz", "voiced alveolar affricate", M::Affricate, Voiced, "alveolar", t(ALV_STOP), &TIP, 0.12).rel("z"),

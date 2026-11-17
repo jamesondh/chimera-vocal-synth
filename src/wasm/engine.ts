@@ -7,7 +7,7 @@
 import { call } from "./chimera.ts";
 import { CREATURE_VISUALS } from "../ui/creatureVisuals.ts";
 import type {
-  ArticKey, ArticSpec, BeatPreset, BodyMix, BeatSound, BeatStep, CreatureDef, CreatureTelemetry, DemoSong, Gesture, HumanArtic, HumanBody,
+  ArticKey, ArticSpec, ArabicDialect, BeatPreset, BodyMix, BeatSound, BeatStep, CreatureDef, CreatureTelemetry, DemoSong, Gesture, HumanArtic, HumanBody,
   HumanFrame, Phrase, Plan, Segment, SkippedIpa, SungNote, Syllable, VoiceSource, VowelRef,
 } from "./types.ts";
 
@@ -122,8 +122,13 @@ export class EnglishG2P {
 }
 
 /** Lyrics → sung syllables, through the page's dictionary (see EnglishG2P). */
-export function lyricsToSyllables(text: string): Syllable[] {
-  return call("lyricsToSyllables", { text });
+export function lyricsToSyllables(text: string, dialect: ArabicDialect = "msa"): Syllable[] {
+  return call("lyricsToSyllables", { text, dialect });
+}
+
+/** Mixed English/Arabic speech. Arabic script is routed to the Arabic phonology automatically. */
+export function textToPhrases(text: string, dialect: ArabicDialect = "msa"): Phrase[] {
+  return call("textToPhrases", { text, dialect });
 }
 
 // ------------------------------------------------------------------ planning

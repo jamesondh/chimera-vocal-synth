@@ -34,8 +34,10 @@ for tests and the `chimera` CLI.
   fitted to a phrase of it (Tempo and Key on the Voice screen); **Record video** sings it again into a
   9:16 clip to share. The keys sing the same words a syllable at a time, legato or not, onto a
   pitch roll; consonants land before the beat. Lyrics can be English, Korean (Hangul: one block per
-  note, with Korean sound rules) or Russian; each language is a front end
-  ([docs/language-front-ends.md](docs/language-front-ends.md)).
+  note, with Korean sound rules), Russian, or Arabic (script-aware pronunciation with optional
+  vowel marks and right-to-left lyrics); each language is a front end
+  ([docs/language-front-ends.md](docs/language-front-ends.md)). The Arabic demo is the poem
+  *Sawt Safir al-Bulbul*, sung to an original melody.
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.
 - **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.

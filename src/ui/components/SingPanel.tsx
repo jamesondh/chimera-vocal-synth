@@ -52,6 +52,7 @@ function Lyrics() {
     <div className="lyrics">
       <textarea
         value={lyrics}
+        dir="auto"
         onChange={(e) => setLyrics(e.target.value)}
         onKeyDown={(e) => e.stopPropagation()}
         rows={Math.min(4, lyrics.split("\n").length)}
@@ -135,6 +136,10 @@ function SongControls() {
  */
 function SingActions() {
   const start = useStore((s) => s.start);
+  const lyrics = useSing((s) => s.lyrics);
+  const [language, setLanguage] = useState<"english" | "arabic">(() => /[\u0600-\u06ff]/u.test(useSing.getState().lyrics) ? "arabic" : "english");
+  const arabicDialect = useSing((s) => s.arabicDialect);
+  const setArabicDialect = useSing((s) => s.setArabicDialect);
   const playing = useSing((s) => s.playing);
   const tune = useSing((s) => s.tune);
   const setTune = useSing((s) => s.setTune);
@@ -168,14 +173,6 @@ function SingActions() {
     const hooks = !record
       ? {}
       : {
-          onStart: () => {
-            const face = () => document.querySelector<HTMLCanvasElement>(".screen.left canvas");
-            const audio = engine.recordStream();
-            if (n !== request.current || !face() || !audio) throw new Error("not recording");
-            mine = recorder.current = new Clip(face, audio);
-            setRecording(true);
-            setClip(null);
-          },
           onEnd: () => {
             const c = mine;
             if (!c || recorder.current !== c) return;
@@ -190,7 +187,18 @@ function SingActions() {
           },
         };
     // a clip waits for the last sound (the song this one replaces) to die away, or it opens on its tail
-    const go = record ? async () => (await ready(), await engine.quiet()) : ready;
+    const go = record
+      ? async () => {
+          await ready();
+          await engine.quiet();
+          const face = () => document.querySelector<HTMLCanvasElement>(".screen.left canvas");
+          const audio = engine.recordStream();
+          if (n !== request.current || !face() || !audio) throw new Error("not recording");
+          mine = recorder.current = new Clip(face, audio);
+          setRecording(true);
+          setClip(null);
+        }
+      : ready;
     playTune(id, useStore.getState().body, go, hooks)
       .catch(() => {})
       .finally(() => request.current === n && setPending(false));
@@ -217,6 +225,15 @@ function SingActions() {
   return (
     <ActionBar label="Song" onSpace={press}>
       <PrimaryButton label="Sing" playing={(!!playing || pending) && !recording} busy={recording ? "Recording…" : null} onClick={press} />
+      <Menu
+        label="Language"
+        value={language}
+        options={[{ value: "english", label: "English" }, { value: "arabic", label: "Arabic" }]}
+        onChange={(value) => setLanguage(value as "english" | "arabic")}
+      />
+      {language === "arabic" && (
+        <Menu label="Arabic pronunciation" value={arabicDialect} options={[{ value: "msa", label: "Standard Arabic" }, { value: "egyptian", label: "Egyptian" }]} onChange={setArabicDialect} />
+      )}
       <Menu
         label="Tune"
         icon="note"

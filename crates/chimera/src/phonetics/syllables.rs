@@ -9,12 +9,13 @@
 //! [`super::korean`], one syllable per block, Cyrillic words to [`super::russian`]. Typed hyphens force syllable breaks; a lone "-" (or
 //! "~") holds the previous vowel onto the next note (melisma), as in vocaloid editors.
 
-use crate::anatomy::human::BodyMix;
+use super::arabic::{ArabicDialect, ArabicFrontEnd};
 use super::english::js_is_space;
 use super::korean::Korean;
-use super::russian::Russian;
 use super::planner::is_vowel;
+use super::russian::Russian;
 use super::{Segment, Syllable};
+use crate::anatomy::human::BodyMix;
 use serde::{Deserialize, Serialize};
 
 // English onsets (IPA), longest first matters only for the search below
@@ -163,7 +164,7 @@ impl<F: Fn(&str, bool) -> Vec<Segment>> WordSource for F {
 }
 
 fn is_lyric_punct(c: char) -> bool {
-    matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '\n')
+    matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '\n' | '،' | '؛' | '؟')
 }
 
 /// A language front end: claims the words written in its script and turns each into sung syllables
@@ -285,5 +286,12 @@ pub fn read_lyrics(text: &str, front_ends: &[&dyn FrontEnd]) -> Vec<Syllable> {
 /// Lyrics text → syllables through the built-in front ends that need no data beyond the English
 /// dictionary: English (`g2p`), Korean and Russian.
 pub fn lyrics_to_syllables(text: &str, g2p: &impl WordSource) -> Vec<Syllable> {
-    read_lyrics(text, &[&English(g2p), &Korean, &Russian])
+    lyrics_to_syllables_with_arabic(text, g2p, ArabicDialect::default())
+}
+
+/// Lyrics → syllables with the requested Arabic pronunciation. Script routing remains automatic;
+/// the dialect changes Arabic phonology only and does not affect English, Korean or Russian.
+pub fn lyrics_to_syllables_with_arabic(text: &str, g2p: &impl WordSource, dialect: ArabicDialect) -> Vec<Syllable> {
+    let arabic = ArabicFrontEnd(dialect);
+    read_lyrics(text, &[&English(g2p), &Korean, &Russian, &arabic])
 }

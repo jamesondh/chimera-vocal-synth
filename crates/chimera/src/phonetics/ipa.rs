@@ -197,6 +197,22 @@ fn tokenize(input: &str, gaps: &mut Gaps) -> Vec<Segment> {
             i += 1;
             continue;
         }
+        // pharyngealized consonants used for Arabic emphatics, e.g. /sˤ/
+        if ch == 'ˤ' {
+            if let Some(last) = out.last_mut() {
+                let mut emphatic = last.ipa.clone();
+                emphatic.push(ch);
+                if consonant(&emphatic).is_some() {
+                    last.ipa = emphatic;
+                } else {
+                    gaps.ignore(Some(last), ch);
+                }
+            } else {
+                gaps.ignore(None, ch);
+            }
+            i += 1;
+            continue;
+        }
         // palatalization, on a consonant made with a mouth gesture (not a glottal one)
         if ch == 'ʲ' {
             match out.last_mut().filter(|l| consonant(&l.ipa).is_some_and(|c| c.manner != Manner::Glottal)) {
@@ -330,7 +346,15 @@ impl NfcTables {
     /// canonical-ordering rank (0 for a starter)
     fn rank(&self, c: char) -> u8 {
         let u = c as u32;
-        match self.ccc.binary_search_by(|&(a, b, _)| if b < u { std::cmp::Ordering::Less } else if a > u { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal }) {
+        match self.ccc.binary_search_by(|&(a, b, _)| {
+            if b < u {
+                std::cmp::Ordering::Less
+            } else if a > u {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        }) {
             Ok(k) => self.ccc[k].2,
             Err(_) => 0,
         }

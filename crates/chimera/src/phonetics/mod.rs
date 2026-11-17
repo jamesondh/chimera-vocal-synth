@@ -5,6 +5,7 @@
 use crate::control::score::Gesture;
 use serde::{Deserialize, Serialize};
 
+pub mod arabic;
 pub mod beatbox;
 pub mod durations;
 pub mod english;
@@ -51,6 +52,9 @@ pub struct Segment {
     /// the palate (IPA ʲ); None or false: plain
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub palatalized: Option<bool>,
+    /// a vowel with the tongue root retracted as it is near an emphatic consonant
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pharyngealized: Option<bool>,
     /// breathy voice: a voiced stop or affricate released with the folds apart (IPA ʱ), or a
     /// vowel said with them part-open (IPA combining diaeresis below); None or false: modal
     #[serde(default, skip_serializing_if = "Option::is_none")]

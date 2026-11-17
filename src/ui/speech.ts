@@ -2,9 +2,9 @@
 import type { BodyMix } from "../wasm/types.ts";
 import { EnglishG2P, type Phrase } from "../wasm/engine.ts";
 import { tokenizeIpa } from "../wasm/engine.ts";
-import { planPhrases, type Plan, type Segment } from "../wasm/engine.ts";
+import { planPhrases, textToPhrases, type Plan, type Segment } from "../wasm/engine.ts";
 import { engine } from "../audio/AudioEngine.ts";
-import type { Gesture } from "../wasm/types.ts";
+import type { ArabicDialect, Gesture } from "../wasm/types.ts";
 import { ipaPhraseTexts } from "./skipped.ts";
 import { wordSpans, type WordSpan } from "./words.ts";
 
@@ -56,17 +56,20 @@ export function speakPhrases(phrases: { segments: Segment[]; intonation?: "state
   return current;
 }
 
-export async function speakText(text: string, o: { ipa: boolean; body: BodyMix; rate: number; f0: number }): Promise<SpokenPlan | null> {
+export async function speakText(text: string, o: { ipa: boolean; body: BodyMix; rate: number; f0: number; dialect?: ArabicDialect }): Promise<SpokenPlan | null> {
   if (!text.trim()) return null;
   let phrases: Phrase[];
   if (o.ipa) phrases = ipaToPhrases(text);
   else {
+    const hasArabic = /[\u0600-\u06ff]/u.test(text);
+    if (/[A-Za-z]/u.test(text) && !g2p.loaded) {
     try {
       await g2p.load();
     } catch {
       // dictionary unavailable: the letter-to-sound rules still work
     }
-    phrases = g2p.toPhrases(text);
+    }
+    phrases = hasArabic ? textToPhrases(text, o.dialect) : g2p.toPhrases(text);
   }
   if (!phrases.length) return null;
   return speakPhrases(phrases, o);

@@ -1,5 +1,6 @@
 /** Engine types as the UI sees them (the JSON shapes of the Rust engine's serde types). */
 export type ArticKey = "jaw" | "tbX" | "tbY" | "ttX" | "ttY" | "ttCurl" | "root" | "lipAp" | "lipProt" | "lipWidth" | "labiodental" | "velum" | "larynx" | "epilarynx" | "ventricular" | "lateral" | "dorsum";
+export type ArabicDialect = "msa" | "egyptian";
 export type SourceKey = "abduction" | "closure" | "breath" | "f0" | "vibrato";
 export type ControlKey = ArticKey | SourceKey;
 
@@ -163,6 +164,8 @@ export interface Segment {
   nasalized?: boolean;
   /** a consonant with a secondary palatal gesture, the tongue body raised and fronted (IPA ʲ) */
   palatalized?: boolean;
+  /** a vowel with the tongue root retracted near an emphatic consonant */
+  pharyngealized?: boolean;
   /** breathy voice: a voiced stop or affricate's release (IPA ʱ), or a vowel (combining diaeresis below) */
   breathy?: boolean;
 }

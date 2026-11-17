@@ -13,8 +13,17 @@ import { Stroboscope } from "./Stroboscope.tsx";
 import type { InfoFn, SlotsFn } from "./AnatomyView.tsx";
 import { V } from "../colors.ts";
 import { engine } from "../../audio/AudioEngine.ts";
-
-const EXAMPLES = ["Hello. Can you hear me?", "She sells sea shells by the sea shore.", "Every sound here is air moving through a throat.", "The quick brown fox jumps over the lazy dog."];
+import type { ArabicDialect } from "../../wasm/types.ts";
+const EXAMPLES = [
+  "Hello. Can you hear me?",
+  "She sells sea shells by the sea shore.",
+  "Every sound here is air moving through a throat.",
+  "The quick brown fox jumps over the lazy dog.",
+  /*
+  "\u0635\u064e\0648\u0652\062a\064c \0648\064e\0627\0636\0650\062d\064c \064a\064e\062a\u064e\062d\064e\0631\u0651\u064e\0643\064f \0641\u0650\064a \0627\0644\u0652\0647\064e\0648\u064e\0627\0621\u0650.",
+  */
+  "This is a neutral Arabic pronunciation example.",
+];
 
 // IPA pulmonic consonant chart (rows = manner, columns = place); empty cells are null
 const PLACES = ["Bilabial", "Labiodental", "Dental", "Alveolar", "Postalveolar", "Retroflex", "Palatal", "Velar", "Uvular", "Pharyngeal", "Glottal"];
@@ -135,8 +144,10 @@ export function SpeakRight() {
   const f0 = useStore((s) => s.source.f0);
   const start = useStore((s) => s.start);
   const [text, setText] = useState(EXAMPLES[0]);
+  const [language, setLanguage] = useState<"english" | "arabic">("english");
   const [ipa, setIpa] = useState(false);
   const [rate, setRate] = useState(1);
+  const [dialect, setDialect] = useState<ArabicDialect>("msa");
   const [busy, setBusy] = useState(false);
   const [trans, setTrans] = useState(currentPlan()?.transcription ?? "");
   const [vowel, setVowel] = useState("ɑ");
@@ -151,7 +162,7 @@ export function SpeakRight() {
       await start();
       // the audio didn't start (the error shows on the bar): speaking would only light Stop
       if (!useStore.getState().started) return;
-      await speakText(text, { ipa, body, rate, f0 });
+      await speakText(text, { ipa, body, rate, f0, dialect });
     } finally {
       setBusy(false);
     }
@@ -169,6 +180,15 @@ export function SpeakRight() {
       <ActionBar label="Speak" onSpace={press}>
         <PrimaryButton label="Speak" playing={speaking} busy={busy ? "Preparing…" : null} onClick={press} />
         {/* puts an example in the box: the menu always reads Examples, since the box shows the words */}
+        <Menu
+          label="Language"
+          value={language}
+          options={[{ value: "english", label: "English" }, { value: "arabic", label: "Arabic" }]}
+          onChange={(value) => setLanguage(value as "english" | "arabic")}
+        />
+        {language === "arabic" && (
+          <Menu label="Arabic pronunciation" value={dialect} options={[{ value: "msa", label: "Standard Arabic" }, { value: "egyptian", label: "Egyptian" }]} onChange={setDialect} />
+        )}
         <Menu
           label="Examples"
           value=""
@@ -190,6 +210,7 @@ export function SpeakRight() {
           <div className="say-row">
             <textarea
               value={text}
+              dir="auto"
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void speak();

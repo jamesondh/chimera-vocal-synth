@@ -9,10 +9,10 @@ use chimera::control::beat_player::BeatPlayer;
 use chimera::creatures::voice::CreatureVoice;
 use chimera::math;
 use chimera::phonetics::beatbox::{self, BeatStep};
+use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::planner::{self, PhraseInput, PlanOptions};
 use chimera::phonetics::sing::{self, MelismaOptions, NoteOnOptions, SongOptions, SungNote};
-use chimera::phonetics::english::EnglishG2P;
-use chimera::phonetics::{Segment, Syllable, ipa, songs, syllables, vowel_data};
+use chimera::phonetics::{Segment, Syllable, arabic, ipa, songs, syllables, vowel_data};
 use chimera::voice::human_airway::HumanAirway;
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -126,7 +126,8 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
         }
         "g2pPhrases" => to_json(&st.g2p.to_phrases(&arg::<String>(req, "text")?)),
         "g2pWord" => to_json(&st.g2p.word(&arg::<String>(req, "word")?, arg::<Option<bool>>(req, "reduce")?.unwrap_or(true))),
-        "lyricsToSyllables" => to_json(&syllables::lyrics_to_syllables(&arg::<String>(req, "text")?, &st.g2p)),
+        "textToPhrases" => to_json(&arabic::text_to_phrases(&arg::<String>(req, "text")?, &st.g2p, arg::<Option<arabic::ArabicDialect>>(req, "dialect")?.unwrap_or_default())),
+        "lyricsToSyllables" => to_json(&syllables::lyrics_to_syllables_with_arabic(&arg::<String>(req, "text")?, &st.g2p, arg::<Option<arabic::ArabicDialect>>(req, "dialect")?.unwrap_or_default())),
         // ---------------------------------------------------------------- creatures
         "creaturePreview" => {
             let id: String = arg(req, "id")?;
@@ -163,10 +164,7 @@ fn catalog() -> Res {
     use chimera::control::articulators::ARTIC_SPECS;
     use chimera::voice::human_voice::DEFAULT_SOURCE;
     let specs: serde_json::Map<String, Value> = ArticKey::ALL.iter().map(|k| (k.name().to_string(), serde_json::to_value(ARTIC_SPECS[k.index()]).unwrap())).collect();
-    let vowels: serde_json::Map<String, Value> = planner::vowel_table()
-        .iter()
-        .map(|(body, t)| (body.clone(), Value::Object(t.iter().map(|(ipa, v)| (ipa.clone(), json!({ "artic": v.artic, "formants": v.formants }))).collect())))
-        .collect();
+    let vowels: serde_json::Map<String, Value> = planner::vowel_table().iter().map(|(body, t)| (body.clone(), Value::Object(t.iter().map(|(ipa, v)| (ipa.clone(), json!({ "artic": v.artic, "formants": v.formants }))).collect()))).collect();
     Ok(json!({
         "neutral": NEUTRAL,
         "bodies": { "male": BODY_MALE, "female": BODY_FEMALE, "child": BODY_CHILD },

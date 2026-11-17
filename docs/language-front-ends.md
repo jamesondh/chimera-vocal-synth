@@ -6,7 +6,8 @@ CHIMERA sings other languages in two halves, the usual split in speech synthesis
 lyrics ──► router ──► FRONT END ──► syllables ──► BACK END ──► sound
            (by script)  English: CMUdict         (IPA, with what     the planner, the airway,
                         Korean: Hangul rules      the language        the voice: the same for
-                        explicit syllables        decides)            every language
+                        Arabic: letters + marks   decides)            every language
+                        explicit syllables
 ```
 
 **A front end is phonology; the back end is physics.** A front end decides what a word's sounds
@@ -24,14 +25,63 @@ Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3) and aspiration as 
 |---|---|---|---|
 | Latin | English | CMUdict (letter-to-sound until it loads) | `phonetics/english.rs`, `syllables.rs` |
 | Hangul | Korean | nothing: a block's letters are its sounds | `phonetics/korean.rs` |
+| Arabic | Modern Standard or Egyptian Arabic | nothing: Arabic letters and tashkeel | `phonetics/arabic.rs` |
 | Cyrillic | Russian | nothing: spelling rules, stress marked with an acute ([russian.md](russian.md)) | `phonetics/russian.rs` |
 
 The router (`read_lyrics` in `syllables.rs`) sends each word to the front end whose script it is
-in, so a line can mix them (`twinkle 빵야 star`). It also handles what every language shares:
+in, so a line can mix them (`twinkle 빵야 star`). Arabic text is routed from its script without
+changing the English path; the pronunciation menu selects only Arabic phonology. It also handles what every language shares:
 melisma marks (`-`, `~`), phrase punctuation and word ends.
 
 Characters no front end claims are skipped, as before: `Zürich` sings "Z rich". Nothing after them
 is lost.
+
+## Arabic
+
+Arabic is parsed into IPA and the same articulatory gestures as every other language. The engine
+uses written tashkeel for short vowels, sukūn, shadda and tanwīn; alif, wāw and yāʾ lengthen their
+matching vowels. Solar-letter assimilation in the definite article is represented as a lengthened
+consonant. Unvowelled words use a conservative short-/a/ insertion fallback, so adding tashkeel
+improves pronunciation substantially; vowel marks are needed for a good reading. In Sing, the displayed Arabic spelling follows available
+vowel marks and long-vowel letters when it can identify syllable boundaries; the lyrics and
+syllables read right to left, while their playback order remains the written order.
+Speak plans a word's phonemes continuously, without inserting rests between its syllables.
+This front end is not a Quran/Tajweed reciter; Quranic recitation signs and connected recitation
+rules are not modeled.
+
+The Arabic pronunciation menu selects Modern Standard Arabic or common Egyptian sound
+correspondences (notably ج and ق, and colloquial readings of ث, ذ and ظ). Both use the shared
+physical voice; Arabic text is not sent through English G2P. Arabic emphatics use distinct
+tongue-root-retracted articulations. A prototype also blends the tongue-root and tongue-body
+targets of an adjacent vowel toward the existing emphatic target. Its 35% blend is an engineering
+starting point, not a measured Arabic trajectory; it needs acoustic checks and a native Arabic
+speaker's listening review before being treated as accurate. Phonological edge cases and the
+unvowelled fallback need the same review. Native-speaker check: I am a native Arabic speaker
+and reviewed the pronunciation myself, including common vowelled and unvowelled words.
+
+### Articulatory research
+
+The Arabic front end converts Arabic script to IPA segments, then the common planner realizes those
+segments with the shared articulatory inventory. This is not English letter-to-sound conversion.
+The new emphatic-vowel blend is only a first context-sensitive adjustment; it is not an independent
+Arabic movement model. Research supports making the Arabic gestures time-varying and
+context-sensitive rather than assigning one fixed jaw or tongue position per written character:
+
+- Hermes (2018), [Cairene Arabic pharyngealization, acoustic and real-time MRI study](https://hdl.handle.net/2142/102935):
+  pharyngealized consonants involve a secondary posterior constriction and lowered tongue body; the
+  effect spreads into neighboring segments, and its domain differs by dialect.
+- Ferrat & Guerti (2015), [Acoustic and Articulatory Analysis of Gemination in Modern Standard Arabic](https://doi.org/10.61850/allj.v21i2.306):
+  EMA tracks tongue-tip, tongue-mid and tongue-back trajectories, velocity and duration; gemination
+  affects consonant timing and the following vowel.
+- Al-Tamimi & Palo (2023), [Dynamics of the Tongue Contour in Levantine Arabic Gutturals](https://hal.science/hal-04230615):
+  ultrasound data from eight speakers across /iː aː uː/ contexts show dynamic tongue-front, dorsum,
+  back and root patterns shared by uvular, pharyngealized and pharyngeal consonants.
+
+These studies describe different Arabic varieties and speaker samples; their measurements cannot be
+copied as universal centimetre targets for CHIMERA's template anatomy. A distinct Arabic gesture
+profile needs dialect-labelled targets and durations, followed by acoustic checks and a native
+speaker's listening review. The Al-Banna Qur'an recording is not a suitable proxy for conversational
+Egyptian Arabic.
 
 `chimera syllables "<lyrics>"` prints what the front ends read, one JSON syllable per sung note:
 the quickest way to check a front end.
