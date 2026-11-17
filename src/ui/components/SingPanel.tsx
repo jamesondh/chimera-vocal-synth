@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store.ts";
-import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary, BREATH_MIN, BREATH_MAX, BREATH_LEVEL_MIN, BREATH_LEVEL_MAX } from "../singing.ts";
+import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary, BREATH_MIN, BREATH_MAX, BREATH_LEVEL_MIN, BREATH_LEVEL_MAX, breathAtDial } from "../singing.ts";
 import { engine } from "../../audio/AudioEngine.ts";
 import { canRecord, Clip } from "../../song/record.ts";
 import { mouthWords } from "../mouthWords.ts";
@@ -104,11 +104,8 @@ function SongControls() {
   const setBreath = useSing((s) => s.setBreath);
   const breathLevel = useSing((s) => s.breathLevel);
   const setBreathLevel = useSing((s) => s.setBreathLevel);
-  /** the dial's position to a breath: steps of 0.05 s, and none below the shortest (Off keeps a blank unit line, so the dial stays level with its neighbours) */
-  const toBreath = (v: number) => {
-    const s = Math.round(v * 20) / 20;
-    return s < BREATH_MIN ? 0 : s;
-  };
+  /** the dial's position to a breath (Off keeps a blank unit line, so the dial stays level with its neighbours) */
+  const toBreath = breathAtDial;
   return (
     <EncoderPages
       label="Song voice"

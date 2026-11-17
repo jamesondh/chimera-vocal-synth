@@ -172,7 +172,7 @@ export function planPhrases(phrases: { segments: Segment[]; intonation?: "statem
 export function planSong(notes: SungNote[], options: { body: BodyMix; bpm: number; t0: number; vibrato: number; breath?: number; breathLevel?: number }): Plan {
   const { breathLevel, ...o } = options;
   const plan: Plan = call("planSong", { notes, options: o });
-  if (breathLevel !== undefined && breathLevel !== 1) for (const g of plan.gestures) if (g.label === INHALE_LABEL && g.targets.breath !== undefined) g.targets = { ...g.targets, breath: g.targets.breath * breathLevel };
+  if (breathLevel !== undefined && Number.isFinite(breathLevel) && breathLevel > 0 && breathLevel !== 1) for (const g of plan.gestures) if (g.label === INHALE_LABEL && g.targets.breath !== undefined) g.targets = { ...g.targets, breath: g.targets.breath * breathLevel };
   return plan;
 }
 

@@ -34,11 +34,20 @@ export const DEFAULT_LYRICS = "Hello there, I am a voice made of air.";
 
 /**
  * The breath Sing can take at a phrase end inside the tune (s, from the end of one phrase's sound
- * to the next one's first): under 0.25 s the engine has no time to draw one in (the gap would be
- * silent), and a singer's breath inside a line is rarely longer than 0.6 s.
+ * to the next one's first). The engine draws a breath in only where 0.25 s is left for it (0.09 s
+ * for the voice to stop, 0.1 s before the next sound, at least 0.06 s between), and a gap of exactly
+ * 0.25 s falls on either side of that as the phrase's times round: some phrase ends got a breath
+ * and some a silent gap. So the shortest is one step up, 0.3 s, which always gets one. A singer's
+ * breath inside a line is rarely longer than 0.6 s. The last note gives up at most half of itself,
+ * so on short notes the breath is shorter than the dial says.
  */
-export const BREATH_MIN = 0.25;
+export const BREATH_MIN = 0.3;
 export const BREATH_MAX = 0.6;
+/** a Breath dial position as a breath: steps of 0.05 s, and none (0) below the shortest */
+export const breathAtDial = (v: number): number => {
+  const s = Math.round(v * 20) / 20;
+  return s < BREATH_MIN ? 0 : Math.min(BREATH_MAX, s);
+};
 /**
  * How hard that breath is drawn in, as a multiple of the engine's own level. Measured (male, the
  * breath's loudest 20 ms against the sung vowel): −36 dB at 0.5, −30 dB at 1, −24.5 dB at 2.
@@ -83,7 +92,7 @@ interface SingState {
 const KEPT = "chimera-sing";
 
 /** the last session's words, tune, tempo, key and breath, length and level (anything missing or odd: the defaults) */
-function kept(): { lyrics: string; tune: string; tempo: number; key: number; breath: number; breathLevel: number } {
+export function kept(): { lyrics: string; tune: string; tempo: number; key: number; breath: number; breathLevel: number } {
   const d = { lyrics: DEFAULT_LYRICS, tune: TUNES[0].id, tempo: 1, key: 0, breath: 0, breathLevel: 1 };
   try {
     const k = JSON.parse(localStorage.getItem(KEPT) ?? "null") as Record<string, unknown> | null;
@@ -93,8 +102,9 @@ function kept(): { lyrics: string; tune: string; tempo: number; key: number; bre
       tune: TUNES.some((t) => t.id === k.tune) ? (k.tune as string) : d.tune,
       tempo: typeof k.tempo === "number" && k.tempo >= 0.5 && k.tempo <= 1.5 ? k.tempo : d.tempo,
       key: typeof k.key === "number" && Math.abs(k.key) <= 12 ? Math.round(k.key) : d.key,
-      breath: typeof k.breath === "number" && k.breath >= BREATH_MIN && k.breath <= BREATH_MAX ? k.breath : d.breath,
-      breathLevel: typeof k.breathLevel === "number" && k.breathLevel >= BREATH_LEVEL_MIN && k.breathLevel <= BREATH_LEVEL_MAX ? k.breathLevel : d.breathLevel,
+      // on the dials' own steps, so what is sung is what the dial shows
+      breath: typeof k.breath === "number" && k.breath >= BREATH_MIN && k.breath <= BREATH_MAX ? breathAtDial(k.breath) : d.breath,
+      breathLevel: typeof k.breathLevel === "number" && k.breathLevel >= BREATH_LEVEL_MIN && k.breathLevel <= BREATH_LEVEL_MAX ? Math.round(k.breathLevel * 20) / 20 : d.breathLevel,
     };
   } catch {
     return d; // no storage here (a private window): start fresh

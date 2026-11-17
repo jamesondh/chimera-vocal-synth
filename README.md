@@ -32,7 +32,8 @@ for tests and the `chimera` CLI.
   prints the same as warnings).
 - **Sing**: type words and the **Sing** button sings them to a tune picked by its mood, each line
   fitted to a phrase of it (Tempo and Key on the Voice screen, and Breath: off, or an audible breath
-  of 0.25–0.6 s between the lines); **Record video** sings it again into a 9:16 clip to share. The keys sing the same words a syllable at a time, legato or not, onto a
+  of 0.3–0.6 s between the lines, with Level for how loud it is); **Record video** sings it again
+  into a 9:16 clip to share. The keys sing the same words a syllable at a time, legato or not, onto a
   pitch roll; consonants land before the beat. Lyrics can be English, Korean (Hangul: one block per
   note, with Korean sound rules) or Russian; each language is a front end
   ([docs/language-front-ends.md](docs/language-front-ends.md)).
