@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub mod beatbox;
 pub mod durations;
 pub mod english;
+pub mod hebrew;
 pub mod inventory;
 pub mod ipa;
 pub mod korean;

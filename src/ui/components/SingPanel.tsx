@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store.ts";
-import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary } from "../singing.ts";
+import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary, ensureHebrew } from "../singing.ts";
 import { engine } from "../../audio/AudioEngine.ts";
 import { canRecord, Clip } from "../../song/record.ts";
 import { mouthWords } from "../mouthWords.ts";
+import { isRtl } from "../rtl.ts";
 import { V } from "../colors.ts";
 import { Keys, MidiButton } from "./Keys.tsx";
 import { ActionBar, PrimaryButton } from "./ActionBar.tsx";
@@ -46,6 +47,9 @@ function Lyrics() {
   const sungAt = useSing((s) => s.at);
   const setLyrics = useSing((s) => s.setLyrics);
   const setCursor = useSing((s) => s.setCursor);
+  const hebrew = useSing((s) => s.hebrew);
+  // right-to-left lyrics: the syllables run with them
+  const rtl = isRtl(lyrics);
   const at = demo ? sungAt : -1;
   const done = demo ? sungAt : cursor;
   return (
@@ -55,11 +59,12 @@ function Lyrics() {
         onChange={(e) => setLyrics(e.target.value)}
         onKeyDown={(e) => e.stopPropagation()}
         rows={Math.min(4, lyrics.split("\n").length)}
+        dir="auto"
         aria-label="Lyrics to sing"
         placeholder="Type the words to sing"
         title="Sing sings these words to the tune, a line to each of its phrases. Each key sings the next syllable; hold a key while you press the next one to sing legato. A lone “-” between words holds a vowel over several notes; hyphens split a word your way (“ti-ger”)."
       />
-      <div className="syllables" role="group" aria-label="Syllables. Each note sings the marked one; choose another to start there.">
+      <div className="syllables" dir={rtl ? "rtl" : undefined} role="group" aria-label="Syllables. Each note sings the marked one; choose another to start there.">
         {syllables.map((s, i) => (
           <span key={i} className={`syl-wrap${s.wordEnd ? " word-end" : ""}`}>
             <button
@@ -77,7 +82,12 @@ function Lyrics() {
             )}
           </span>
         ))}
-        {!syllables.length && <span className="dim">No words: the keys sing “ah”.</span>}
+        {hebrew && (
+          <span className="dim" dir="ltr" role="status">
+            {hebrew === "reading" ? "Reading the Hebrew… (the first time fetches a 20 MB model)" : "The Hebrew model didn’t load, so the Hebrew words are skipped."}
+          </span>
+        )}
+        {!syllables.length && !hebrew && <span className="dim">No words: the keys sing “ah”.</span>}
         <Chip toggle={false} className="from-start" onClick={() => setCursor(0)} disabled={cursor === 0 && !demo}>
           From the start
         </Chip>
@@ -248,9 +258,10 @@ function SingActions() {
 
 /** Sing mode's right column: the song button, the pitch roll, the lyrics, the spectrum with the ring, the song voice, the keys. */
 export function SingRight() {
-  // the pronouncing dictionary for the lyrics: here rather than on the mode switch, since the app
-  // opens on Sing without one
+  // the pronouncing dictionary for the lyrics (and the reading of any Hebrew kept in them): here
+  // rather than on the mode switch, since the app opens on Sing without one
   useEffect(ensureDictionary, []);
+  useEffect(ensureHebrew, []);
   const ring = useStore((s) => s.artic.epilarynx >= RING - 0.05);
   const next = useSing((s) => (s.playing ? null : (s.syllables[s.cursor]?.text ?? null)));
   return (

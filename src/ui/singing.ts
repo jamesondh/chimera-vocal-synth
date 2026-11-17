@@ -17,6 +17,8 @@ import type { Gesture } from "../wasm/types.ts";
 import { nearestBody, type BodyMix } from "./body.ts";
 import { TUNES } from "../song/tunes.ts";
 import { fitSong, la } from "../song/fit.ts";
+import { readHebrew, unreadHebrew } from "../song/hebrew.ts";
+import { goesOn } from "./rtl.ts";
 
 /** A note on the piano roll, on the voice clock (s); t1 is null while it is held. */
 export interface RollNote {
@@ -52,6 +54,8 @@ interface SingState {
   playing: string | null;
   /** index in `syllables` of the one the tune is singing (−1: none, or the tune sings "la") */
   at: number;
+  /** the Hebrew in the lyrics: being read (the model loads on the first), or it can't be */
+  hebrew: null | "reading" | "failed";
   setLyrics: (text: string) => void;
   setCursor: (i: number) => void;
   setVibrato: (cents: number) => void;
@@ -93,9 +97,11 @@ export const useSing = create<SingState>((set, get) => ({
   key: atLoad.key,
   playing: null,
   at: -1,
+  hebrew: null,
   setLyrics: (text) => {
     stopDemo();
-    set({ lyrics: text, syllables: lyricsToSyllables(text), cursor: 0 });
+    set({ lyrics: text, syllables: lyricsToSyllables(text), cursor: 0, hebrew: null });
+    ensureHebrew();
   },
   setCursor: (i) => set({ cursor: Math.max(0, Math.min(i, Math.max(0, get().syllables.length - 1))) }),
   setVibrato: (cents) => set({ vibrato: cents }),
@@ -141,6 +147,23 @@ export function ensureDictionary(): void {
     });
 }
 
+/**
+ * Read the Hebrew in the lyrics (src/song/hebrew.ts: a model fetched when first needed), then
+ * re-read the lyrics with it (the cursor stays). Until then the Hebrew words are skipped.
+ */
+export function ensureHebrew(): void {
+  const text = useSing.getState().lyrics;
+  if (!unreadHebrew(text).length) return;
+  const settle = (hebrew: SingState["hebrew"]) => () => {
+    const s = useSing.getState();
+    if (s.lyrics !== text) return; // typed on: the later call settles it
+    const syllables = lyricsToSyllables(text);
+    useSing.setState({ hebrew, syllables, cursor: Math.min(s.cursor, Math.max(0, syllables.length - 1)) });
+  };
+  useSing.setState({ hebrew: "reading" });
+  readHebrew(text).then(settle(null), settle("failed"));
+}
+
 // ---- live notes
 
 interface Sounding {
@@ -154,7 +177,7 @@ interface Sounding {
 let sounding: Sounding | null = null;
 
 /** How a syllable is written at the mouth: a hyphen when its word goes on. */
-const written = (s: Syllable) => s.text + (s.wordEnd ? "" : "-");
+const written = (s: Syllable) => (s.wordEnd ? s.text : goesOn(s.text));
 
 /**
  * The syllable being sung now, for the words at the mouth: the demo's note under the clock, or
@@ -335,6 +358,7 @@ export async function playTune(id: string, body: BodyMix, ready?: () => Promise<
   } catch {
     // letter-to-sound rules
   }
+  await readHebrew(useSing.getState().lyrics).catch(() => {}); // no model: the Hebrew words are skipped
   if (token !== demoToken) return false;
   const st = useSing.getState();
   // read again: the dictionary may have arrived since the words were typed

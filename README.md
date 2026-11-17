@@ -34,7 +34,9 @@ for tests and the `chimera` CLI.
   fitted to a phrase of it (Tempo and Key on the Voice screen); **Record video** sings it again into a
   9:16 clip to share. The keys sing the same words a syllable at a time, legato or not, onto a
   pitch roll; consonants land before the beat. Lyrics can be English, Korean (Hangul: one block per
-  note, with Korean sound rules) or Russian; each language is a front end
+  note, with Korean sound rules), Russian or Hebrew (unvocalized, read by
+  [ReNikud](https://github.com/renikud/renikud), a 20 MB model fetched when first needed); each
+  language is a front end
   ([docs/language-front-ends.md](docs/language-front-ends.md)).
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.

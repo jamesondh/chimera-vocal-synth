@@ -6,11 +6,14 @@
 //! English words come from the pronouncing dictionary (unreduced: sung function words keep full
 //! vowels), are split into syllables by the maximal-onset principle with English onset clusters,
 //! and the spelling is split to match for display ("twin-kle"). Hangul words go to
-//! [`super::korean`], one syllable per block, Cyrillic words to [`super::russian`]. Typed hyphens force syllable breaks; a lone "-" (or
-//! "~") holds the previous vowel onto the next note (melisma), as in vocaloid editors.
+//! [`super::korean`], one syllable per block, Cyrillic words to [`super::russian`], Hebrew words
+//! to [`super::hebrew`] (with readings from outside the engine). Typed hyphens force syllable
+//! breaks; a lone "-" (or "~") holds the previous vowel onto the next note (melisma), as in
+//! vocaloid editors.
 
 use crate::anatomy::human::BodyMix;
 use super::english::js_is_space;
+use super::hebrew::Hebrew;
 use super::korean::Korean;
 use super::russian::Russian;
 use super::planner::is_vowel;
@@ -283,7 +286,14 @@ pub fn read_lyrics(text: &str, front_ends: &[&dyn FrontEnd]) -> Vec<Syllable> {
 }
 
 /// Lyrics text → syllables through the built-in front ends that need no data beyond the English
-/// dictionary: English (`g2p`), Korean and Russian.
+/// dictionary: English (`g2p`), Korean and Russian. Hebrew words are skipped: they need readings
+/// ([`lyrics_to_syllables_with`]).
 pub fn lyrics_to_syllables(text: &str, g2p: &impl WordSource) -> Vec<Syllable> {
-    read_lyrics(text, &[&English(g2p), &Korean, &Russian])
+    lyrics_to_syllables_with(text, g2p, &[])
+}
+
+/// The same, with the Hebrew letters' readings: one IPA chunk per Hebrew letter of `text`, in
+/// order ([`super::hebrew`]).
+pub fn lyrics_to_syllables_with(text: &str, g2p: &impl WordSource, hebrew: &[String]) -> Vec<Syllable> {
+    read_lyrics(text, &[&English(g2p), &Korean, &Russian, &Hebrew::new(hebrew)])
 }

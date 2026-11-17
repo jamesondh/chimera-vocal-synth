@@ -6,6 +6,7 @@
  */
 import { call } from "./chimera.ts";
 import { CREATURE_VISUALS } from "../ui/creatureVisuals.ts";
+import { hebrewChunks } from "../song/hebrew.ts";
 import type {
   ArticKey, ArticSpec, BeatPreset, BodyMix, BeatSound, BeatStep, CreatureDef, CreatureTelemetry, DemoSong, Gesture, HumanArtic, HumanBody,
   HumanFrame, Phrase, Plan, Segment, SkippedIpa, SungNote, Syllable, VoiceSource, VowelRef,
@@ -121,9 +122,12 @@ export class EnglishG2P {
   }
 }
 
-/** Lyrics → sung syllables, through the page's dictionary (see EnglishG2P). */
+/**
+ * Lyrics → sung syllables, through the page's dictionary (see EnglishG2P). Hebrew lines are sung
+ * once they have been read (src/song/hebrew.ts) and skipped until then.
+ */
 export function lyricsToSyllables(text: string): Syllable[] {
-  return call("lyricsToSyllables", { text });
+  return call("lyricsToSyllables", { text, hebrew: hebrewChunks(text) });
 }
 
 // ------------------------------------------------------------------ planning

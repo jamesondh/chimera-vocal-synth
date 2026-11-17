@@ -4,6 +4,7 @@
  */
 import type { Syllable } from "../wasm/types.ts";
 import type { MouthWord } from "../ui/mouthWords.ts";
+import { goesOn } from "../ui/rtl.ts";
 
 /** a melody file: `{"bpm", "t0"?, "lyrics", "notes": [[midi, beats], ...]}` (midi <= 0 is a rest) */
 export interface Melody {
@@ -43,7 +44,8 @@ export function sungWords(m: Melody, syls: Syllable[], spell: Record<string, str
   syls.forEach((s, i) => parent.push(s.melisma && i > 0 ? parent[i - 1] : i));
   const shown = parent.map((p) => {
     const s = syls[p];
-    return (respell.get(s.text.toLowerCase()) ?? s.text) + (s.wordEnd ? "" : "-");
+    const text = respell.get(s.text.toLowerCase()) ?? s.text;
+    return s.wordEnd ? text : goesOn(text);
   });
   return { times, shown, parent };
 }

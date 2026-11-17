@@ -25,6 +25,7 @@ Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3) and aspiration as 
 | Latin | English | CMUdict (letter-to-sound until it loads) | `phonetics/english.rs`, `syllables.rs` |
 | Hangul | Korean | nothing: a block's letters are its sounds | `phonetics/korean.rs` |
 | Cyrillic | Russian | nothing: spelling rules, stress marked with an acute ([russian.md](russian.md)) | `phonetics/russian.rs` |
+| Hebrew | Hebrew | a reading of each letter, from ReNikud in the web app (below) | `phonetics/hebrew.rs`, `src/song/hebrew.ts` |
 
 The router (`read_lyrics` in `syllables.rs`) sends each word to the front end whose script it is
 in, so a line can mix them (`twinkle 빵야 star`). It also handles what every language shares:
@@ -55,6 +56,26 @@ how long they aspirate (`vot`, voice onset time):
 Between voiced sounds a lax stop is voiced (아기 [agi]). Not modelled yet: the lower pitch that
 follows a lax stop (Seoul speakers rely on it as much as on aspiration; it needs pitch contours,
 #32 step 4) and the stiff voice of tense stops. A Korean speaker's ear is still wanted.
+
+## Hebrew
+
+Everyday Hebrew doesn't write its vowels, and which ones a word has depends on the sentence (ספר is
+sefer, sapar or siper), so no spelling rule can read it. The reading comes from
+[ReNikud](https://github.com/renikud/renikud) (CC BY 4.0), a 20 MB model that reads a line in
+context. The engine does no I/O and runs no model, so the work is split:
+
+- **The web app** (`src/song/hebrew.ts`) fetches the model and onnxruntime-web the first time the
+  lyrics have Hebrew in them (from Hugging Face, at a pinned revision; kept in the browser's
+  cache), reads each line, and keeps one IPA chunk per Hebrew letter: `ʃa`, `lˈo`, ``, `m` for
+  שלום. The decoding follows renikud-onnx's `phonemize` and gives the same output.
+- **The engine's front end** (`phonetics/hebrew.rs`) takes those chunks with the lyrics
+  (`lyrics_to_syllables_with`) and makes syllables: between two vowels one consonant starts the
+  next syllable, and a silent letter stays with the letter before it (ש·לום).
+
+Until a line is read its Hebrew words are skipped, and the lyrics panel says it is reading. The CLI
+has no model: `chimera syllables` and `render notes` skip Hebrew in `"lyrics"` (sing it with
+`"syllables"`), so the scramble test doesn't cover Hebrew yet. Every sound was already in the
+inventory. Not checked by ear yet: a native speaker's listen is still owed.
 
 ## The one format
 
@@ -89,7 +110,8 @@ by hand, or to sing a language that has no front end yet.
    and word → syllables; `word_after` also gets the word before, for words that lean on each
    other, as a Russian preposition with no vowel does), then add it to the router's list in `lyrics_to_syllables`. A front end
    that needs data should load it like CMUdict: a gzipped file in `public/data/`, fetched only when
-   the lyrics need it.
+   the lyrics need it. A language that needs a model to read it gets its reading outside the
+   engine, as Hebrew does.
 3. **Say the phonology** in the syllables (aspiration and its length). Build `Syllable` and
    `Segment` values with `..Default::default()` so later fields don't break you.
 4. **Leave English unchanged.** Tuning the shared voice goes through `docs/hill-climb/README.md`.
