@@ -38,6 +38,7 @@ function TopBar() {
   const setVolume = useStore((s) => s.setVolume);
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
+  const light = useStore((s) => s.lightAudio);
   const [load, setLoad] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setLoad(engine.load), 500);
@@ -67,8 +68,8 @@ function TopBar() {
           <input type="range" min={0} max={1} step={0.01} value={volume} onChange={(e) => setVolume(Number(e.target.value))} style={{ "--pos": `${volume * 100}%` } as React.CSSProperties} />
         </label>
         {started && (
-          <span className="load" title="Share of the audio thread's time budget used by the simulation">
-            Engine load {Math.round(load * 100)} %
+          <span className="load" title={"Share of the audio thread's time budget used by the simulation" + (light ? ". This device couldn't keep up at 48 kHz, so the voice runs at 32 kHz: lighter, a little duller. Reload to try 48 kHz again." : "")}>
+            Engine load {Math.round(load * 100)} %{light && " · 32 kHz"}
           </span>
         )}
         <a className="repo-link" href="https://github.com/jamesondh/chimera-vocal-synth" target="_blank" rel="noreferrer" aria-label="Source code on GitHub" title="Source code on GitHub">

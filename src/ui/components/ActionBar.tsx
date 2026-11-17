@@ -4,11 +4,13 @@ import { useStore } from "../store.ts";
 /**
  * The top of each tab's right column: the one bright button for what the tab is for, in the same
  * place on every tab, and the few settings that belong beside it. Its button starts the audio too
- * (there's no separate start step), and failing to start shows here. Space presses it, unless the
- * focus is in a field or on another control.
+ * (there's no separate start step), and failing to start shows here, as does a device too slow
+ * to run the voice in real time. Space presses it, unless the focus is in a field or on another
+ * control.
  */
 export function ActionBar(props: { label: string; onSpace: () => void; children: ReactNode }) {
   const err = useStore((s) => s.startError);
+  const overloaded = useStore((s) => s.overloaded);
   const onSpace = useRef(props.onSpace);
   onSpace.current = props.onSpace;
   useEffect(() => {
@@ -30,6 +32,11 @@ export function ActionBar(props: { label: string; onSpace: () => void; children:
         {err && (
           <p className="act-error" role="alert">
             Audio could not start: {err}. Press again to retry.
+          </p>
+        )}
+        {overloaded && (
+          <p className="act-error" role="status">
+            This device can't keep up, so the voice breaks up or goes silent. Plugging in, or closing other tabs, may help.
           </p>
         )}
       </div>

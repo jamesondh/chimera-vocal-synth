@@ -34,6 +34,10 @@ interface State {
   started: boolean;
   starting: boolean;
   startError: string | null;
+  /** the device couldn't keep up at 48 kHz: the voice runs at 32 kHz (see AudioEngine) */
+  lightAudio: boolean;
+  /** the device can't keep up even so: the voice breaks up or goes silent */
+  overloaded: boolean;
   /** the body shown; while the body pad is dragged it runs ahead of the voice (see previewBody) */
   body: BodyMix;
   source: VoiceSource;
@@ -107,6 +111,20 @@ function updateGate(s: { hold: boolean; heldNotes: number[]; mode: Mode; keyCall
   engine.gate(s.hold || (keysBreathe && s.heldNotes.length > 0) ? 1 : 0);
 }
 
+/** Everything the voice plays from, sent to an engine that knows none of it (a new one). */
+function sendState(s: State) {
+  engine.setVolume(s.volume);
+  if (!sameBody(s.body, PRESETS.male)) engine.setBody(s.body);
+  engine.setSource(s.source);
+  engine.setArtic(s.artic, s.tipFree);
+  if (s.mode === "bestiary") engine.setCreature(s.creature, s.cparams[s.creature]);
+  if (s.mode === "beatbox") {
+    engine.setMic(s.mic);
+    engine.setBeat({ steps: s.beat.steps, bpm: s.beat.bpm, swing: s.beat.swing, playing: s.beat.playing });
+  }
+  updateGate(s);
+}
+
 let startPromise: Promise<void> | null = null;
 
 /**
@@ -131,6 +149,8 @@ export const useStore = create<State>((set, get) => ({
   started: false,
   starting: false,
   startError: null,
+  lightAudio: false,
+  overloaded: false,
   body: PRESETS.male,
   source: { ...DEFAULT_SOURCE },
   artic: (() => {
@@ -266,17 +286,7 @@ export const useStore = create<State>((set, get) => ({
       try {
         await engine.start();
         // anything set before audio existed was not delivered: send the whole state now
-        const s = get();
-        engine.setVolume(s.volume);
-        if (!sameBody(s.body, PRESETS.male)) engine.setBody(s.body);
-        engine.setSource(s.source);
-        engine.setArtic(s.artic, s.tipFree);
-        if (s.mode === "bestiary") engine.setCreature(s.creature, s.cparams[s.creature]);
-        if (s.mode === "beatbox") {
-          engine.setMic(s.mic);
-          engine.setBeat({ steps: s.beat.steps, bpm: s.beat.bpm, swing: s.beat.swing, playing: s.beat.playing });
-        }
-        updateGate(s);
+        sendState(get());
         set({ started: true, starting: false });
       } catch (e) {
         set({ starting: false, startError: e instanceof Error ? e.message : String(e) });
@@ -397,3 +407,14 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 }));
+
+engine.onStatus(() => useStore.setState({ lightAudio: engine.light, overloaded: engine.overloaded }));
+// the lighter audio is a new engine: the phrase being sung or spoken is gone (the score was the
+// old engine's), and the rest is sent again
+engine.onRebuilt(() => {
+  session++;
+  stopSinging();
+  stopSpeaking();
+  useStore.setState({ heldNotes: [] });
+  sendState(useStore.getState());
+});

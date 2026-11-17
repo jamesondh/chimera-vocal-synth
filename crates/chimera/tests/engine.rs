@@ -115,6 +115,30 @@ fn the_voice_holds_at_a_bluetooth_headsets_sample_rate() {
     assert_eq!([44100.0, 48000.0, 60000.0, 88200.0, 96000.0].map(oversample_for), [2, 2, 2, 1, 1]);
 }
 
+fn creature_call_rms(fs: f64, id: &str) -> f64 {
+    let def = chimera::creatures::creature_by_id(id).expect("a creature");
+    let mut e = Engine::new(fs);
+    e.set_creature(Some(def), &[]);
+    e.set_gate(1.0);
+    e.play_call(0, None, None);
+    let mut out = vec![0.0f32; fs as usize];
+    for chunk in out.chunks_mut(128) {
+        e.render(chunk);
+    }
+    assert!(out.iter().all(|x| x.is_finite()), "{id} at {fs} Hz went NaN");
+    (out.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>() / out.len() as f64).sqrt()
+}
+
+#[test]
+fn the_creatures_hold_at_the_lighter_rate() {
+    // A device that can't keep up at 48 kHz falls back to a 32 kHz context (src/audio): each
+    // creature's first call must still sound there, about as loud.
+    for id in ["songbird", "seal", "alligator", "elephant"] {
+        let (reference, light) = (creature_call_rms(48000.0, id), creature_call_rms(32000.0, id));
+        assert!(light > 0.5 * reference && light < 2.0 * reference, "{id}: RMS {light:.4} at 32 kHz, {reference:.4} at 48 kHz");
+    }
+}
+
 #[test]
 fn the_voice_holds_for_a_child_at_low_device_rates() {
     // A 16 or 32 kHz device runs the airway at 64 kHz, where the child's 1.5 cm piriform fossa,

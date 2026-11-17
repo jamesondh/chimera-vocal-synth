@@ -131,3 +131,65 @@ fn the_processor_is_never_handed_a_denormal() {
         assert_eq!(dirty, 0, "{name}: {dirty} of {blocks} blocks computed with denormals");
     }
 }
+
+/// The creatures die away the same way once their breath is let go: each, sounding for 3 s (a call
+/// where it has one), then left with nothing for 30 s, never hands the processor a denormal.
+/// (Before their states were zeroed too, 40-100% of blocks computed with denormals from ~5 s on.)
+#[cfg(target_arch = "x86_64")]
+fn assert_creature_dies_to_zero(id: &str) {
+    use core::arch::asm;
+    const DENORMAL_OPERAND: u32 = 0x0002;
+    fn mxcsr() -> u32 {
+        let mut v = 0u32;
+        unsafe { asm!("stmxcsr [{}]", in(reg) &mut v, options(nostack)) };
+        v
+    }
+    fn set_mxcsr(v: u32) {
+        unsafe { asm!("ldmxcsr [{}]", in(reg) &v, options(nostack, readonly)) };
+    }
+    let def = chimera::creatures::creature_by_id(id).expect("a creature");
+    let mut e = Engine::new(FS);
+    e.set_creature(Some(def), &[]);
+    e.set_gate(1.0);
+    if !def.calls.is_empty() {
+        e.play_call(0, None, None);
+    }
+    run(&mut e, 3.0);
+    e.set_gate(0.0);
+    e.stop_call();
+    let mut buf = [0.0f32; 128];
+    let per_second = (FS / 128.0) as usize;
+    for second in 1..=30 {
+        let mut dirty = 0usize;
+        for _ in 0..per_second {
+            set_mxcsr(mxcsr() & !0x3f);
+            e.render(&mut buf);
+            dirty += (mxcsr() & DENORMAL_OPERAND != 0) as usize;
+        }
+        assert_eq!(dirty, 0, "{id}, {second} s after letting go: {dirty} of {per_second} blocks computed with denormals");
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn the_songbird_dies_to_zero() {
+    assert_creature_dies_to_zero("songbird");
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn the_seal_dies_to_zero() {
+    assert_creature_dies_to_zero("seal");
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn the_alligator_dies_to_zero() {
+    assert_creature_dies_to_zero("alligator");
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn the_elephant_dies_to_zero() {
+    assert_creature_dies_to_zero("elephant");
+}

@@ -136,6 +136,16 @@ fn join(a: &mut Block, b: &mut Block) {
             return;
         }
     }
+    // Standard Pronunciation 10: 밟- keeps ㅂ before consonants. Before ㅎ,
+    // preserve ㄹ and aspirate ㅂ instead (밟히다 -> 발피다, rule 12).
+    if a.text == '밟' && a.coda == ['ㄹ', 'ㅂ'] {
+        if b.onset == Some('ㅎ') {
+            a.coda = vec!['ㄹ'];
+            b.onset = Some('ㅍ');
+            return;
+        }
+        a.coda = vec!['ㅂ'];
+    }
     let Some(c) = simplify(&a.coda).map(neutral) else { return };
     a.coda = vec![c];
     let o = b.onset.unwrap();
