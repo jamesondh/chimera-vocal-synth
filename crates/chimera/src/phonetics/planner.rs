@@ -25,9 +25,14 @@ const LET_GO_OPEN_AT: f64 = 0.06;
 const LET_GO_OPENING: f64 = 0.15;
 const LET_GO_BREATH: f64 = 0.015;
 /// the opening's gesture strength: low enough that the folds follow its ramp (the voice takes a
-/// gesture's glottal opening in full from a weight of 2, which a strength of 6 reaches a third
-/// of the way up the ramp)
+/// gesture's glottal opening in full from a weight of 2, which a strength of 6 reaches at a third
+/// of its activation, about 39 % of the way along the cosine ramp's time)
 const LET_GO_STRENGTH: f64 = 2.0;
+/// The shortest final note (its vowel and the sonorants that close it, s) the folds let go of
+/// this way. The opening starts `LET_GO_OPENING - LET_GO_OPEN_AT` (90 ms) before
+/// the phrase's end; on a shorter note it would start before the note has sounded and the whole
+/// note comes out quiet and breathy. Under twice that lead the phrase ends as it did before.
+const LET_GO_ROOM: f64 = 2.0 * (LET_GO_OPENING - LET_GO_OPEN_AT);
 
 /// when a sung phrase's breath reaches full drive, after the plan start (its first segment starts at 0.06)
 const BREATH_SUNG_AT: f64 = 0.06;
@@ -426,8 +431,26 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
     let breath_at = if sung { BREATH_SUNG_AT } else { 0.04 };
     let last = segs.last();
     let sonorant = last.is_some_and(|l| l.vowel.is_some()) || last.and_then(|l| l.def).is_some_and(|d| matches!(d.manner, Manner::Nasal | Manner::Approximant | Manner::Lateral | Manner::Tap | Manner::Trill));
-    // a sung phrase that ends on a vowel or sonorant is let go by the folds, with the breath still on
-    let let_go = sung && sonorant && !open_end;
+    // how long the phrase's last note sounds at its end: back from the end over the sonorants that
+    // close it, then over its vowel, and over a vowel right before that only at the same pitch (a
+    // diphthong's two halves; the note before in a melisma or a hiatus has its own pitch and is
+    // not this note). No vowel there: the closing sonorants alone (a hummed or syllabic ending).
+    let closing = |g: &Seg| g.vowel.is_none() && g.def.is_some_and(|d| matches!(d.manner, Manner::Nasal | Manner::Approximant | Manner::Lateral | Manner::Tap | Manner::Trill));
+    let mut from = segs.len();
+    while from > 0 && closing(&segs[from - 1]) {
+        from -= 1;
+    }
+    if from > 0 && segs[from - 1].vowel.is_some() {
+        let pitch = segs[from - 1].f0;
+        from -= 1;
+        while from > 0 && segs[from - 1].vowel.is_some() && segs[from - 1].f0 == pitch {
+            from -= 1;
+        }
+    }
+    let room = if from < segs.len() { end - times[from].t0 } else { 0.0 };
+    // a sung phrase that ends on a vowel or sonorant is let go by the folds, with the breath still
+    // on, where the last voiced stretch is long enough to keep its tone until the opening starts
+    let let_go = sung && sonorant && !open_end && room >= LET_GO_ROOM;
     let breath_end = if let_go { end + LET_GO_BREATH } else { end };
     gestures.push(Gesture::new(o.t0 + breath_at, breath_end, 0.04, if open_end { 0.07 } else { 0.05 }, 1.0, one(ControlKey::BREATH, 1.0)).label("breath"));
     // ---- end of the breath group: the folds part as the breath stops, so a final obstruent is
