@@ -11,7 +11,7 @@ const BPM: f64 = 60.0;
 const T0: f64 = 0.5;
 
 fn note(onset: &[&str], nucleus: &str, beats: f64, phrase_end: bool) -> SungNote {
-    SungNote { midi: 57.0, beats, syl: Syllable { text: nucleus.into(), onset: onset.iter().map(|c| Segment::new(c)).collect(), nucleus: Segment::new(nucleus), coda: vec![], melisma: None, word_end: true, phrase_end } }
+    SungNote { midi: 57.0, beats, syl: Syllable { text: nucleus.into(), onset: onset.iter().map(|c| Segment::new(c)).collect(), nucleus: Segment::new(nucleus), coda: vec![], word_end: true, phrase_end, ..Default::default() } }
 }
 
 /// "la | so la": a breath mark after the first note, whose length is `beats`.

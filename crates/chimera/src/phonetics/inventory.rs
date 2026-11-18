@@ -135,7 +135,6 @@ impl PhonemeDef {
 // place templates
 const BILABIAL: Tg = &[(LipAp, -0.25)];
 const ALV_STOP: Tg = &[(TtX, 6.25), (TtY, 9.68)];
-#[allow(dead_code)]
 const DENT_STOP: Tg = &[(TtX, 6.85), (TtY, 9.0)];
 const POSTALV_STOP: Tg = &[(TtX, 5.75), (TtY, 10.0)];
 const RETRO_STOP: Tg = &[(TtX, 5.45), (TtY, 10.05), (TtCurl, 0.95)];
@@ -149,6 +148,11 @@ const ALVPAL_FRIC: Tg = &[(TtX, 5.85), (TtY, 9.5), (TbX, 3.6), (TbY, 7.75), (Jaw
 const ALVPAL_STOP: Tg = &[(TtX, 5.85), (TtY, 10.0), (TbX, 3.6), (TbY, 8.1), (LipProt, 0.0), (LipWidth, 0.7)];
 
 const TIP_CURL: &[ArticKey] = &[TtX, TtY, TtCurl];
+
+/// A dental closure: no phoneme of its own, the planner's stop-like /ð/.
+pub fn dental_closure() -> ArticPatch {
+    tg(DENT_STOP, NONE)
+}
 
 fn base() -> Vec<PhonemeDef> {
     let t = |a: Tg| tg(a, NONE);
