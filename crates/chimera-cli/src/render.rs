@@ -514,8 +514,9 @@ fn render_tracked(v: &mut HumanVoice, out: &mut [f32], artic: bool, tele: bool) 
 }
 
 /// A melody from a JSON file: `{"bpm", "lyrics", "notes": [[midi, beats], ...], "vibrato"?,
-/// "breath"?}`. `"breath"` is the seconds of audible breath at a phrase end between two notes
-/// (a comma in the lyrics); without it the voice does not breathe in.
+/// "breath"?, "breathLevel"?}`. `"breath"` is the seconds of audible breath at a phrase end between
+/// two notes (a comma in the lyrics); without it the voice does not breathe in. `"breathLevel"` is
+/// how hard it is drawn in, as a multiple of the planner's own level (absent: 1).
 /// One lyric syllable per sounding note; a note with midi <= 0 is a rest, which splits the
 /// melody into phrases planned separately on one voice.
 /// `render notes <in.json> <out> [body] [--artic tracks.json] [--tele voice.tele]`: `--artic` also
@@ -549,6 +550,8 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let vibrato = j["vibrato"].as_f64().unwrap_or(35.0);
     // seconds of audible breath at a phrase end between two notes; absent: none
     let breath = j["breath"].as_f64();
+    // how hard it is drawn in, as a multiple of the planner's own level; absent: that level
+    let breath_level = j["breathLevel"].as_f64();
     let raw: Vec<[f64; 2]> = serde_json::from_value(j["notes"].clone()).map_err(|e| format!("notes: {e}"))?;
     // "syllables" sing what a language front end wrote; otherwise the lyrics go through the
     // English front end (the pronouncing dictionary)
@@ -580,7 +583,7 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         if phrase.is_empty() {
             return;
         }
-        let plan = plan_song(phrase, &SongOptions { body: body_name.into(), bpm, t0: start, vibrato, breath, ..Default::default() });
+        let plan = plan_song(phrase, &SongOptions { body: body_name.into(), bpm, t0: start, vibrato, breath, breath_level, ..Default::default() });
         v.schedule(&plan.gestures);
         *end = js_max(*end, plan.end);
         phrase.clear();

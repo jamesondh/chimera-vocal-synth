@@ -143,14 +143,19 @@ pub struct SongOptions {
     /// could breathe in. [`CATCH_BREATH`] is a singer's quick breath.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub breath: Option<f64>,
+    /// how hard that breath is drawn in, as a multiple of the planner's own level
+    /// ([`plan_inhale`]). None named, or not a positive number = 1. Nothing to hear without
+    /// `breath`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breath_level: Option<f64>,
 }
 
 /// A singer's catch breath (s): the quick breath at a breath mark inside a line.
 pub const CATCH_BREATH: f64 = 0.4;
 /// label of the breath drawn in between two phrases
 pub const INHALE_LABEL: &str = "inhale";
-/// lung pressure while breathing in, as a multiple of the singing pressure (negative: the flow
-/// runs inward). A quiet breath: the noise sits about 30 dB under the sung vowels.
+/// lung pressure while breathing in at level 1, as a multiple of the singing pressure (negative:
+/// the flow runs inward). A quiet breath: the noise sits about 30 dB under the sung vowels.
 const INHALE_BREATH: f64 = -0.8;
 /// glottal abduction while breathing in: the folds wide apart, wider than for [h]
 const INHALE_ABDUCTION: f64 = 0.4;
@@ -165,9 +170,11 @@ const INHALE_MIN: f64 = 0.06;
 /// begins: the folds part wide and the lung pressure turns negative, so air runs inward through
 /// the open tract and its turbulence at the glottis is heard, unvoiced and quiet. The pressure
 /// is back at zero before `b`, where the next phrase's own breath takes over. Nothing when the
-/// gap is too short to breathe in. A caller that splits a melody at rests can put a breath into
-/// the rest with this.
-pub fn plan_inhale(a: f64, b: f64) -> Vec<Gesture> {
+/// gap is too short to breathe in. `level` scales the lung pressure (1: the planner's own; not a
+/// positive number: 1). A caller that splits a melody at rests can put a breath into the rest
+/// with this.
+pub fn plan_inhale(a: f64, b: f64, level: f64) -> Vec<Gesture> {
+    let level = if level.is_finite() && level > 0.0 { level } else { 1.0 };
     let (t0, t1) = (a + INHALE_AFTER, b - INHALE_BEFORE);
     if !(t1 - t0 >= INHALE_MIN) {
         return Vec::new();
@@ -175,7 +182,7 @@ pub fn plan_inhale(a: f64, b: f64) -> Vec<Gesture> {
     vec![
         // the folds stay apart from the phrase's exhale until the flow has stopped
         Gesture::new(t0 - 0.04, t1 + 0.03, 0.03, 0.04, 6.0, Targets::default().with(ControlKey::ABDUCTION, INHALE_ABDUCTION)).label(INHALE_LABEL),
-        Gesture::new(t0, t1, 0.05, 0.05, 1.0, Targets::default().with(ControlKey::BREATH, INHALE_BREATH)).label(INHALE_LABEL),
+        Gesture::new(t0, t1, 0.05, 0.05, 1.0, Targets::default().with(ControlKey::BREATH, INHALE_BREATH * level)).label(INHALE_LABEL),
     ]
 }
 
@@ -381,7 +388,7 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
             end = js_max(end, plan.end);
         }
         if let Some(b) = next_start {
-            gestures.extend(plan_inhale(last_end, b));
+            gestures.extend(plan_inhale(last_end, b, o.breath_level.unwrap_or(1.0)));
         }
         i = j + 1;
     }

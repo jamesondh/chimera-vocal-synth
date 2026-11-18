@@ -64,8 +64,30 @@ fn a_short_note_keeps_half_of_itself_and_a_gap_too_short_stays_silent() {
     let first_vowel = p.segments.iter().find(|s| s.kind == "vowel").unwrap();
     assert!((first_vowel.t1 - (T0 + 0.125)).abs() < 1e-9, "the note ends at {:.3} s", first_vowel.t1);
     assert!(inhales(&p).is_empty());
-    assert!(plan_inhale(1.0, 1.2).is_empty());
-    assert_eq!(plan_inhale(1.0, 1.4).len(), 2);
+    assert!(plan_inhale(1.0, 1.2, 1.0).is_empty());
+    assert_eq!(plan_inhale(1.0, 1.4, 1.0).len(), 2);
+}
+
+#[test]
+fn the_level_scales_only_the_pressure_of_the_breath_drawn_in() {
+    let notes = melody(2.0);
+    let at = |breath_level: Option<f64>| plan_song(&notes, &SongOptions { body: "male".into(), bpm: BPM, t0: T0, vibrato: 0.0, breath: Some(CATCH_BREATH), breath_level });
+    let pressure = |p: &Plan| inhales(p).iter().find_map(|g| g.targets.get(ControlKey::BREATH)).unwrap();
+    let rest = |p: &Plan| format!("{:?}", p.gestures.iter().filter(|g| !(g.label.is_some_and(|l| l.as_str() == INHALE_LABEL) && g.targets.has(ControlKey::BREATH))).collect::<Vec<_>>());
+    let own = at(None);
+    // none named, 1, and anything that is not a positive number: the planner's own level
+    for odd in [Some(1.0), Some(0.0), Some(-2.0), Some(f64::NAN), Some(f64::INFINITY)] {
+        assert_eq!(format!("{:?}", at(odd)), format!("{own:?}"), "level {odd:?}");
+    }
+    for level in [0.5, 2.0] {
+        let p = at(Some(level));
+        assert_eq!(pressure(&p), level * pressure(&own));
+        assert_eq!(rest(&p), rest(&own));
+        assert_eq!(format!("{:?}", p.segments), format!("{:?}", own.segments));
+    }
+    // without a breath there is nothing to scale: the plan sung before the voice could breathe in
+    let plain = plan_song(&notes, &SongOptions { body: "male".into(), bpm: BPM, t0: T0, vibrato: 0.0, breath_level: Some(2.0), ..Default::default() });
+    assert_eq!(format!("{plain:?}"), format!("{:?}", sing(&notes, None)));
 }
 
 #[test]
@@ -101,4 +123,35 @@ fn the_breath_is_heard_as_quiet_noise_without_voice() {
     // the same stretch of time without the option is still the first note's vowel
     let plain = render(&sing(&notes, None));
     assert!(rms(&plain[at(a + 0.14)..at(b - 0.12)]) > 0.3 * vowel);
+}
+
+/// Mandarin's rising rhymes and held nasal codas came to the planner after the breath did: 安 an
+/// ends the phrase holding its closure with the velum open, 天 tian starts the next with a medial
+/// glide sung before its beat. The breath's gap is still the one asked for, the held vowel still on
+/// its beat, the breath still far under the singing, and the voice holds at 16 kHz.
+#[test]
+fn a_breath_between_a_held_nasal_coda_and_a_rising_rhyme() {
+    use chimera::phonetics::mandarin::pinyin_syllable;
+    use chimera::voice::human_voice::oversample_for;
+    let py = |s: &str, phrase_end: bool| Syllable { phrase_end, ..pinyin_syllable(s, s).unwrap() };
+    let notes = vec![SungNote { midi: 57.0, beats: 2.0, syl: py("an1", true) }, SungNote { midi: 57.0, beats: 2.0, syl: py("tian1", false) }];
+    let p = sing(&notes, Some(CATCH_BREATH));
+    // the first phrase's last sound (the [n]) and the second's first (the [tʰ])
+    let k = p.segments.iter().position(|s| s.kind == "stop").unwrap();
+    let (a, b) = (p.segments[k - 1].t1, p.segments[k].t0);
+    assert!((b - a - CATCH_BREATH).abs() < 1e-9, "the gap is {:.0} ms", (b - a) * 1000.0);
+    let held = p.segments.iter().rfind(|s| s.kind == "vowel").unwrap();
+    assert!((held.t0 - (T0 + 2.0)).abs() < 1e-6, "tian's held vowel starts at {:.4} s", held.t0);
+    assert_eq!(inhales(&p).len(), 2);
+    for fs in [48000.0, 16000.0] {
+        let mut v = HumanVoice::new(fs, BODY_MALE, oversample_for(fs));
+        v.set_source(&SourcePatch { f0: Some(midi_to_hz(57.0)), voiced: Some(true), pressure: Some(9.0), tension: Some(0.55), ..Default::default() });
+        v.schedule(&p.gestures);
+        let mut out = vec![0f32; (fs * (p.end + 0.3)) as usize];
+        v.render(&mut out);
+        assert!(out.iter().all(|x| x.is_finite()), "NaN at {fs}");
+        let rms = |t0: f64, t1: f64| (out[(t0 * fs) as usize..(t1 * fs) as usize].iter().map(|v| (*v as f64) * (*v as f64)).sum::<f64>() / ((t1 - t0) * fs)).sqrt();
+        let db = 20.0 * (rms(a + 0.14, b - 0.12) / rms(T0 + 0.3, T0 + 1.0)).log10();
+        assert!((-50.0..=-20.0).contains(&db), "at {fs}: the inhalation is {db:.1} dB against the sung vowel");
+    }
 }
