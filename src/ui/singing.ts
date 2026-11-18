@@ -5,7 +5,7 @@
  * the vowel onto a new pitch (melisma). Releasing the sounding key while another is still down
  * glides back to that key on the same vowel. Key velocity sets the breath.
  * Sing sings the same words to a tune (src/song): fitted to its phrases, planned whole (planSong)
- * and sent as one score. The words, tune, tempo and key are kept on the device.
+ * and sent as one score. The words, tune, tempo, key and breath (length and level) are kept on the device.
  */
 import { create } from "zustand";
 import { engine } from "../audio/AudioEngine.ts";
@@ -32,6 +32,29 @@ export const roll: { notes: RollNote[] } = { notes: [] };
 
 export const DEFAULT_LYRICS = "Hello there, I am a voice made of air.";
 
+/**
+ * The breath Sing can take at a phrase end inside the tune (s, from the end of one phrase's sound
+ * to the next one's first). The engine draws a breath in only where 0.25 s is left for it (0.09 s
+ * for the voice to stop, 0.1 s before the next sound, at least 0.06 s between), and a gap of exactly
+ * 0.25 s falls on either side of that as the phrase's times round: some phrase ends got a breath
+ * and some a silent gap. So the shortest is one step up, 0.3 s, which always gets one. A singer's
+ * breath inside a line is rarely longer than 0.6 s. The last note gives up at most half of itself,
+ * so on short notes the breath is shorter than the dial says.
+ */
+export const BREATH_MIN = 0.3;
+export const BREATH_MAX = 0.6;
+/** a Breath dial position as a breath: steps of 0.05 s, and none (0) below the shortest */
+export const breathAtDial = (v: number): number => {
+  const s = Math.round(v * 20) / 20;
+  return s < BREATH_MIN ? 0 : Math.min(BREATH_MAX, s);
+};
+/**
+ * How hard that breath is drawn in, as a multiple of the engine's own level. Measured (male, the
+ * breath's loudest 20 ms against the sung vowel): −36 dB at 0.5, −30 dB at 1, −24.5 dB at 2.
+ */
+export const BREATH_LEVEL_MIN = 0.5;
+export const BREATH_LEVEL_MAX = 2;
+
 /** sung when the lyrics are empty */
 const AH: Syllable = { text: "ah", onset: [], nucleus: { ipa: "ɑ", stress: 1 }, coda: [], wordEnd: true, phraseEnd: false };
 
@@ -48,6 +71,10 @@ interface SingState {
   tempo: number;
   /** semitones up or down from the tune's own key (after the body's octave) */
   key: number;
+  /** the breath taken at a phrase end inside the tune (s, BREATH_MIN to BREATH_MAX); 0: none, the short lift */
+  breath: number;
+  /** how hard the breath is drawn in (BREATH_LEVEL_MIN to BREATH_LEVEL_MAX; 1: the engine's own level) */
+  breathLevel: number;
   /** the tune being sung, if any */
   playing: string | null;
   /** index in `syllables` of the one the tune is singing (−1: none, or the tune sings "la") */
@@ -58,13 +85,15 @@ interface SingState {
   setTune: (id: string) => void;
   setTempo: (x: number) => void;
   setKey: (semitones: number) => void;
+  setBreath: (seconds: number) => void;
+  setBreathLevel: (x: number) => void;
 }
 
 const KEPT = "chimera-sing";
 
-/** the last session's words, tune, tempo and key (anything missing or odd: the defaults) */
-function kept(): { lyrics: string; tune: string; tempo: number; key: number } {
-  const d = { lyrics: DEFAULT_LYRICS, tune: TUNES[0].id, tempo: 1, key: 0 };
+/** the last session's words, tune, tempo, key and breath, length and level (anything missing or odd: the defaults) */
+export function kept(): { lyrics: string; tune: string; tempo: number; key: number; breath: number; breathLevel: number } {
+  const d = { lyrics: DEFAULT_LYRICS, tune: TUNES[0].id, tempo: 1, key: 0, breath: 0, breathLevel: 1 };
   try {
     const k = JSON.parse(localStorage.getItem(KEPT) ?? "null") as Record<string, unknown> | null;
     if (!k) return d;
@@ -73,6 +102,9 @@ function kept(): { lyrics: string; tune: string; tempo: number; key: number } {
       tune: TUNES.some((t) => t.id === k.tune) ? (k.tune as string) : d.tune,
       tempo: typeof k.tempo === "number" && k.tempo >= 0.5 && k.tempo <= 1.5 ? k.tempo : d.tempo,
       key: typeof k.key === "number" && Math.abs(k.key) <= 12 ? Math.round(k.key) : d.key,
+      // on the dials' own steps, so what is sung is what the dial shows
+      breath: typeof k.breath === "number" && k.breath >= BREATH_MIN && k.breath <= BREATH_MAX ? breathAtDial(k.breath) : d.breath,
+      breathLevel: typeof k.breathLevel === "number" && k.breathLevel >= BREATH_LEVEL_MIN && k.breathLevel <= BREATH_LEVEL_MAX ? Math.round(k.breathLevel * 20) / 20 : d.breathLevel,
     };
   } catch {
     return d; // no storage here (a private window): start fresh
@@ -91,6 +123,8 @@ export const useSing = create<SingState>((set, get) => ({
   tune: atLoad.tune,
   tempo: atLoad.tempo,
   key: atLoad.key,
+  breath: atLoad.breath,
+  breathLevel: atLoad.breathLevel,
   playing: null,
   at: -1,
   setLyrics: (text) => {
@@ -116,12 +150,14 @@ export const useSing = create<SingState>((set, get) => ({
   },
   setTempo: (x) => set({ tempo: x }),
   setKey: (semitones) => set({ key: semitones }),
+  setBreath: (seconds) => set({ breath: seconds }),
+  setBreathLevel: (x) => set({ breathLevel: x }),
 }));
 
 useSing.subscribe((s, p) => {
-  if (s.lyrics === p.lyrics && s.tune === p.tune && s.tempo === p.tempo && s.key === p.key) return;
+  if (s.lyrics === p.lyrics && s.tune === p.tune && s.tempo === p.tempo && s.key === p.key && s.breath === p.breath && s.breathLevel === p.breathLevel) return;
   try {
-    localStorage.setItem(KEPT, JSON.stringify({ lyrics: s.lyrics, tune: s.tune, tempo: s.tempo, key: s.key }));
+    localStorage.setItem(KEPT, JSON.stringify({ lyrics: s.lyrics, tune: s.tune, tempo: s.tempo, key: s.key, breath: s.breath, breathLevel: s.breathLevel }));
   } catch {
     // not kept: the session still works
   }
@@ -356,7 +392,8 @@ export async function playTune(id: string, body: BodyMix, ready?: () => Promise<
   if (!notes.length) return false;
   const bpm = tune.bpm * st.tempo;
   const t0 = 0.35;
-  const plan = planSong(notes, { body, bpm, t0, vibrato: st.vibrato });
+  // no breath chosen: no `breath` is sent at all, and the plan is the one sung before the voice could breathe in
+  const plan = planSong(notes, { body, bpm, t0, vibrato: st.vibrato, ...(st.breath > 0 ? { breath: st.breath, breathLevel: st.breathLevel } : {}) });
   hooks.onStart?.();
   const beat = 60 / bpm;
   let t = t0;

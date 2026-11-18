@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store.ts";
-import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary } from "../singing.ts";
+import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary, BREATH_MIN, BREATH_MAX, BREATH_LEVEL_MIN, BREATH_LEVEL_MAX, breathAtDial } from "../singing.ts";
 import { engine } from "../../audio/AudioEngine.ts";
 import { canRecord, Clip } from "../../song/record.ts";
 import { mouthWords } from "../mouthWords.ts";
@@ -17,6 +17,9 @@ import type { InfoFn } from "./AnatomyView.tsx";
 
 /** epilarynx narrowing for the singer's ring (measured: +3 to +12 dB at 2.4–3.6 kHz, adult male) */
 const RING = 0.85;
+
+/** the Breath dial's lowest position, one step under the shortest breath: no breath */
+const BREATH_OFF = BREATH_MIN - 0.05;
 
 /** the syllable being sung now: the tune's, or the one the held key is singing */
 function syllableNow(): string | null {
@@ -97,6 +100,12 @@ function SongControls() {
   const setTempo = useSing((s) => s.setTempo);
   const key = useSing((s) => s.key);
   const setKey = useSing((s) => s.setKey);
+  const breath = useSing((s) => s.breath);
+  const setBreath = useSing((s) => s.setBreath);
+  const breathLevel = useSing((s) => s.breathLevel);
+  const setBreathLevel = useSing((s) => s.setBreathLevel);
+  /** the dial's position to a breath (Off keeps a blank unit line, so the dial stays level with its neighbours) */
+  const toBreath = breathAtDial;
   return (
     <EncoderPages
       label="Song voice"
@@ -112,11 +121,15 @@ function SongControls() {
           ],
         },
         {
-          // the tune's speed and key, from the next time Sing is pressed
+          // the tune's speed and key, and the breath at its phrase ends (the ’ marks in the lyrics), from the
+          // next time Sing is pressed
           name: "Tune",
           encoders: [
             { label: "Tempo", value: tempo, min: 0.5, max: 1.5, onChange: (v) => setTempo(Math.round(v * 20) / 20), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
             { label: "Key", value: key, min: -12, max: 12, onChange: (v) => setKey(Math.round(v)), format: (v) => ({ value: (v > 0.5 ? "+" : "") + String(Math.round(v)), unit: "semitones" }) },
+            { label: "Breath", value: breath || BREATH_OFF, min: BREATH_OFF, max: BREATH_MAX, onChange: (v) => setBreath(toBreath(v)), format: (v) => (toBreath(v) ? { value: toBreath(v).toFixed(2), unit: "s" } : { value: "Off", unit: "\u00a0" }) },
+            // how hard the breath is drawn in (100 %: the engine's own level; half to double is about ∓6 dB); nothing to hear with Breath off
+            { label: "Level", value: breathLevel, min: BREATH_LEVEL_MIN, max: BREATH_LEVEL_MAX, log: true, onChange: (v) => setBreathLevel(Math.round(v * 20) / 20), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
           ],
         },
         {

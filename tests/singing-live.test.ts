@@ -7,7 +7,7 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 import { initEngine, WasmVoice } from "./harness.ts";
-import type { Gesture } from "../src/wasm/types.ts";
+import type { Gesture, Plan } from "../src/wasm/types.ts";
 const MALE = { female: 0, child: 0 };
 
 await initEngine();
@@ -42,6 +42,9 @@ const engineStub = new Proxy(
   { get: (t, k) => (k in t ? t[k as string] : () => {}), set: (t, k, v) => ((t[k as string] = v), true) },
 );
 mock.module("../src/audio/AudioEngine.ts", () => ({ engine: engineStub }));
+/** the device's storage (bun has none): Sing keeps its settings here */
+const stored = new Map<string, string>();
+(globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => void stored.set(k, v) };
 const { useSing, singNoteOn, singNoteOff, playTune, stopSinging, tickSinging } = await import("../src/ui/singing.ts");
 const gesturesOf = () => voice.score();
 /** breath the score is giving now (strength-weighted activation of breath gestures) */
@@ -268,6 +271,118 @@ describe("Sing mode, live keys", () => {
     expect(sing().at).toBe(-1);
     stopSinging();
     sing().setLyrics("Hello there");
+  });
+
+  test("Breath: off, the tune's plan is the one planned without it; on, each phrase end inside the tune gets a breath of the chosen length", async () => {
+    const { planSong, lyricsToSyllables, INHALE_LABEL } = await import("../src/wasm/engine.ts");
+    const { TUNES } = await import("../src/song/tunes.ts");
+    const { fitSong } = await import("../src/song/fit.ts");
+    voice = new WasmVoice(FS);
+    const sing = useSing.getState;
+    const lyrics = "The morning sun is on the hill,\nand all the birds are singing still,\nthe river runs away to sea.";
+    sing().setLyrics(lyrics);
+    // slow enough that each phrase's last note can give up the whole breath (it keeps half of itself)
+    sing().setTempo(0.5);
+    const plans: Plan[] = [];
+    const schedule = engineStub.schedule as typeof fakeEngine.schedule;
+    engineStub.schedule = (plan: Plan) => (plans.push(plan), schedule(plan));
+    const sung = async () => {
+      expect(await playTune("joyful", MALE, () => Promise.resolve())).toBe(true);
+      stopSinging();
+      return plans[plans.length - 1];
+    };
+    // the longest silence between two sounds, and the gestures of the breath drawn in
+    const pause = (p: Plan) => Math.max(...p.segments.slice(1).map((s, i) => s.t0 - p.segments[i].t1));
+    const inhales = (p: Plan) => p.gestures.filter((g) => g.label === INHALE_LABEL);
+
+    // off (the default): what planSong gives for the same notes with no `breath` named
+    expect(sing().breath).toBe(0);
+    const tune = TUNES.find((t) => t.id === "joyful")!;
+    const { notes } = fitSong(tune, lyricsToSyllables(lyrics), tune.octave.male * 12 + sing().key);
+    expect(notes.filter((n) => n.syl.phraseEnd).length).toBe(3);
+    const without = planSong(notes, { body: MALE, bpm: tune.bpm * sing().tempo, t0: 0.35, vibrato: sing().vibrato });
+    const off = await sung();
+    expect(JSON.stringify(off)).toBe(JSON.stringify(without));
+    expect(inhales(off).length).toBe(0);
+    expect(pause(off)).toBeLessThan(0.15);
+
+    // on: the length reaches the plan (both phrase ends inside the tune), and nothing is drawn in after the last
+    sing().setBreath(0.45);
+    const on = await sung();
+    expect(pause(on)).toBeCloseTo(0.45, 6);
+    expect(on.segments.slice(1).filter((s, i) => Math.abs(s.t0 - on.segments[i].t1 - 0.45) < 1e-6).length).toBe(2);
+    expect(inhales(on).length).toBe(4);
+    expect(inhales(on).some((g) => (g.targets.breath ?? 0) < 0)).toBe(true);
+    // kept on the device with the tune's other settings
+    expect(JSON.parse(stored.get("chimera-sing")!).breath).toBe(0.45);
+
+    // its level: only the pressure of the breath drawn in changes, by the factor chosen; at 1 nothing does
+    const pressure = (p: Plan) => inhales(p).map((g) => g.targets.breath).filter((x) => x !== undefined);
+    expect(pressure(on)).toEqual([-0.8, -0.8]);
+    sing().setBreathLevel(2);
+    const loud = await sung();
+    expect(pressure(loud)).toEqual([-1.6, -1.6]);
+    const rest = (p: Plan) => JSON.stringify({ ...p, gestures: p.gestures.filter((g) => !(g.label === INHALE_LABEL && g.targets.breath !== undefined)) });
+    expect(rest(loud)).toBe(rest(on));
+    expect(JSON.parse(stored.get("chimera-sing")!).breathLevel).toBe(2);
+
+    // off again, the level still at 2: the first plan, to the byte
+    sing().setBreath(0);
+    expect(JSON.stringify(await sung())).toBe(JSON.stringify(off));
+    expect(JSON.parse(stored.get("chimera-sing")!).breath).toBe(0);
+    sing().setBreathLevel(1);
+    sing().setTempo(1);
+    engineStub.schedule = schedule;
+    sing().setLyrics("Hello there");
+  });
+
+  test("Breath: at the shortest setting every gap of that length has a breath drawn into it, on every tune, slow or at tempo", async () => {
+    // a gap of exactly 0.25 s sat on the engine's limit for drawing a breath in (the room it needs is 0.09 + 0.1 +
+    // 0.06 s): as the phrase's times rounded, some such gaps got a breath and some stayed silent. The dial starts one
+    // step above. (A short last note gives up only half of itself: its gap is shorter than the setting and may have
+    // no breath, which is the engine's rule and not looked at here.)
+    const { planSong, lyricsToSyllables, INHALE_LABEL } = await import("../src/wasm/engine.ts");
+    const { TUNES } = await import("../src/song/tunes.ts");
+    const { fitSong } = await import("../src/song/fit.ts");
+    const { BREATH_MIN } = await import("../src/ui/singing.ts");
+    const lyrics = "The morning sun is on the hill,\nand all the birds are singing still,\nthe river runs away to sea.";
+    let full = 0;
+    for (const tune of TUNES) {
+      for (const tempo of [0.5, 1]) {
+        const { notes } = fitSong(tune, lyricsToSyllables(lyrics), tune.octave.male * 12);
+        const plan = planSong(notes, { body: MALE, bpm: tune.bpm * tempo, t0: 0.35, vibrato: 0, breath: BREATH_MIN });
+        const drawn = plan.gestures.filter((g) => g.label === INHALE_LABEL && (g.targets.breath ?? 0) < 0);
+        plan.segments.slice(1).forEach((next, i) => {
+          const [a, b] = [plan.segments[i].t1, next.t0];
+          if (Math.abs(b - a - BREATH_MIN) > 1e-6) return;
+          full++;
+          const breaths = drawn.filter((g) => g.t0 >= a - 1e-9 && g.t1 <= b + 1e-9).length;
+          expect(`${tune.id} at ${tempo}, the gap at ${a.toFixed(3)} s: ${breaths} breath`).toBe(`${tune.id} at ${tempo}, the gap at ${a.toFixed(3)} s: 1 breath`);
+        });
+      }
+    }
+    // not an empty check: most phrase ends leave the whole gap
+    expect(full).toBeGreaterThan(TUNES.length);
+  });
+
+  test("Breath: the dial's lowest position is Off, and a saved setting comes back only if it is one the dial can show", async () => {
+    const { kept, breathAtDial, BREATH_MIN, BREATH_MAX } = await import("../src/ui/singing.ts");
+    // the dial: one step under the shortest breath is none; then steps of 0.05 s up to the longest
+    expect(breathAtDial(BREATH_MIN - 0.05)).toBe(0);
+    expect(breathAtDial(BREATH_MIN - 0.03)).toBe(0);
+    expect(breathAtDial(BREATH_MIN)).toBe(BREATH_MIN);
+    expect(breathAtDial(0.43)).toBe(0.45);
+    expect(breathAtDial(5)).toBe(BREATH_MAX);
+    // what the device kept: odd, old or out-of-range values give the defaults (no breath, the engine's own level)
+    const before = stored.get("chimera-sing");
+    const back = (saved: unknown) => (stored.set("chimera-sing", JSON.stringify(saved)), kept());
+    for (const breath of ["0.4", null, 0, -1, 0.25, 0.2, 0.9, Number.NaN]) expect(back({ breath }).breath).toBe(0);
+    for (const breathLevel of ["2", null, 0, 0.2, 9]) expect(back({ breathLevel }).breathLevel).toBe(1);
+    expect(back({ breath: 0.4, breathLevel: 1.4 })).toMatchObject({ breath: 0.4, breathLevel: 1.4 });
+    // a value between two steps is the nearest step, so what is sung is what the dial shows
+    expect(back({ breath: 0.37, breathLevel: 1.42 })).toMatchObject({ breath: 0.35, breathLevel: 1.4 });
+    if (before === undefined) stored.delete("chimera-sing");
+    else stored.set("chimera-sing", before);
   });
 
   test("a quick next note drops the last one's breath-out; leaving Sing cancels a pending ending", () => {

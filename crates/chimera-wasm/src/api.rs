@@ -183,6 +183,7 @@ fn catalog() -> Res {
         "articSpecs": specs,
         "defaultSource": DEFAULT_SOURCE,
         "exhaleLabel": planner::EXHALE_LABEL,
+        "inhaleLabel": sing::INHALE_LABEL,
         "bassNote": beatbox::BASS_NOTE,
         "beatSounds": &beatbox::BEAT_SOUNDS[..],
         "beatPresets": &beatbox::BEAT_PRESETS[..],

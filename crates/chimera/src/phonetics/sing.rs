@@ -136,6 +136,54 @@ pub struct SongOptions {
     pub t0: f64,
     /// vibrato depth (cents) on held vowels
     pub vibrato: f64,
+    /// the breath a singer takes at a phrase end inside the melody (a breath mark), in seconds
+    /// from the end of the sound to the next phrase's first sound: the note before gives up the
+    /// time (at most half of itself) and the breath is drawn in audibly ([`plan_inhale`]). None
+    /// named = the phrase end's short lift without an inhalation, as the voice sang before it
+    /// could breathe in. [`CATCH_BREATH`] is a singer's quick breath.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breath: Option<f64>,
+    /// how hard that breath is drawn in, as a multiple of the planner's own level
+    /// ([`plan_inhale`]). None named, or not a positive number = 1. Nothing to hear without
+    /// `breath`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breath_level: Option<f64>,
+}
+
+/// A singer's catch breath (s): the quick breath at a breath mark inside a line.
+pub const CATCH_BREATH: f64 = 0.4;
+/// label of the breath drawn in between two phrases
+pub const INHALE_LABEL: &str = "inhale";
+/// lung pressure while breathing in at level 1, as a multiple of the singing pressure (negative:
+/// the flow runs inward). A quiet breath: the noise sits about 30 dB under the sung vowels.
+const INHALE_BREATH: f64 = -0.8;
+/// glottal abduction while breathing in: the folds wide apart, wider than for [h]
+const INHALE_ABDUCTION: f64 = 0.4;
+/// the voice needs this long to stop before the breath turns inward, and the breath this long
+/// to turn outward again before the next phrase's first sound (s)
+const INHALE_AFTER: f64 = 0.09;
+const INHALE_BEFORE: f64 = 0.1;
+/// a gap with less than this much left for the inhalation stays silent (s)
+const INHALE_MIN: f64 = 0.06;
+
+/// A breath drawn in between `a`, where one phrase's sound ends, and `b`, where the next one's
+/// begins: the folds part wide and the lung pressure turns negative, so air runs inward through
+/// the open tract and its turbulence at the glottis is heard, unvoiced and quiet. The pressure
+/// is back at zero before `b`, where the next phrase's own breath takes over. Nothing when the
+/// gap is too short to breathe in. `level` scales the lung pressure (1: the planner's own; not a
+/// positive number: 1). A caller that splits a melody at rests can put a breath into the rest
+/// with this.
+pub fn plan_inhale(a: f64, b: f64, level: f64) -> Vec<Gesture> {
+    let level = if level.is_finite() && level > 0.0 { level } else { 1.0 };
+    let (t0, t1) = (a + INHALE_AFTER, b - INHALE_BEFORE);
+    if !(t1 - t0 >= INHALE_MIN) {
+        return Vec::new();
+    }
+    vec![
+        // the folds stay apart from the phrase's exhale until the flow has stopped
+        Gesture::new(t0 - 0.04, t1 + 0.03, 0.03, 0.04, 6.0, Targets::default().with(ControlKey::ABDUCTION, INHALE_ABDUCTION)).label(INHALE_LABEL),
+        Gesture::new(t0, t1, 0.05, 0.05, 1.0, Targets::default().with(ControlKey::BREATH, INHALE_BREATH * level)).label(INHALE_LABEL),
+    ]
 }
 
 /// A bend's blending strength against the note's own pitch (6): it wins while it lasts.
@@ -219,7 +267,19 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
         // phrase is followed by a rest (callers split phrases at rests), so the breath comes from
         // the rest: hold that note to its end, less the breath's release.
         let reserve = if j == notes.len() - 1 { 0.05 } else { 0.12 };
-        let last_end = times[j] + notes[j].beats * beat - js_min(reserve, 0.3 * notes[j].beats * beat);
+        let length = notes[j].beats * beat;
+        let mut last_end = times[j] + length - js_min(reserve, 0.3 * length);
+        // a real breath (opt-in): the note gives up the breath's time and the time of the next
+        // phrase's onset (its consonants and a rising nucleus's glide), which is sung before its
+        // beat, so the next vowel stays on its beat; it keeps at least half of itself, and never
+        // gives up less than above
+        let mut next_start = None;
+        if let (Some(breath), true) = (o.breath, j < notes.len() - 1) {
+            let next = &notes[j + 1].syl;
+            let onset = if melisma(next) { 0.0 } else { total(&consonants_at(&next.onset, o.body, 0.8, onset_hz(j + 1))) + if onglide(&next.nucleus.ipa).is_some() { MEDIAL_GLIDE } else { 0.0 } };
+            last_end = js_min(last_end, times[j + 1] - js_min(onset + js_max(0.0, breath), 0.5 * length));
+            next_start = Some(times[j + 1] - onset);
+        }
         // how long past the phrase's end its last sound may be held while the voice fades (a nasal
         // coda's closure): until the voice is gone, but when another phrase
         // follows in this call, only until 50 ms (the hold's release) before that phrase's first
@@ -326,6 +386,9 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
                 }
             }
             end = js_max(end, plan.end);
+        }
+        if let Some(b) = next_start {
+            gestures.extend(plan_inhale(last_end, b, o.breath_level.unwrap_or(1.0)));
         }
         i = j + 1;
     }
