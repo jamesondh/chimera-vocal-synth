@@ -16,7 +16,7 @@
 
 use super::inventory::phoneme;
 use crate::anatomy::human::{ArticKey, BodyMix};
-use super::planner::{PlanOptions, held_vowel, offglide, onglide, plan_utterance, vowel_artic};
+use super::planner::{EXHALE_LABEL, PlanOptions, held_vowel, offglide, onglide, plan_utterance, vowel_artic};
 use super::{Bend, Edge, Intonation, Plan, PlannedSegment, Segment, Syllable};
 use crate::control::score::{ControlKey, Gesture, Targets};
 use crate::math::{js_max, js_min};
@@ -199,19 +199,19 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
             let start = notes[k].syl.pitch.iter().find(|b| b.at == Edge::Start).map_or(0.0, |b| b.st);
             hz_of(k) * crate::math::pow(2.0, start / 12.0)
         };
-        let mut onsets: Vec<Vec<Segment>> = (i..=j)
-            .map(|k| {
-                if melisma(&notes[k].syl) {
-                    return Vec::new();
-                }
-                let mut on = consonants_at(&notes[k].syl.onset, o.body, 0.8, onset_hz(k));
-                // a rising nucleus's medial glide ends the onset, so it is done by the beat
-                if let Some(a) = onglide(&notes[k].syl.nucleus.ipa) {
-                    on.push(nucleus_part(a, MEDIAL_GLIDE, onset_hz(k), &notes[k].syl.nucleus));
-                }
-                on
-            })
-            .collect();
+        let onset_for = |k: usize| {
+            if melisma(&notes[k].syl) {
+                return Vec::new();
+            }
+            let mut on = consonants_at(&notes[k].syl.onset, o.body, 0.8, onset_hz(k));
+            // a rising nucleus's medial glide ends the onset, so it is done by the beat
+            if let Some(a) = onglide(&notes[k].syl.nucleus.ipa) {
+                on.push(nucleus_part(a, MEDIAL_GLIDE, onset_hz(k), &notes[k].syl.nucleus));
+            }
+            on
+        };
+        let mut onsets: Vec<_> = (i..=j).map(onset_for).collect();
+        let next_onset = (j + 1 < notes.len()).then(|| times[j + 1] - total(&onset_for(j + 1)));
         let mut codas: Vec<Vec<Segment>> = (i..=j)
             .map(|k| if k < j && melisma(&notes[k + 1].syl) { Vec::new() } else { consonants_at(&last_of_chain(notes, k).coda, o.body, 0.8, hz_of(k)) })
             .collect();
@@ -224,13 +224,7 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
         // coda's closure): until the voice is gone, but when another phrase
         // follows in this call, only until 50 ms (the hold's release) before that phrase's first
         // consonant, so the hold is out of its way
-        let fade = if j + 1 < notes.len() {
-            let next = &notes[j + 1].syl;
-            let onset = total(&consonants(&next.onset, o.body, 0.8)) + if onglide(&next.nucleus.ipa).is_some() { MEDIAL_GLIDE } else { 0.0 };
-            js_min(0.15, js_max(0.0, times[j + 1] - onset - 0.05 - last_end))
-        } else {
-            0.15
-        };
+        let fade = next_onset.map_or(0.15, |at| js_min(0.15, js_max(0.0, at - 0.05 - last_end)));
         for k in i..=j {
             let (span, next) = if k < j { (times[k + 1] - times[k], &mut onsets[k + 1 - i][..]) } else { (last_end - times[k], &mut [][..]) };
             fit([&mut codas[k - i][..], next], span);
@@ -287,8 +281,28 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
         }
         if !segs.is_empty() {
             // the planner lays segments out from t0 + 0.06: start so the first vowel lands on its beat
-            let plan = plan_utterance(&segs, &PlanOptions { body: o.body, t0: times[i] - first_onset - 0.06, f0: Some(hz_of(i)), intonation: Some(Intonation::Flat), sung: Some(true), ..Default::default() });
-            gestures.extend_from_slice(&plan.gestures);
+            let mut plan = plan_utterance(&segs, &PlanOptions { body: o.body, t0: times[i] - first_onset - 0.06, f0: Some(hz_of(i)), intonation: Some(Intonation::Flat), sung: Some(true), ..Default::default() });
+            if let Some(at) = next_onset {
+                // Let the folds part only when they can open and close before the next sound.
+                // The next phrase's first consonant or medial glide can start before its beat.
+                plan.gestures.retain_mut(|g| {
+                    if g.label_str() != EXHALE_LABEL || g.end() <= at {
+                        return true;
+                    }
+                    if g.t0 >= at {
+                        return false;
+                    }
+                    // With less than a full closing ramp, part the folds less as well.
+                    // A full-strength opening that shuts in a fraction of a millisecond
+                    // would still cut a hole in the preceding vowel.
+                    let close = js_min(g.ramp_out, at - g.t0);
+                    g.strength *= close / g.ramp_out;
+                    g.t1 = at - close;
+                    g.ramp_out = close;
+                    true
+                });
+            }
+            gestures.extend(plan.gestures);
             segments.extend(plan.segments);
             for &(k, a, b) in &bend_spans {
                 bend_gestures(&notes[k].syl.pitch, hz_of(k), a, b, &mut gestures);

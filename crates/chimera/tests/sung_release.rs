@@ -79,6 +79,58 @@ fn render(p: &Plan) -> Vec<f32> {
     x
 }
 
+#[test]
+fn comma_separated_sixteenths_keep_their_level() {
+    let options = SongOptions { body: "male".into(), bpm: 120.0, t0: 0.3, vibrato: 35.0, ..Default::default() };
+    let mut notes: Vec<_> = [57.0, 59.0, 60.0, 62.0, 64.0, 62.0, 60.0, 57.0].into_iter()
+        .map(|midi| SungNote { midi, beats: 0.25, syl: syl("l", "ɑ", &[]) }).collect();
+    let plain = render(&plan_song(&notes, &options));
+    for note in &mut notes[..7] {
+        note.syl.phrase_end = true;
+    }
+    let separated = render(&plan_song(&notes, &options));
+    for i in 1..notes.len() {
+        let start = options.t0 + i as f64 * 0.125;
+        let drop = level(&plain, start, start + 0.125) - level(&separated, start, start + 0.125);
+        assert!(drop < 6.0, "note {} loses {drop:.1} dB after a comma", i + 1);
+    }
+}
+
+#[test]
+fn an_internal_release_uses_the_gap_before_the_next_sound() {
+    let first = SungNote { midi: 57.0, beats: 2.0, syl: Syllable { phrase_end: true, ..syl("l", "ɑ", &[]) } };
+    let mut next = SungNote { midi: 60.0, beats: 1.0, syl: Syllable { onset: vec![], ..syl("l", "ɑ", &[]) } };
+    let options = SongOptions { bpm: 120.0, t0: 0.3, ..Default::default() };
+    let gap = plan_song(&[first.clone(), next.clone()], &options);
+    let releases = labelled(&gap, EXHALE_LABEL);
+    assert_eq!(releases.len(), 2, "a bare vowel leaves room for a release at the comma");
+    assert!(releases[0].ramp_out > 0.0 && releases[0].end() <= gap.segments[2].t0 + 1e-9);
+
+    // The vowel is on the same beat, but its long consonant starts before the folds can part.
+    next.syl.onset = vec![Segment { dur: Some(0.15), ..Segment::new("m") }];
+    let joined = plan_song(&[first, next], &options);
+    assert_eq!(labelled(&joined, EXHALE_LABEL).len(), 1, "only the song's final release fits");
+    let (a, b) = (ending(&joined).0, ending(&gap).0);
+    assert!((a.t0 - b.t0).abs() < 1e-9 && (a.t1 - b.t1).abs() < 1e-9);
+    assert_eq!((a.ramp_in, a.ramp_out, a.strength), (b.ramp_in, b.ramp_out, b.strength));
+}
+
+#[test]
+fn a_barely_fitting_release_does_not_dip_the_preceding_vowel() {
+    // The 30% reserve just covers the 60 ms opening offset and the next sung /l/.
+    let boundary = (0.06 + 0.065 * 0.8) / 0.3;
+    let options = SongOptions { body: "male".into(), bpm: 60.0, t0: 0.3, ..Default::default() };
+    let preceding_level = |beats| {
+        let first = Syllable { onset: vec![], phrase_end: true, ..syl("l", "a", &[]) };
+        let notes = [SungNote { midi: 57.0, beats, syl: first }, SungNote { midi: 60.0, beats: 0.5, syl: syl("l", "a", &[]) }];
+        let x = render(&plan_song(&notes, &options));
+        let next_beat = options.t0 + beats;
+        level(&x, next_beat - 0.120, next_beat - 0.055)
+    };
+    let drop = preceding_level(boundary - 0.0002) - preceding_level(boundary + 0.0002);
+    assert!(drop.abs() < 3.0, "adding 0.4 ms to the note changes its vowel by {drop:.1} dB");
+}
+
 /// where the folds start to part, against the end of the last sound (s; negative = before it)
 fn parting_starts(p: &Plan) -> f64 {
     let g = ending(p).0;
