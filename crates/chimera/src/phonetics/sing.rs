@@ -16,7 +16,7 @@
 
 use super::inventory::phoneme;
 use crate::anatomy::human::{ArticKey, BodyMix};
-use super::planner::{PlanOptions, held_vowel, offglide, onglide, plan_utterance, vowel_artic};
+use super::planner::{PlanOptions, held_vowel, offglide, onglide, plan_utterance, plan_utterance_with_vowel_tuning, vowel_artic};
 use super::{Bend, Edge, Intonation, Plan, PlannedSegment, Segment, Syllable};
 use crate::control::score::{ControlKey, Gesture, Targets};
 use crate::math::{js_max, js_min};
@@ -165,6 +165,11 @@ fn melisma(s: &Syllable) -> bool {
 
 /// Plan a whole melody: one utterance per phrase, so each phrase gets its own breath.
 pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
+    plan_song_with_vowel_tuning(notes, o, false)
+}
+
+/// Optionally open sustained /i/ as its pitch approaches the tract's first resonance.
+pub fn plan_song_with_vowel_tuning(notes: &[SungNote], o: &SongOptions, tune_high_i: bool) -> Plan {
     let beat = 60.0 / o.bpm;
     let mut gestures: Vec<Gesture> = Vec::new();
     let mut segments: Vec<PlannedSegment> = Vec::new();
@@ -182,6 +187,7 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
             j += 1;
         }
         let mut segs: Vec<Segment> = Vec::new();
+        let mut held_i = Vec::new();
         let mut vowel_spans: Vec<(f64, f64)> = Vec::new();
         // (note, vowel start, vowel end) of syllables with bends
         let mut bend_spans: Vec<(usize, f64, f64)> = Vec::new();
@@ -251,6 +257,9 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
             // came with the onset), and a falling off-glide over the held part's last share (not
             // when a melisma continues the vowel)
             let nuc = n.syl.nucleus.ipa.as_str();
+            if tune_high_i && held_vowel(nuc) == "i" {
+                held_i.push(segs.len()); // the nucleus follows the onset and precedes its offglide
+            }
             let rest = vdur;
             // the syllable whose rhyme this is decides (a melisma's ending is its parent's)
             let closing = last_of_chain(notes, k).closing.filter(|c| *c > 0.0);
@@ -287,7 +296,11 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
         }
         if !segs.is_empty() {
             // the planner lays segments out from t0 + 0.06: start so the first vowel lands on its beat
-            let plan = plan_utterance(&segs, &PlanOptions { body: o.body, t0: times[i] - first_onset - 0.06, f0: Some(hz_of(i)), intonation: Some(Intonation::Flat), sung: Some(true), ..Default::default() });
+            let plan = plan_utterance_with_vowel_tuning(
+                &segs,
+                &PlanOptions { body: o.body, t0: times[i] - first_onset - 0.06, f0: Some(hz_of(i)), intonation: Some(Intonation::Flat), sung: Some(true), ..Default::default() },
+                &held_i,
+            );
             gestures.extend_from_slice(&plan.gestures);
             segments.extend(plan.segments);
             for &(k, a, b) in &bend_spans {

@@ -19,7 +19,7 @@ use chimera::phonetics::planner::{
 };
 use chimera::phonetics::sing::{
     LegatoFrom, NoteOnOptions, SongOptions, SungNote, midi_to_hz, plan_note_off, plan_note_on,
-    plan_song,
+    plan_song, plan_song_with_vowel_tuning,
 };
 use chimera::phonetics::songs::DEMO_SONGS;
 use chimera::phonetics::mandarin::{MandarinLexicon, is_han};
@@ -565,6 +565,10 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let j: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{input}: {e}"))?;
     let bpm = j["bpm"].as_f64().ok_or("bpm missing")?;
     let vibrato = j["vibrato"].as_f64().unwrap_or(35.0);
+    let tune_high_i = match j.get("tuneHighI") {
+        Some(value) => value.as_bool().ok_or("tuneHighI must be a boolean")?,
+        None => false,
+    };
     let raw: Vec<[f64; 2]> = serde_json::from_value(j["notes"].clone()).map_err(|e| format!("notes: {e}"))?;
     // "syllables" sing what a language front end wrote; otherwise the lyrics go through the front
     // ends, Latin script read as "lang" ("en", the default, or "tr")
@@ -600,7 +604,7 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         if phrase.is_empty() {
             return;
         }
-        let plan = plan_song(phrase, &SongOptions { body: body_name.into(), bpm, t0: start, vibrato, ..Default::default() });
+        let plan = plan_song_with_vowel_tuning(phrase, &SongOptions { body: body_name.into(), bpm, t0: start, vibrato }, tune_high_i);
         v.schedule(&plan.gestures);
         *end = js_max(*end, plan.end);
         phrase.clear();

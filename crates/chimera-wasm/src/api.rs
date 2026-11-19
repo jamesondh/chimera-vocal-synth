@@ -156,7 +156,14 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
         // so the UI can find a word's span in a plan's timeline
         "plannedCounts" => to_json(&arg::<Vec<String>>(req, "ipa")?.iter().map(|s| planner::expand(s).map_or(1, |p| p.len())).collect::<Vec<_>>()),
         "planPhrases" => to_json(&planner::plan_phrases(&arg::<Vec<PhraseInput>>(req, "phrases")?, &arg::<PlanOptions>(req, "options")?)),
-        "planSong" => to_json(&sing::plan_song(&arg::<Vec<SungNote>>(req, "notes")?, &arg::<SongOptions>(req, "options")?)),
+        "planSong" => {
+            let options: SongOptions = arg(req, "options")?;
+            let tune_high_i = match req["options"].get("tuneHighI") {
+                Some(v) => v.as_bool().ok_or("tuneHighI must be a boolean")?,
+                None => false,
+            };
+            to_json(&sing::plan_song_with_vowel_tuning(&arg::<Vec<SungNote>>(req, "notes")?, &options, tune_high_i))
+        }
         "planNoteOn" => to_json(&sing::plan_note_on(&arg::<Syllable>(req, "syl")?, arg(req, "midi")?, &arg::<NoteOnOptions>(req, "options")?)),
         "planNoteOff" => to_json(&sing::plan_note_off(&arg::<Syllable>(req, "syl")?, arg(req, "midi")?, arg::<BodyMix>(req, "body")?)),
         "planMelisma" => to_json(&sing::plan_melisma(arg(req, "midi")?, &arg::<MelismaOptions>(req, "options")?)),

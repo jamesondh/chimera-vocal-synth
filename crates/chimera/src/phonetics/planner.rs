@@ -201,6 +201,33 @@ fn preset_vowel_artic(ipa: &str, body: BodyName) -> Option<ArticPatch> {
     Some(out)
 }
 
+/// A sustained sung /i/ opens as the note approaches this tract's first resonance.
+/// Sundberg (J Voice 2009, doi:10.1016/j.jvoice.2008.02.003) observed the tongue dorsum
+/// lowering four to five semitones below the resting F1 and the jaw opening at higher pitch.
+/// Keep the tongue front, lips and voice source of /i/; borrow only the opening movement
+/// from the same body's calibrated open-mid front vowel.
+fn open_high_sung_i(posture: &mut ArticPatch, body: BodyMix, hz: f64) {
+    let mut closed_r1 = 0.0;
+    let mut open_r1 = 0.0;
+    let table = vowel_table();
+    for (preset, weight) in body.weights() {
+        let vowels = &table[preset.as_str()];
+        closed_r1 += weight * vowels["i"].formants[0];
+        open_r1 += weight * vowels["ɛ"].formants[0];
+    }
+    let onset = closed_r1 * crate::math::pow(2.0, -4.0 / 12.0);
+    if hz <= onset {
+        return;
+    }
+    let share = js_min(1.0, (hz - onset) / (open_r1 - onset));
+    let open = vowel_artic("ɛ", body).expect("the calibrated open-mid vowel");
+    for key in [ArticKey::Jaw, ArticKey::TbY] {
+        if let (Some(from), Some(to)) = (posture.get(key), open.get(key)) {
+            posture.set(key, crate::math::lerp(from, to, share));
+        }
+    }
+}
+
 /// Parse the vowel and consonant tables now (so nothing initialises lazily on the audio thread).
 pub fn init() {
     vowel_table();
@@ -257,6 +284,8 @@ fn one(k: impl Into<ControlKey>, x: f64) -> Targets {
 
 /// A planner segment: the input segment plus what the planner attaches to it.
 struct Seg<'a> {
+    /// Marks the held nucleus of a scored /i/, never a medial or offglide.
+    tune_high_i: bool,
     ipa: &'a str,
     dur: Option<f64>,
     stress: Option<u8>,
@@ -318,6 +347,10 @@ struct Span {
 }
 
 pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
+    plan_utterance_with_vowel_tuning(input, o, &[])
+}
+
+pub(super) fn plan_utterance_with_vowel_tuning(input: &[Segment], o: &PlanOptions, held_i: &[usize]) -> Plan {
     let rate = o.rate.unwrap_or(1.0);
     let body = o.body;
     // durations by the Klatt rules, on whole segments (diphthongs before they are split)
@@ -342,14 +375,19 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             };
             for (i, p) in parts.iter().enumerate() {
                 let dur = base * shares.get(i).copied().unwrap_or(1.0);
-                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, nasalized: s.nasalized, palatalized: None, breathy: s.breathy, glide: None });
+                segs.push(Seg { tune_high_i: false, ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, nasalized: s.nasalized, palatalized: None, breathy: s.breathy, glide: None });
             }
         } else {
-            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, nasalized: s.nasalized, palatalized: s.palatalized, breathy: s.breathy, glide: s.glide });
+            segs.push(Seg { tune_high_i: held_i.binary_search(&si).is_ok(), ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, nasalized: s.nasalized, palatalized: s.palatalized, breathy: s.breathy, glide: s.glide });
         }
     }
     for s in segs.iter_mut() {
-        let v = vowel_artic(s.ipa, body);
+        let mut v = vowel_artic(s.ipa, body);
+        if s.tune_high_i
+            && let (Some(posture), Some(hz)) = (v.as_mut(), s.f0)
+        {
+            open_high_sung_i(posture, body, hz);
+        }
         if v.is_some() {
             s.vowel = v;
         } else {

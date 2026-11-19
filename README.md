@@ -68,6 +68,10 @@ bun tools/spectrogram.ts in.wav out.png
 bun tools/musicxml-to-notes.ts score.mxl P1 --out p1.json   # a score's part → `render notes` melody
 ```
 
+A `render notes` score can set `"tuneHighI": true` to lower the tongue dorsum and open the jaw
+on high /i/ notes (the vowel of “see”). This also follows pitch across a scored melisma.
+Omit the setting for the usual calibrated vowel.
+
 ## Docs
 
 - [docs/architecture.md](docs/architecture.md): the acoustic model (FDTD airway, sources,
