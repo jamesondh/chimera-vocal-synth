@@ -88,10 +88,28 @@ impl MandarinLexicon {
                 i += 1;
             }
         }
+        // after a degree word a polyphone is the adjective (很长 hěn cháng, not the default zhǎng of
+        // 长大 and 校长); a phrase still decides first
+        for i in 1..cs.len() {
+            let Some(&(_, adjective)) = AFTER_DEGREE.iter().find(|(c, _)| *c == cs[i]) else { continue };
+            let before: String = cs[i.saturating_sub(2)..i].iter().collect();
+            if !from_phrase[i] && DEGREE_WORDS.iter().any(|w| before.ends_with(w)) {
+                out[i] = adjective.to_string();
+            }
+        }
         sandhi(&cs, &mut out);
         out.into_iter().zip(from_phrase).collect()
     }
 }
+
+/// Polyphones that are adjectives after a degree word, where the character's default reading isn't
+/// (长's default zhǎng is the more frequent reading in running text: 长大, 校长, 成长).
+const AFTER_DEGREE: &[(char, &str)] = &[('长', "chang2")];
+/// Words of degree before an adjective (多么 and 那么, not a bare 么: 怎么长 is "how does it grow").
+const DEGREE_WORDS: &[&str] = &[
+    "很", "太", "真", "挺", "好", "多", "更", "最", "极", "蛮", "超", "够", "越", "那么", "这么", "多么", "非常", "特别", "比较",
+    "有点", "这样", "那样",
+];
 
 fn tone(py: &str) -> u8 {
     py.chars().last().and_then(|c| c.to_digit(10)).map_or(5, |d| d as u8)

@@ -78,6 +78,9 @@ it, untried) and the stiff voice of tense stops. A Korean speaker's ear is still
 Han characters are read through a lexicon of character and phrase readings (MIT-licensed pinyin
 data, `tools/build-mandarin.ts`), longest phrase first: 银行 is yín háng, 行走 xíng zǒu. Then:
 
+- **Readings by context:** a character outside any phrase takes its first listed reading, except
+  where its neighbour decides: 长 after a degree word is the adjective (很长 hěn cháng, 太长 tài
+  cháng), while 长大 and 校长 keep zhǎng.
 - **Tone changes:** third-tone sandhi inside a phrase (你好 reads ní hǎo), and 不 and 一 before a
   fourth tone (不会 bú huì, 一个 yí gè).
 - **Aspiration said:** p t k q ch c are aspirated with Mandarin's longer aspiration (`vot` 90 ms),
@@ -307,6 +310,11 @@ SH as F and D as T.
 Treat about ±2 points as noise at these sizes (8 scrambles × 2 voices) and read the confusion
 counts for the sounds a change targets, not just the total. One recogniser and one tune can't stand
 in for a native listener; the test says where to look and whether a change moved what it aimed at.
+
+**It is a screen for named confusions; the ear decides.** The recogniser and a native listener can
+disagree, and then the listener wins. #115 made Mandarin worse for the recogniser (scrambled 25.0 /
+27.8% → 37.8 / 39.7%, male / female) and better to a native speaker's ear, which preferred it in
+three of four comparisons.
 
 ## Not yet
 
