@@ -80,6 +80,14 @@ pub fn expand(ipa: &str) -> Option<&'static [&'static str]> {
         "ɔɪ" => &["ɔ", "ɪ"],
         "eɪ" => &["e", "i"],
         "oʊ" => &["o", "u"],
+        // Spanish falling diphthongs (real offglides [i u], as Spanish requires)
+        "ai" => &["a", "i"],
+        "au" => &["a", "u"],
+        "ei" => &["e", "i"],
+        "oi" => &["o", "i"],
+        "eu" => &["e", "u"],
+        "ou" => &["o", "u"],
+        "ui" => &["u", "i"],
         "ɚ" => &["ɝ"],
         // rising diphthongs: a short close glide into the main vowel (Mandarin's medials: 话 ua,
         // 天 iɛ, 学 yɛ), written as one nucleus so the glide sings on the beat, inside the note
@@ -357,7 +365,7 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             return SegInfo { vowel: true, ..Default::default() };
         }
         let d = phoneme(&s.ipa, body);
-        SegInfo { vowel: false, manner: d.map(|d| d.manner), voiced: Some(d.is_some_and(|d| d.voicing == Voicing::Voiced)), dur: d.map(|d| d.dur) }
+        SegInfo { vowel: false, manner: d.map(|d| d.manner), voiced: Some(d.is_some_and(|d| d.voicing == Voicing::Voiced)), dur: d.map(|d| d.dur), aspirated: s.aspirated }
     });
     let timed = input.iter().zip(&durs).map(|(s, d)| TimedSegment {
         ipa: &s.ipa,
@@ -557,8 +565,8 @@ pub fn plan_timed<'a>(input: impl Iterator<Item = TimedSegment<'a>>, o: &PlanOpt
                 voiced_again = g.end();
                 gestures.push(g);
             } else if def.manner == Manner::Stop || def.manner == Manner::Affricate {
-                // as the front end says; by default English's rule: aspirated when syllable-initial
-                // before a vowel and not after /s/
+                // as the front end says; otherwise the planner's default, English's rule —
+                // aspirated syllable-initially before a vowel and not after /s/
                 let aspirated = s.aspirated.unwrap_or_else(|| next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s"));
                 // the folds stay apart past the release by 40% of the default 50 ms (the ramps
                 // make up the rest of the aspiration); a front end's longer or shorter `vot` moves

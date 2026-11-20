@@ -59,8 +59,8 @@ fn seg(ipa: &str) -> Segment {
 fn info(s: &Segment) -> SegInfo {
     match s.ipa.as_str() {
         "ɑ" => SegInfo { vowel: true, ..Default::default() },
-        "ɹ" | "l" => SegInfo { vowel: false, manner: Some(Manner::Approximant), voiced: Some(true), dur: None },
-        _ => SegInfo { vowel: false, manner: Some(Manner::Stop), voiced: Some(false), dur: None },
+        "ɹ" | "l" => SegInfo { vowel: false, manner: Some(Manner::Approximant), voiced: Some(true), dur: None, ..Default::default() },
+        _ => SegInfo { vowel: false, manner: Some(Manner::Stop), voiced: Some(false), dur: None, ..Default::default() },
     }
 }
 

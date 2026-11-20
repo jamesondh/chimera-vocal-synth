@@ -11,7 +11,7 @@ import { create } from "zustand";
 import { engine } from "../audio/AudioEngine.ts";
 import { inPlugin, setParam } from "../audio/pluginBridge.ts";
 import { g2p, zh } from "./speech.ts";
-import { hasHan, lyricsToSyllables, type Lang, type Syllable } from "../wasm/engine.ts";
+import { DIALECT_PRESETS, hasHan, lyricsToSyllables, type DialectPreset, type Lang, type Syllable } from "../wasm/engine.ts";
 import { planSong, planNoteOn, planNoteOff, planMelisma } from "../wasm/engine.ts";
 import { EXHALE_LABEL } from "../wasm/engine.ts";
 import type { Gesture } from "../wasm/types.ts";
@@ -33,7 +33,7 @@ export const roll: { notes: RollNote[] } = { notes: [] };
 
 export const DEFAULT_LYRICS = "Hello there, I am a voice made of air.";
 /** the opening words in each language (choosing the other language swaps one for the other) */
-const DEFAULT_LYRICS_OF: Record<Lang, string> = { en: DEFAULT_LYRICS, tr: "Merhaba, ben havadan yapılmış bir sesim." };
+const DEFAULT_LYRICS_OF: Record<Lang, string> = { en: DEFAULT_LYRICS, tr: "Merhaba, ben havadan yapılmış bir sesim.", es: "Hola, soy una voz hecha de aire." };
 
 /** sung when the lyrics are empty */
 const AH: Syllable = { text: "ah", onset: [], nucleus: { ipa: "ɑ", stress: 1 }, coda: [], wordEnd: true, phraseEnd: false };
@@ -43,6 +43,7 @@ interface SingState {
   /** the language Latin-script words are read in: the lyrics here, and Speak's text (one setting
    *  for both, kept with the words; other scripts are read by their own) */
   lang: Lang;
+  dialect: DialectPreset;
   syllables: Syllable[];
   /** the syllable the next key sings */
   cursor: number;
@@ -60,6 +61,7 @@ interface SingState {
   at: number;
   setLyrics: (text: string) => void;
   setLang: (lang: Lang) => void;
+  setDialect: (dialect: DialectPreset) => void;
   setCursor: (i: number) => void;
   setVibrato: (cents: number) => void;
   setTune: (id: string) => void;
@@ -73,15 +75,16 @@ const KEPT = "chimera-sing";
  * the last session's words and their language, tune, tempo and key (anything missing or odd: the
  * defaults). Not in the plugin: the project keeps its words, and every instance shares this storage.
  */
-function kept(): { lyrics: string; lang: Lang; tune: string; tempo: number; key: number } {
-  const d = { lyrics: DEFAULT_LYRICS, lang: "en" as Lang, tune: TUNES[0].id, tempo: 1, key: 0 };
+function kept(): { lyrics: string; lang: Lang; dialect: DialectPreset; tune: string; tempo: number; key: number } {
+  const d = { lyrics: DEFAULT_LYRICS, lang: "en" as Lang, dialect: "neutro" as DialectPreset, tune: TUNES[0].id, tempo: 1, key: 0 };
   if (inPlugin) return d;
   try {
     const k = JSON.parse(localStorage.getItem(KEPT) ?? "null") as Record<string, unknown> | null;
     if (!k) return d;
     return {
       lyrics: typeof k.lyrics === "string" ? k.lyrics : d.lyrics,
-      lang: k.lang === "tr" ? "tr" : d.lang,
+      lang: k.lang === "tr" || k.lang === "es" ? k.lang : d.lang,
+      dialect: k.dialect === "rioplatense" || k.dialect === "castellano" ? k.dialect : d.dialect,
       tune: TUNES.some((t) => t.id === k.tune) ? (k.tune as string) : d.tune,
       tempo: typeof k.tempo === "number" && k.tempo >= 0.5 && k.tempo <= 1.5 ? k.tempo : d.tempo,
       key: typeof k.key === "number" && Math.abs(k.key) <= 12 ? Math.round(k.key) : d.key,
@@ -98,7 +101,8 @@ let ownWords: { lyrics: string; lang: Lang } | null = null;
 export const useSing = create<SingState>((set, get) => ({
   lyrics: atLoad.lyrics,
   lang: atLoad.lang,
-  syllables: lyricsToSyllables(atLoad.lyrics, atLoad.lang),
+  dialect: atLoad.dialect,
+  syllables: lyricsToSyllables(atLoad.lyrics, atLoad.lang, DIALECT_PRESETS[atLoad.dialect]),
   cursor: 0,
   vibrato: 35,
   tune: atLoad.tune,
@@ -114,7 +118,7 @@ export const useSing = create<SingState>((set, get) => ({
       return;
     }
     stopDemo();
-    set({ lyrics: text, syllables: lyricsToSyllables(text, get().lang), cursor: 0 });
+    set({ lyrics: text, syllables: lyricsToSyllables(text, get().lang, DIALECT_PRESETS[get().dialect]), cursor: 0 });
     if (hasHan(text) && !zh.loaded) ensureDictionary();
   },
   setLang: (lang) => {
@@ -123,7 +127,11 @@ export const useSing = create<SingState>((set, get) => ({
     stopDemo();
     // the other language's opening words give way to this one's
     const lyrics = s.lyrics === DEFAULT_LYRICS_OF[s.lang] ? DEFAULT_LYRICS_OF[lang] : s.lyrics;
-    set({ lang, lyrics, syllables: lyricsToSyllables(lyrics, lang), cursor: 0 });
+    set({ lang, lyrics, syllables: lyricsToSyllables(lyrics, lang, DIALECT_PRESETS[get().dialect]), cursor: 0 });
+  },
+  setDialect: (dialect) => {
+    const s = get();
+    set({ dialect, syllables: lyricsToSyllables(s.lyrics, s.lang, DIALECT_PRESETS[dialect]), cursor: 0 });
   },
   setCursor: (i) => {
     const index = Math.max(0, Math.min(i, Math.max(0, get().syllables.length - 1)));
@@ -159,9 +167,9 @@ export const useSing = create<SingState>((set, get) => ({
 
 useSing.subscribe((s, p) => {
   if (inPlugin) return;
-  if (s.lyrics === p.lyrics && s.lang === p.lang && s.tune === p.tune && s.tempo === p.tempo && s.key === p.key) return;
+  if (s.lyrics === p.lyrics && s.lang === p.lang && s.dialect === p.dialect && s.tune === p.tune && s.tempo === p.tempo && s.key === p.key) return;
   try {
-    localStorage.setItem(KEPT, JSON.stringify({ lyrics: s.lyrics, lang: s.lang, tune: s.tune, tempo: s.tempo, key: s.key }));
+    localStorage.setItem(KEPT, JSON.stringify({ lyrics: s.lyrics, lang: s.lang, dialect: s.dialect, tune: s.tune, tempo: s.tempo, key: s.key }));
   } catch {
     // not kept: the session still works
   }
@@ -181,7 +189,7 @@ export function ensureDictionary(): void {
   // a failed load leaves the rest working (letter-to-sound rules for English)
   void Promise.allSettled(needs).then(() => {
     const s = useSing.getState();
-    const syllables = lyricsToSyllables(s.lyrics, s.lang);
+    const syllables = lyricsToSyllables(s.lyrics, s.lang, DIALECT_PRESETS[s.dialect]);
     useSing.setState({ syllables, cursor: Math.min(s.cursor, Math.max(0, syllables.length - 1)) });
   });
 }
@@ -423,8 +431,8 @@ export async function playTune(id: string, body: BodyMix, ready?: () => Promise<
   if (token !== demoToken) return false;
   const st = useSing.getState();
   // read again: the dictionary may have arrived since the words were typed
-  const own = lyricsToSyllables(st.lyrics, st.lang);
-  const words = own.length ? own : lyricsToSyllables(la(tune), st.lang);
+  const own = lyricsToSyllables(st.lyrics, st.lang, DIALECT_PRESETS[st.dialect]);
+  const words = own.length ? own : lyricsToSyllables(la(tune), st.lang, DIALECT_PRESETS[st.dialect]);
   const shift = tune.octave[nearestBody(body)] * 12 + st.key;
   // a demo song's own words, unedited: a syllable to each note as written (as `chimera render song`)
   const { notes, from } =

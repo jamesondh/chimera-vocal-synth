@@ -26,17 +26,18 @@ for tests and the `chimera` CLI.
 
 - **Play**: drag the tongue, lips and jaw in a live cutaway of the head; vowel pad, encoders,
   computer keyboard and Web MIDI.
-- **Speak**: English text (CMUdict with a letter-to-sound fallback), Turkish text (EN/TR) or
+- **Speak**: English text (CMUdict with a letter-to-sound fallback), Turkish or Spanish text, or
   IPA, turned into gestures and prosody, with the gestural score and a consonant chart on screen.
-  In IPA mode a notice under the box lists the symbols and marks the voice doesn't say
-  (`chimera render speech` prints the same as warnings).
+  Latin-script language is chosen with one shared setting for Speak and Sing; Spanish has Neutro,
+  Rioplatense and Castellano presets. In IPA mode a notice lists the symbols the voice does not
+  say (`chimera render speech` prints the same as warnings).
 - **Sing**: type words and the **Sing** button sings them to a tune picked by its mood, each line
   fitted to a phrase of it (Tempo and Key on the Voice screen); **Record video** sings it again into a
   9:16 clip to share. The keys sing the same words a syllable at a time, legato or not, onto a
-  pitch roll; consonants land before the beat. Lyrics can be English, Turkish (chosen with EN/TR:
-  Latin script can't tell them apart), Korean (Hangul: one block per note, with Korean sound
-  rules) or Russian; each language is a front end
-  ([docs/language-front-ends.md](docs/language-front-ends.md)).
+  pitch roll; consonants land before the beat. Lyrics can be English, Turkish, Spanish, Korean
+  (Hangul: one block per note, with Korean sound rules), or Russian; each language is a front end
+  ([docs/language-front-ends.md](docs/language-front-ends.md)). Spanish supports neutral Latin
+  American, Rioplatense, and Castilian presets.
 - **Beatbox**: pads and a step sequencer, every drum an articulatory gesture.
 - **Bestiary**: songbird (two-voice syrinx), seal, alligator and elephant.
 - **Duet** (`?show=<id>`): two 3D heads replay a pre-rendered song.
@@ -56,36 +57,6 @@ bun run test       # wasm build, cargo test --workspace, bun test tests
 
 The AudioWorklet needs a secure context, so open it on localhost or over HTTPS (for example
 `tailscale serve`). Vercel builds it with `vercel.json`.
-
-## As a plugin
-
-Early: a CLAP, VST3 and AU instrument for macOS, and CLAP and VST3 for Windows, with the same UI in
-a webview, in a window you can resize. On Linux (CLAP and VST3) the same UI opens in your web browser.
-MIDI notes sing the lyrics, one syllable per note (Sing); play the posture you've set (Play); say
-the next line of text (Speak); or play mouth drums and hum, with a beat that follows the host's tempo
-(Beatbox). Everything saves with the project, and the voice parameters can be automated.
-
-On a Mac, the signed and notarised release installs with one command (or download it from
-[chimera.audio/plugin](https://chimera.audio/plugin/)):
-
-```sh
-curl -fsSL https://chimera.audio/install.sh | sh
-```
-
-To build it yourself, with Xcode's command line tools as well as the above:
-
-```sh
-crates/chimera-plugin/macos/build.sh --install
-```
-
-Or, with GitHub's `gh` logged in, install CI's newest build without building anything:
-
-```sh
-crates/chimera-plugin/macos/update.sh
-```
-
-On Windows, in Git Bash with Rust's MSVC toolchain: `crates/chimera-plugin/windows/build.sh --install`.
-Only the macOS build is released so far. See [docs/plugin.md](docs/plugin.md), "Releases".
 
 Offline renders and measurement:
 
@@ -111,7 +82,6 @@ bun tools/musicxml-to-notes.ts score.mxl P1 --out p1.json   # a score's part →
 - [docs/speech-comparison.md](docs/speech-comparison.md): scoring the speech against real
   speakers, phone by phone (the TSP speech database).
 - [docs/russian.md](docs/russian.md): how Russian text is read, and what is approximate.
-- [docs/turkish.md](docs/turkish.md): how Turkish text is read: k, g and l, ğ, stress.
 - [docs/hill-climb/](docs/hill-climb/): the rules and log for tuning the voice one measured
   step at a time.
 

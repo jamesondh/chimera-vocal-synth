@@ -8,6 +8,7 @@ import { initChimera } from "../src/wasm/chimera.ts";
 import { writeGestures, fromUtf8 } from "../src/wasm/wire.ts";
 import type { Gesture } from "../src/wasm/types.ts";
 
+// fileURLToPath, not pathname: on Windows the pathname ("/C:/…") is not a readable path
 export const WASM_PATH = fileURLToPath(new URL("../src/wasm/chimera.wasm", import.meta.url));
 const bytes = readFileSync(WASM_PATH);
 export const wasmModule = new WebAssembly.Module(bytes);

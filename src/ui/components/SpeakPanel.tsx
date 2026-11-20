@@ -4,7 +4,7 @@ import { useStore } from "../store.ts";
 import { useSing } from "../singing.ts";
 import { speakText, speakPhrases, stopSpeaking, onPlan, currentPlan, spokenWordNow, speakingNow, useSpeech } from "../speech.ts";
 import { mouthWords } from "../mouthWords.ts";
-import { tokenizeIpa, type Lang } from "../../wasm/engine.ts";
+import { DIALECT_PRESETS, tokenizeIpa, type DialectPreset, type Lang } from "../../wasm/engine.ts";
 import { Menu, Slider } from "./Controls.tsx";
 import { Chip, Screen } from "./Screen.tsx";
 import { LangPick } from "./LangPick.tsx";
@@ -20,6 +20,7 @@ import { inPlugin } from "../../audio/pluginBridge.ts";
 const EXAMPLES: Record<Lang, string[]> = {
   en: ["Hello. Can you hear me?", "She sells sea shells by the sea shore.", "Every sound here is air moving through a throat.", "The quick brown fox jumps over the lazy dog."],
   tr: ["Merhaba, nasılsın?", "Bugün hava çok güzel.", "Türkçe konuşabiliyor musun?", "Şu köşe yaz köşesi, şu köşe kış köşesi."],
+  es: ["Hola. ¿Me oyes?", "El rápido zorro marrón salta sobre el perro perezoso.", "Cada sonido es aire que pasa por una garganta.", "En medio de la guerra, el país luchaba por mantener un caldo caliente."],
 };
 
 // IPA pulmonic consonant chart (rows = manner, columns = place); empty cells are null
@@ -163,6 +164,8 @@ export function SpeakRight() {
   // one language for Speak and Sing, kept with Sing's words
   const lang = useSing((s) => s.lang);
   const setLang = useSing((s) => s.setLang);
+  const dialect = useSing((s) => s.dialect);
+  const setDialect = useSing((s) => s.setDialect);
   // kept in a store, so the plugin saves them with the project and reads them on the audio thread
   const { text, ipa, rate, edit } = useSpeech();
   const setText = (v: string) => edit({ text: v });
@@ -190,7 +193,7 @@ export function SpeakRight() {
       await start();
       // the audio didn't start (the error shows on the bar): speaking would only light Stop
       if (!useStore.getState().started) return;
-      await speakText(text, { ipa, lang, body, rate, f0 });
+      await speakText(text, { ipa, lang, dialect: DIALECT_PRESETS[dialect], body, rate, f0 });
     } finally {
       setBusy(false);
     }
@@ -210,6 +213,7 @@ export function SpeakRight() {
     setLang(l);
     setIpa(false);
   };
+  const pickDialect = (d: DialectPreset) => setDialect(d);
 
   return (
     <div className="right right-speak">
@@ -228,7 +232,7 @@ export function SpeakRight() {
           <Slider label="Rate" value={rate} min={0.5} max={1.8} onChange={setRate} format={(v) => `${v.toFixed(2)}×`} />
         </div>
         {/* the plugin reads Latin script as English (other scripts by their own front ends) */}
-        {!inPlugin && <LangPick value={lang} onChange={pickLang} off={ipa} />}
+        {!inPlugin && <LangPick value={lang} onChange={pickLang} off={ipa} dialect={dialect} onDialectChange={pickDialect} />}
         <Chip on={ipa} onClick={() => setIpa(!ipa)}>
           Text is IPA
         </Chip>
