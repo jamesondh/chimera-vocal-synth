@@ -125,6 +125,7 @@ pub fn def() -> CreatureDef {
         blurb: "Infrasonic rumbles from huge vocal folds, routed through a two-metre trunk or the mouth; trumpets from a buzzing valve at the trunk entrance.",
         role: "Sub-bass rumbles, distorted brass leads",
         oversample: 1,
+        min_rate: None,
         gate_times: None,
         params: vec![
             ParamDef::new("mode", "Rumble ↔ trumpet", 0.0, 1.0, 0.0).smooth(0.03),

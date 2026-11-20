@@ -254,6 +254,11 @@ pub struct CreatureDef {
     pub role: &'static str,
     /// internal oversampling factor relative to the output rate
     pub oversample: u32,
+    /// lowest internal rate (Hz) the airway holds at: a short airway needs at least 3 sections per
+    /// tube no shorter than the stable minimum, so on a slow device the oversampling is raised to
+    /// reach it (`None`: `oversample` alone)
+    #[serde(skip)]
+    pub min_rate: Option<f64>,
     /// breath gate attack/release time constants (s)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gate_times: Option<GateTimes>,

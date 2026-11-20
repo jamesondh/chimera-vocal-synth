@@ -41,7 +41,8 @@ fn creature_voice_is_send() {
 fn warm_creature_voice_does_not_allocate() {
     chimera::creatures::init();
     for def in CREATURES.iter() {
-        for fs in [48000.0, 96000.0] {
+        // 16 kHz: a creature with `min_rate` oversamples more there (the cat: 4x)
+        for fs in [16000.0, 48000.0, 96000.0] {
             let mut v = CreatureVoice::new(def, fs, &[(0, def.params[0].default)]);
             let mut tel = v.new_telemetry();
             let mut buf = vec![0.0f32; 4096];

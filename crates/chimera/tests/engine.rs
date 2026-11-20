@@ -133,7 +133,7 @@ fn creature_call_rms(fs: f64, id: &str) -> f64 {
 fn the_creatures_hold_at_the_lighter_rate() {
     // A device that can't keep up at 48 kHz falls back to a 32 kHz context (src/audio): each
     // creature's first call must still sound there, about as loud.
-    for id in ["songbird", "seal", "alligator", "elephant"] {
+    for id in ["songbird", "seal", "alligator", "elephant", "cat"] {
         let (reference, light) = (creature_call_rms(48000.0, id), creature_call_rms(32000.0, id));
         assert!(light > 0.5 * reference && light < 2.0 * reference, "{id}: RMS {light:.4} at 32 kHz, {reference:.4} at 48 kHz");
     }

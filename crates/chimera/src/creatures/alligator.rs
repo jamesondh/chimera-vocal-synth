@@ -89,6 +89,7 @@ pub fn def() -> CreatureDef {
         blurb: "A chaotic, very low laryngeal roar through a long, closed-mouthed tract; the whole body radiates.",
         role: "Distorted sub drones, noise bass, impacts",
         oversample: 2,
+        min_rate: None,
         gate_times: None,
         params: vec![
             ParamDef::new("pitch", "Pitch", 12.0, 120.0, 28.0).unit("Hz").log().smooth(0.05).pitch(),
