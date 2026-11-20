@@ -31,14 +31,16 @@ Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3), aspiration as the
 | Han | Mandarin | `public/data/mandarin.txt.gz` (208 KB, fetched when lyrics have Han characters) | `phonetics/mandarin.rs` |
 | Latin with tones | Mandarin as pinyin | nothing (checked against Mandarin's 411 syllables) | `phonetics/mandarin.rs` (`Pinyin`) |
 | Latin, when chosen | Turkish | nothing: spelling rules, stress by rule ([turkish.md](turkish.md)) | `phonetics/turkish.rs` |
+| Latin, when chosen | Polish | nothing: spelling rules, stress by rule ([polish.md](polish.md)) | `phonetics/polish.rs` |
 
 The router (`read_lyrics` in `syllables.rs`) sends each word to the front end whose script it is
 in, so a line can mix them (`我爱你 hello 빵야 nǐhǎo`). It also handles what every language
 shares: melisma marks (`-`, `~`), phrase punctuation (ASCII and full-width `，。！？`) and word ends.
 
 Script can't tell Latin-script languages apart, so the player chooses which front end reads Latin
-script: English unless Turkish is chosen (`Lang` in `syllables.rs`; EN/TR in Speak and Sing).
-Toned pinyin and the other scripts are routed as before whichever is chosen.
+script: English unless Turkish or Polish is chosen (`Lang` in `syllables.rs`; EN/TR/PL in Speak
+and Sing). The other scripts are routed as before whichever is chosen, and so is toned pinyin,
+except in Polish, whose ó is a tone mark too.
 
 Pinyin and English share the Latin alphabet, so a front end may **decline** a word it scanned
 (`FrontEnd::claims`). The others then read that word as they would without it, and the one that
@@ -335,9 +337,9 @@ in for a native listener; the test says where to look and whether a change moved
 ## Not yet
 
 - **More language choices.** Routing by script can't tell German from English, or Cantonese and
-  Japanese from Mandarin, so Latin text is English unless it is toned pinyin or Turkish is chosen,
-  and Han characters are Mandarin. Each new Latin-script language joins `Lang`, the one language
-  setting (#40).
+  Japanese from Mandarin, so Latin text is English unless it is toned pinyin or Turkish or Polish
+  is chosen, and Han characters are Mandarin. Each new Latin-script language joins `Lang`, the one
+  language setting (#40).
 - **Bends on live notes:** a key pressed in Sing or a note from the plugin (`plan_note_on`) sings
   the note's pitch.
 - **Tones in speech:** Speak doesn't read Mandarin yet; the tones' contours and speech tuning come

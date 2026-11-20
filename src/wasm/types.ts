@@ -199,9 +199,10 @@ export interface Plan {
   end: number;
 }
 
-/** The language Latin-script words are read in: their script can't tell Turkish from English, so
- *  the player chooses (Rust's `syllables::Lang`). Hangul and Cyrillic go to their own front ends. */
-export type Lang = "en" | "tr";
+/** The language Latin-script words are read in: their script can't tell Turkish or Polish from
+ *  English, so the player chooses (Rust's `syllables::Lang`). Hangul and Cyrillic go to their own
+ *  front ends. */
+export type Lang = "en" | "tr" | "pl";
 
 export interface Phrase {
   segments: Segment[];

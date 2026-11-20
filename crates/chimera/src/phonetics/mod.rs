@@ -13,6 +13,7 @@ pub mod ipa;
 pub mod korean;
 pub mod mandarin;
 pub mod planner;
+pub mod polish;
 pub mod russian;
 pub mod sing;
 pub mod songs;
