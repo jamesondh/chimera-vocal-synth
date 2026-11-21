@@ -27,6 +27,9 @@ const LOWER_AIRWAY_L: f64 = 5.2e-3;
 /// A turbulent mixing layer grows about as δ ≈ 0.17·x (textbook range, Pope 2000, ch. 5), so δ
 /// reaches the jet's diameter about 6 D downstream, where a round jet's core ends.
 const JET_SPREAD: f64 = 0.17;
+/// The narrowest point's frication fades in below this area (cm², at body scale 1, scaled by
+/// scale²) and is full below 0.35 of it.
+pub const FRICATION_FADE_AREA: f64 = 0.9;
 /// The band the teeth source's Re² gain was levelled on (Hz).
 const TEETH_LEVEL_HZ: f64 = 5000.0;
 const TEETH_HIGHPASS_HZ: f64 = 1200.0;
@@ -346,17 +349,18 @@ impl HumanAirway {
         // narrowest open point: its jet makes frication noise. Every weight below is a smooth function
         // of geometry so sources fade in/out instead of toggling (toggling = audible noise bursts).
         let k2 = self.body.scale * self.body.scale;
-        let w_area = if min_i >= 0 { 1.0 - smooth(0.35 * k2, 0.9 * k2, min_a) } else { 0.0 };
+        let w_area = if min_i >= 0 { 1.0 - smooth(0.35 * k2, FRICATION_FADE_AREA * k2, min_a) } else { 0.0 };
         if w_area > 0.0 {
             let n_ph_i = n_ph as isize;
             let n_tot = (n_ph + n_or) as isize;
             let dx_ph = self.ph_len / n_ph as f64;
             let dx_or = self.or_len / n_or as f64;
+            // global index n_ph is the oral tube's first section (the pharynx's last node is joined
+            // to the oral tube's first): mapping it to no branch dropped the source whenever the
+            // narrowest point, or its reach, landed just past the velum (#124)
             let to_branch = |gi: isize| -> isize {
                 if gi < n_ph_i {
                     self.branch_of(self.pharynx, gi) as isize
-                } else if gi == n_ph_i {
-                    -1
                 } else {
                     self.branch_of(self.oral, gi - n_ph_i) as isize
                 }
