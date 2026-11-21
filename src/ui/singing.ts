@@ -67,6 +67,9 @@ interface SingState {
   setKey: (semitones: number) => void;
 }
 
+/** Synthetic Tune id for live MIDI performance in Sing mode (not in TUNES). */
+export const MIDI_TUNE = "midi";
+
 const KEPT = "chimera-sing";
 
 /**
@@ -94,6 +97,14 @@ function kept(): { lyrics: string; lang: Lang; tune: string; tempo: number; key:
 const atLoad = kept();
 /** the player's words and their language while a demo song's are in the lyrics */
 let ownWords: { lyrics: string; lang: Lang } | null = null;
+/** last non-MIDI tune chosen (persisted if the user leaves on MIDI), and last mood tune (safe fallback) */
+let lastTune = atLoad.tune;
+let lastMoodTune = TUNES.find((t) => t.id === atLoad.tune && t.lyrics === undefined)?.id ?? TUNES[0].id;
+
+/** The mood tune to fall back to when MIDI disconnects (never a demo song that overwrites lyrics). */
+export function fallbackTune(): string {
+  return lastMoodTune;
+}
 
 export const useSing = create<SingState>((set, get) => ({
   lyrics: atLoad.lyrics,
@@ -151,6 +162,8 @@ export const useSing = create<SingState>((set, get) => ({
       get().setLyrics(ownWords.lyrics);
       ownWords = null;
     }
+    if (id !== MIDI_TUNE) lastTune = id;
+    if (TUNES.some((t) => t.id === id && t.lyrics === undefined)) lastMoodTune = id;
     set({ tune: id });
   },
   setTempo: (x) => set({ tempo: x }),
@@ -161,7 +174,7 @@ useSing.subscribe((s, p) => {
   if (inPlugin) return;
   if (s.lyrics === p.lyrics && s.lang === p.lang && s.tune === p.tune && s.tempo === p.tempo && s.key === p.key) return;
   try {
-    localStorage.setItem(KEPT, JSON.stringify({ lyrics: s.lyrics, lang: s.lang, tune: s.tune, tempo: s.tempo, key: s.key }));
+    localStorage.setItem(KEPT, JSON.stringify({ lyrics: s.lyrics, lang: s.lang, tune: s.tune === MIDI_TUNE ? lastTune : s.tune, tempo: s.tempo, key: s.key }));
   } catch {
     // not kept: the session still works
   }
@@ -318,8 +331,17 @@ export function clearPluginNotes(): void {
   pluginNote = -1;
 }
 
+const liveNoteListeners = new Set<(midi: number, velocity: number) => void>();
+
+/** Called synchronously right before a live sung note (MIDI or keys) starts sounding. */
+export function onSingNoteOn(l: (midi: number, velocity: number) => void): () => void {
+  liveNoteListeners.add(l);
+  return () => liveNoteListeners.delete(l);
+}
+
 export function singNoteOn(midi: number, velocity: number, body: BodyMix): void {
   stopDemo();
+  for (const l of [...liveNoteListeners]) l(midi, velocity);
   keys = keys.filter((k) => k !== midi).concat(midi);
   const st = useSing.getState();
   const syls = st.syllables.length ? st.syllables : [AH];

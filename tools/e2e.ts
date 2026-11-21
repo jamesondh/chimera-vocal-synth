@@ -648,6 +648,248 @@ for (const slowAt of ["48000", "any", "48000-gesture"]) {
   await page.close();
 }
 
+const installMidiMock = () => {
+  const w = window as unknown as {
+    __recorders: MediaRecorder[];
+    __texts: string[];
+    __midiTest: {
+      noteOn: (m: number, v?: number) => void;
+      noteOff: (m: number) => void;
+      setConnected: (on: boolean) => void;
+    };
+  };
+  w.__recorders = [];
+  w.__texts = [];
+  const Rec = window.MediaRecorder;
+  window.MediaRecorder = class extends Rec {
+    constructor(...a: ConstructorParameters<typeof Rec>) {
+      super(...a);
+      w.__recorders.push(this);
+    }
+  };
+  const fill = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (this: CanvasRenderingContext2D, t: string, ...a: [number, number]) {
+    if (w.__texts.length < 5000) w.__texts.push(t);
+    return fill.call(this, t, ...a);
+  };
+  const input: { id: string; name: string; state: "connected" | "disconnected"; onmidimessage: ((e: { data: Uint8Array }) => void) | null } = {
+    id: "dev-1",
+    name: "Test Keys",
+    state: "connected",
+    onmidimessage: null,
+  };
+  const inputs = new Map([["dev-1", input]]);
+  const access: { inputs: typeof inputs; onstatechange: (() => void) | null } = { inputs, onstatechange: null };
+  (navigator as unknown as { requestMIDIAccess: () => Promise<typeof access> }).requestMIDIAccess = async () => access;
+  w.__midiTest = {
+    noteOn: (m: number, v = 96) => input.onmidimessage?.({ data: new Uint8Array([0x90, m, v]) }),
+    noteOff: (m: number) => input.onmidimessage?.({ data: new Uint8Array([0x80, m, 0]) }),
+    setConnected: (on: boolean) => {
+      input.state = on ? "connected" : "disconnected";
+      access.onstatechange?.();
+    },
+  };
+};
+
+// Sing with MIDI selected: Record video arms silently (no built-in melody plays), starts on the
+// first MIDI note, supports Pause/Resume, and exports the clip via Save.
+{
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
+  page.on("console", (m) => m.type() === "error" && errors.push(`[midi-video] ${m.text()}`));
+  page.on("pageerror", (e) => errors.push(`[midi-video] pageerror: ${e.message}`));
+  await page.addInitScript(installMidiMock);
+  await page.goto(url, { waitUntil: "networkidle" });
+  const tuneSelect = page.getByRole("combobox", { name: "Tune" });
+  if ((await tuneSelect.locator("option", { hasText: "MIDI" }).count()) !== 0) errors.push("[midi-video] MIDI option shown before connecting MIDI");
+  await page.getByRole("button", { name: /^MIDI$/ }).click();
+  await page.getByRole("button", { name: /^MIDI: Test Keys$/ }).waitFor({ timeout: 5000 });
+  if ((await tuneSelect.locator("option", { hasText: "MIDI" }).count()) !== 1) errors.push("[midi-video] MIDI option missing after connecting MIDI");
+  await tuneSelect.selectOption("midi");
+  if ((await page.getByRole("button", { name: /^Sing$/ }).count()) !== 0) errors.push("[midi-video] Sing button still shown in MIDI mode");
+  await page.locator(".lyrics textarea").fill("one two three");
+  await page.locator(".lyrics .syl").nth(1).click();
+  if ((await page.locator(".lyrics .syl.next").textContent())?.trim() !== "two") errors.push("[midi-video] clicking second syllable did not move cursor");
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Play MIDI…$/ }).waitFor({ timeout: 10000 });
+  if ((await page.locator(".lyrics .syl.next").textContent())?.trim() !== "one") errors.push("[midi-video] Record video did not reset lyrics cursor to start");
+  await page.getByRole("button", { name: /^Cancel$/ }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(500);
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(250);
+  const armed = await page.evaluate(() => {
+    const w = window as unknown as { __recorders: MediaRecorder[]; __texts: string[]; __chimeraEngine: { level(): number } };
+    return { recorders: w.__recorders.length, rms: w.__chimeraEngine.level(), readouts: w.__texts.some((t) => /^RING O/.test(t)) };
+  });
+  if (armed.recorders !== 0) errors.push(`[midi-video] made ${armed.recorders} recorders while waiting for MIDI`);
+  if (armed.rms >= 0.003) errors.push(`[midi-video] built-in sound played while armed (rms ${armed.rms})`);
+  if (armed.readouts) errors.push("[midi-video] face readouts stayed visible while armed");
+
+  await page.evaluate(() => (window as unknown as { __midiTest: { noteOn(m: number, v?: number): void } }).__midiTest.noteOn(60, 100));
+  await page.getByRole("button", { name: /^Stop$/ }).waitFor({ timeout: 5000 });
+  await page.getByRole("button", { name: /^Pause$/ }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(450);
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: `${outDir}/midi-video-recording.png` });
+  const recState = await page.evaluate(() => {
+    const w = window as unknown as { __recorders: MediaRecorder[]; __texts: string[]; __chimeraEngine: { level(): number } };
+    return { recorders: w.__recorders.length, state: w.__recorders[0]?.state ?? null, rms: w.__chimeraEngine.level(), readouts: w.__texts.some((t) => /^RING O/.test(t)) };
+  });
+  await page.evaluate(() => (window as unknown as { __midiTest: { noteOff(m: number): void } }).__midiTest.noteOff(60));
+  if (recState.recorders !== 1 || recState.state !== "recording") errors.push(`[midi-video] bad recorder state on first note: ${JSON.stringify(recState)}`);
+  if (recState.rms <= 0.005) errors.push(`[midi-video] MIDI note made no sound while recording (rms ${recState.rms})`);
+  if (recState.readouts) errors.push("[midi-video] face readouts stayed visible while recording");
+
+  await page.getByRole("button", { name: /^Pause$/ }).click();
+  await page.getByRole("button", { name: /^Resume$/ }).waitFor({ timeout: 5000 });
+  const pausedState = await page.evaluate(() => (window as unknown as { __recorders: MediaRecorder[] }).__recorders[0]?.state ?? null);
+  if (pausedState !== "paused") errors.push(`[midi-video] Pause left recorder in ${pausedState}`);
+  await page.getByRole("button", { name: /^Resume$/ }).click();
+  await page.getByRole("button", { name: /^Pause$/ }).waitFor({ timeout: 5000 });
+  const resumedState = await page.evaluate(() => (window as unknown as { __recorders: MediaRecorder[] }).__recorders[0]?.state ?? null);
+  if (resumedState !== "recording") errors.push(`[midi-video] Resume left recorder in ${resumedState}`);
+
+  await page.evaluate(() => (window as unknown as { __midiTest: { noteOn(m: number, v?: number): void } }).__midiTest.noteOn(64, 100));
+  await page.waitForTimeout(450);
+  await page.evaluate(() => (window as unknown as { __midiTest: { noteOff(m: number): void } }).__midiTest.noteOff(64));
+  await page.getByRole("button", { name: /^Stop$/ }).click();
+  const save = page.getByRole("link", { name: /^Save$/ });
+  const saved = await save.waitFor({ timeout: 15000 }).then(() => true, () => false);
+  if (!saved) errors.push("[midi-video] Stop never offered a clip to save");
+  else {
+    const [dl] = await Promise.all([page.waitForEvent("download"), save.click()]);
+    const size = (await (await dl.createReadStream()).toArray()).reduce((n, b: Buffer) => n + b.length, 0);
+    logs.push(`[midi-video] clip ${dl.suggestedFilename()}: ${size} bytes`);
+    if (!/^chimera-midi\.(mp4|webm)$/.test(dl.suggestedFilename())) errors.push(`[midi-video] unexpected filename ${dl.suggestedFilename()}`);
+    if (size < 10000) errors.push(`[midi-video] clip nearly empty (${size} bytes)`);
+  }
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(350);
+  const readoutsBack = await page.evaluate(() => (window as unknown as { __texts: string[] }).__texts.some((t) => /^RING O/.test(t)));
+  if (!readoutsBack) errors.push("[midi-video] face readouts never came back after Stop");
+  await page.close();
+}
+
+// MIDI video edge cases: cancel while armed, simultaneous chord, stop while paused, cancel while
+// recording, and unplugging MIDI both while recording and while idle.
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
+  page.on("console", (m) => m.type() === "error" && errors.push(`[midi-video-edge] ${m.text()}`));
+  page.on("pageerror", (e) => errors.push(`[midi-video-edge] pageerror: ${e.message}`));
+  await page.addInitScript(installMidiMock);
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /^MIDI$/ }).click();
+  await page.getByRole("button", { name: /^MIDI: Test Keys$/ }).waitFor({ timeout: 5000 });
+  const tuneSelect = page.getByRole("combobox", { name: "Tune" });
+  await tuneSelect.selectOption("midi");
+  await page.locator(".lyrics textarea").fill("my custom lyrics");
+
+  // 1. Cancel while armed
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Play MIDI…$/ }).waitFor({ timeout: 10000 });
+  await page.getByRole("button", { name: /^Cancel$/ }).click();
+  await page.getByRole("button", { name: /^Record video$/ }).waitFor({ timeout: 5000 });
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(350);
+  const afterCancelArm = await page.evaluate(() => {
+    const w = window as unknown as { __recorders: MediaRecorder[]; __texts: string[] };
+    return { recorders: w.__recorders.length, readouts: w.__texts.some((t) => /^RING O/.test(t)) };
+  });
+  if (afterCancelArm.recorders !== 0) errors.push(`[midi-video-edge] cancelling while armed left ${afterCancelArm.recorders} recorders`);
+  if (!afterCancelArm.readouts) errors.push("[midi-video-edge] readouts did not return after cancelling while armed");
+  if ((await page.getByRole("link", { name: /^Save$/ }).count()) !== 0) errors.push("[midi-video-edge] Save appeared after cancelling while armed");
+
+  // 2. Simultaneous chord (1 recorder) + Pause -> direct Stop
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Play MIDI…$/ }).waitFor({ timeout: 10000 });
+  await page.evaluate(() => {
+    const t = (window as unknown as { __midiTest: { noteOn(m: number, v?: number): void } }).__midiTest;
+    t.noteOn(60, 96);
+    t.noteOn(64, 96);
+  });
+  await page.getByRole("button", { name: /^Stop$/ }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(450);
+  await page.evaluate(() => {
+    const t = (window as unknown as { __midiTest: { noteOff(m: number): void } }).__midiTest;
+    t.noteOff(60);
+    t.noteOff(64);
+  });
+  const chordRecs = await page.evaluate(() => (window as unknown as { __recorders: MediaRecorder[] }).__recorders.length);
+  if (chordRecs !== 1) errors.push(`[midi-video-edge] chord started ${chordRecs} recorders (want 1)`);
+  await page.getByRole("button", { name: /^Pause$/ }).click();
+  await page.getByRole("button", { name: /^Resume$/ }).waitFor({ timeout: 5000 });
+  await page.getByRole("button", { name: /^Stop$/ }).click();
+  const pausedSave = page.getByRole("link", { name: /^Save$/ });
+  const pausedSaved = await pausedSave.waitFor({ timeout: 15000 }).then(() => true, () => false);
+  if (!pausedSaved) errors.push("[midi-video-edge] stopping from paused state offered no clip");
+  else {
+    const [dl] = await Promise.all([page.waitForEvent("download"), pausedSave.click()]);
+    const size = (await (await dl.createReadStream()).toArray()).reduce((n, b: Buffer) => n + b.length, 0);
+    logs.push(`[midi-video-edge] stopped from paused: ${size} bytes`);
+    if (size < 10000) errors.push(`[midi-video-edge] paused-then-stopped clip nearly empty (${size} bytes)`);
+  }
+
+  // 3. Cancel while recording drops capture tracks, hides Save, restores readouts
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Play MIDI…$/ }).waitFor({ timeout: 10000 });
+  await page.evaluate(() => (window as unknown as { __midiTest: { noteOn(m: number, v?: number): void } }).__midiTest.noteOn(62, 96));
+  await page.getByRole("button", { name: /^Stop$/ }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => (window as unknown as { __midiTest: { noteOff(m: number): void } }).__midiTest.noteOff(62));
+  await page.getByRole("button", { name: /^Cancel$/ }).click();
+  await page.getByRole("button", { name: /^Record video$/ }).waitFor({ timeout: 5000 });
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(350);
+  const afterCancelRec = await page.evaluate(() => {
+    const w = window as unknown as { __recorders: MediaRecorder[]; __texts: string[] };
+    const tracks = w.__recorders[1]?.stream.getVideoTracks() ?? [];
+    return { live: tracks.filter((t) => t.readyState === "live").length, readouts: w.__texts.some((t) => /^RING O/.test(t)) };
+  });
+  if (afterCancelRec.live !== 0) errors.push(`[midi-video-edge] ${afterCancelRec.live} live capture track(s) after Cancel`);
+  if (!afterCancelRec.readouts) errors.push("[midi-video-edge] readouts did not return after Cancel while recording");
+  if ((await page.getByRole("link", { name: /^Save$/ }).count()) !== 0) errors.push("[midi-video-edge] Save shown after Cancel while recording");
+
+  // 4. Unplugging MIDI while recording keeps recording active, then reverts cleanly after Stop
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Play MIDI…$/ }).waitFor({ timeout: 10000 });
+  await page.evaluate(() => (window as unknown as { __midiTest: { noteOn(m: number, v?: number): void } }).__midiTest.noteOn(65, 96));
+  await page.getByRole("button", { name: /^Stop$/ }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const t = (window as unknown as { __midiTest: { noteOff(m: number): void; setConnected(on: boolean): void } }).__midiTest;
+    t.noteOff(65);
+    t.setConnected(false);
+  });
+  await page.waitForTimeout(200);
+  if ((await page.getByRole("button", { name: /^Stop$/ }).count()) !== 1 || (await tuneSelect.inputValue()) !== "midi") {
+    errors.push("[midi-video-edge] unplugging MIDI aborted an active recording");
+  }
+  await page.getByRole("button", { name: /^Stop$/ }).click();
+  await page.getByRole("link", { name: /^Save$/ }).waitFor({ timeout: 15000 });
+  await page.waitForTimeout(200);
+  if ((await tuneSelect.inputValue()) === "midi" || (await tuneSelect.locator("option", { hasText: "MIDI" }).count()) !== 0) {
+    errors.push("[midi-video-edge] MIDI stayed selected after finishing disconnected take");
+  }
+  if ((await page.locator(".lyrics textarea").inputValue()) !== "my custom lyrics") {
+    errors.push("[midi-video-edge] disconnecting MIDI altered custom lyrics");
+  }
+
+  // 5. Reconnect and unplug while idle reverts to a mood tune and keeps custom lyrics
+  await page.evaluate(() => (window as unknown as { __midiTest: { setConnected(on: boolean): void } }).__midiTest.setConnected(true));
+  await tuneSelect.locator("option", { hasText: "MIDI" }).waitFor({ state: "attached", timeout: 5000 });
+  await tuneSelect.selectOption("midi");
+  await page.evaluate(() => (window as unknown as { __midiTest: { setConnected(on: boolean): void } }).__midiTest.setConnected(false));
+  await page.waitForTimeout(200);
+  if ((await tuneSelect.inputValue()) === "midi" || (await tuneSelect.locator("option", { hasText: "MIDI" }).count()) !== 0) {
+    errors.push("[midi-video-edge] MIDI stayed in Tune menu after unplugging while idle");
+  }
+  if ((await page.locator(".lyrics textarea").inputValue()) !== "my custom lyrics") {
+    errors.push("[midi-video-edge] unplugging while idle altered custom lyrics");
+  }
+  logs.push("[midi-video-edge] all MIDI video edge cases passed");
+  await page.close();
+}
+
 /**
  * Play before any audio (upstream issue 89): grabbing the tongue starts the audio and breathes, and
  * the engine keeps the tongue in the mouth. Since 704ed2c took away the start overlay over the face,
