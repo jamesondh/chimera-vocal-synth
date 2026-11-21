@@ -145,6 +145,9 @@ function SongControls() {
 
 type MidiRec = "idle" | "arming" | "armed" | "recording" | "paused";
 
+/** Auto-select MIDI in the Tune menu the first time a MIDI input connects in this page session. */
+let autoSelectedMidi = false;
+
 /**
  * Sing's main button: sing the lyrics to the chosen tune, or stop. A song getting ready (audio
  * starting, the dictionary loading) counts as playing: Stop cancels it, and choosing another tune
@@ -339,6 +342,14 @@ function SingActions() {
       }),
     [],
   );
+  useEffect(() => {
+    if (!midiConnected || autoSelectedMidi) return;
+    autoSelectedMidi = true;
+    if (tune !== MIDI_TUNE) {
+      stop();
+      setTune(MIDI_TUNE);
+    }
+  }, [midiConnected, tune, setTune]);
   useEffect(() => {
     if (midiConnected) return;
     if (midiRecRef.current === "arming" || midiRecRef.current === "armed") cancelMidi();

@@ -704,7 +704,7 @@ const installMidiMock = () => {
   await page.getByRole("button", { name: /^MIDI$/ }).click();
   await page.getByRole("button", { name: /^MIDI: Test Keys$/ }).waitFor({ timeout: 5000 });
   if ((await tuneSelect.locator("option", { hasText: "MIDI" }).count()) !== 1) errors.push("[midi-video] MIDI option missing after connecting MIDI");
-  await tuneSelect.selectOption("midi");
+  if ((await tuneSelect.inputValue()) !== "midi") errors.push("[midi-video] MIDI option not auto-selected on first connection");
   if ((await page.getByRole("button", { name: /^Sing$/ }).count()) !== 0) errors.push("[midi-video] Sing button still shown in MIDI mode");
   await page.locator(".lyrics textarea").fill("one two three");
   await page.locator(".lyrics .syl").nth(1).click();
@@ -877,6 +877,7 @@ const installMidiMock = () => {
   // 5. Reconnect and unplug while idle reverts to a mood tune and keeps custom lyrics
   await page.evaluate(() => (window as unknown as { __midiTest: { setConnected(on: boolean): void } }).__midiTest.setConnected(true));
   await tuneSelect.locator("option", { hasText: "MIDI" }).waitFor({ state: "attached", timeout: 5000 });
+  if ((await tuneSelect.inputValue()) === "midi") errors.push("[midi-video-edge] MIDI auto-selected again on second connection in same session");
   await tuneSelect.selectOption("midi");
   await page.evaluate(() => (window as unknown as { __midiTest: { setConnected(on: boolean): void } }).__midiTest.setConnected(false));
   await page.waitForTimeout(200);
