@@ -24,7 +24,7 @@ function pickType(): string | null {
  */
 export const recording = {
   owner: null as Clip | null,
-  /** armed for a MIDI take: the face is already clean before the first note lands */
+  /** armed for a live take: the face is already clean before the first note lands */
   armed: false,
   get on(): boolean {
     return this.owner !== null || this.armed;
@@ -34,15 +34,11 @@ export const recording = {
 /** whether this browser can record a clip at all */
 export const canRecord = (): boolean => pickType() !== null;
 
-/** whether this browser can pause and resume a recording clip */
-export const canPause = (): boolean => typeof MediaRecorder !== "undefined" && typeof MediaRecorder.prototype.pause === "function" && typeof MediaRecorder.prototype.resume === "function";
-
 export class Clip {
   private frame = document.createElement("canvas");
   private rec!: MediaRecorder;
   private chunks: Blob[] = [];
   private raf = 0;
-  private drawFrame: (() => void) | null = null;
   private type: string;
   /** the frame's capture track: ours to stop (the audio track is the engine's, shared) */
   private video: MediaStreamTrack[] = [];
@@ -88,7 +84,6 @@ export class Clip {
       label(ctx, "CHIMERA", W / 2, H - FOOT / 2, { size: 30, color: V.blue, weight: "m", ls: 0.34, align: "center" });
       this.raf = requestAnimationFrame(draw);
     };
-    this.drawFrame = draw;
     draw();
     this.video = this.frame.captureStream(30).getVideoTracks();
     this.rec = new MediaRecorder(new MediaStream([...this.video, ...audio.getAudioTracks()]), { mimeType: this.type, videoBitsPerSecond: 5_000_000 });
@@ -104,34 +99,6 @@ export class Clip {
       };
     });
     this.rec.start(500);
-  }
-
-  get paused(): boolean {
-    return this.rec.state === "paused";
-  }
-
-  pause(): boolean {
-    if (this.rec.state !== "recording" || typeof this.rec.pause !== "function") return false;
-    try {
-      this.rec.pause();
-    } catch {
-      return false;
-    }
-    cancelAnimationFrame(this.raf);
-    this.raf = 0;
-    return true;
-  }
-
-  resume(): boolean {
-    if (this.rec.state !== "paused" || typeof this.rec.resume !== "function") return false;
-    try {
-      this.rec.resume();
-    } catch {
-      return false;
-    }
-    cancelAnimationFrame(this.raf);
-    this.drawFrame?.();
-    return true;
   }
 
   /** Finish: the clip as a file named `name` (the extension is added); rejects if the recorder failed. */

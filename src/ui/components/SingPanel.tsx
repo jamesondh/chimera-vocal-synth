@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { inPlugin } from "../../audio/pluginBridge.ts";
 import { useStore } from "../store.ts";
-import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary, MIDI_TUNE, fallbackTune, onSingNoteOn } from "../singing.ts";
+import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary, LIVE_TUNE, onSingNoteOn } from "../singing.ts";
 import { engine } from "../../audio/AudioEngine.ts";
-import { canPause, canRecord, Clip, recording as clipRecording } from "../../song/record.ts";
+import { canRecord, Clip, recording as clipRecording } from "../../song/record.ts";
 import { mouthWords } from "../mouthWords.ts";
 import { V } from "../colors.ts";
 import { Keys, MidiButton } from "./Keys.tsx";
@@ -143,48 +143,39 @@ function SongControls() {
   );
 }
 
-type MidiRec = "idle" | "arming" | "armed" | "recording" | "paused";
-
-/** Auto-select MIDI in the Tune menu the first time a MIDI input connects in this page session. */
-let autoSelectedMidi = false;
+type LiveRec = "idle" | "arming" | "armed" | "recording";
 
 /**
  * Sing's main button: sing the lyrics to the chosen tune, or stop. A song getting ready (audio
  * starting, the dictionary loading) counts as playing: Stop cancels it, and choosing another tune
  * replaces it. Record video sings it again into a clip of the face screen (Share and Save once it's done).
- * When MIDI is connected, choosing MIDI turns the main button into live MIDI video recording.
+ * Choosing Live turns the main button into live video recording for on-screen keys, computer keys, or MIDI.
  */
 function SingActions() {
   const start = useStore((s) => s.start);
-  const midi = useStore((s) => s.midi);
   const playing = useSing((s) => s.playing);
   const tune = useSing((s) => s.tune);
   const setTune = useSing((s) => s.setTune);
   const [pending, setPending] = useState(false);
   const [recording, setRecording] = useState(false);
-  const [midiRec, setMidiRecState] = useState<MidiRec>("idle");
-  const midiRecRef = useRef<MidiRec>("idle");
-  const setMidiRec = (next: MidiRec) => {
-    midiRecRef.current = next;
-    setMidiRecState(next);
+  const [liveRec, setLiveRecState] = useState<LiveRec>("idle");
+  const liveRecRef = useRef<LiveRec>("idle");
+  const setLiveRec = (next: LiveRec) => {
+    liveRecRef.current = next;
+    setLiveRecState(next);
   };
   const [clip, setClip] = useState<{ file: File; url: string } | null>(null);
   /** bumped by every start and stop: a start still waiting no longer counts */
   const request = useRef(0);
   /** bumped by every Record video: a clip still being finished for an earlier one isn't offered */
   const take = useRef(0);
-  /** take number belonging to the active MIDI recording */
-  const midiTake = useRef(0);
+  /** take number belonging to the active live recording */
+  const liveTake = useRef(0);
   /** the clip recording now, if any (one at a time) */
   const recorder = useRef<Clip | null>(null);
 
-  const midiConnected = midi.status === "on" && midi.inputs.length > 0;
-  const showMidi = midiConnected || midiRec === "recording" || midiRec === "paused";
-  const selectedTune = tune === MIDI_TUNE && !showMidi ? fallbackTune() : tune;
-  const midiMode = selectedTune === MIDI_TUNE;
-  const tuneOptions = showMidi
-    ? [{ value: MIDI_TUNE, label: "MIDI" }, ...TUNES.map((t) => ({ value: t.id, label: t.name }))]
-    : TUNES.map((t) => ({ value: t.id, label: t.name }));
+  const liveMode = tune === LIVE_TUNE;
+  const tuneOptions = [{ value: LIVE_TUNE, label: "Live" }, ...TUNES.map((t) => ({ value: t.id, label: t.name }))];
 
   // the audio must be running: if it failed to start, nothing is planned and the error shows
   const ready = async () => {
@@ -196,7 +187,7 @@ function SingActions() {
     recorder.current?.cancel();
     recorder.current = null;
     setRecording(false);
-    setMidiRec("idle");
+    setLiveRec("idle");
   };
   // the clip's life is the tune's run: it starts as the tune is sent (never for a start that was
   // cancelled), is saved when it's sung to the end, and goes when it's stopped from anywhere
@@ -242,11 +233,11 @@ function SingActions() {
     stopSinging(); // its run's onStop drops the clip
     drop();
   };
-  const armMidi = () => {
+  const armLive = () => {
     if (!canRecord()) return;
     const n = ++request.current;
     const k = ++take.current;
-    midiTake.current = k;
+    liveTake.current = k;
     drop();
     stopSinging();
     useSing.getState().setCursor(0);
@@ -254,10 +245,10 @@ function SingActions() {
     ensureDictionary();
     if (useStore.getState().started && engine.level() < 0.003 && engine.recordStream()) {
       clipRecording.armed = true;
-      setMidiRec("armed");
+      setLiveRec("armed");
       return;
     }
-    setMidiRec("arming");
+    setLiveRec("arming");
     void (async () => {
       try {
         await ready();
@@ -272,11 +263,11 @@ function SingActions() {
         return;
       }
       clipRecording.armed = true;
-      setMidiRec("armed");
+      setLiveRec("armed");
     })();
   };
-  const startMidiClip = () => {
-    const state = midiRecRef.current;
+  const startLiveClip = () => {
+    const state = liveRecRef.current;
     if (state !== "armed" && !(state === "arming" && useStore.getState().started)) return;
     if (state === "arming") request.current++;
     const face = () => document.querySelector<HTMLCanvasElement>(".screen.left canvas");
@@ -285,15 +276,15 @@ function SingActions() {
       drop();
       return;
     }
-    const k = midiTake.current;
+    const k = liveTake.current;
     // disarm synchronously before constructing Clip so chord notes cannot spawn two recorders
-    midiRecRef.current = "recording";
+    liveRecRef.current = "recording";
     let c: Clip;
     try {
       c = new Clip(face, audio, () => {
         if (recorder.current === c) {
           recorder.current = null;
-          setMidiRec("idle");
+          setLiveRec("idle");
         }
       });
     } catch (e) {
@@ -303,60 +294,38 @@ function SingActions() {
     } finally {
       clipRecording.armed = false;
     }
-    if (midiTake.current !== k) {
+    if (liveTake.current !== k) {
       c.cancel();
       return;
     }
     recorder.current = c;
-    setMidiRec("recording");
+    setLiveRec("recording");
   };
-  const togglePause = () => {
-    if (midiRecRef.current === "recording") {
-      if (recorder.current?.pause()) setMidiRec("paused");
-    } else if (midiRecRef.current === "paused") {
-      if (recorder.current?.resume()) setMidiRec("recording");
-    }
-  };
-  const finishMidi = () => {
+  const finishLive = () => {
     const c = recorder.current;
-    if (!c || (midiRecRef.current !== "recording" && midiRecRef.current !== "paused")) return;
-    const k = midiTake.current;
+    if (!c || liveRecRef.current !== "recording") return;
+    const k = liveTake.current;
     request.current++;
     recorder.current = null;
-    setMidiRec("idle");
+    setLiveRec("idle");
     stopSinging();
-    c.stop("chimera-midi")
+    c.stop("chimera-live")
       .then((file) => take.current === k && setClip({ file, url: URL.createObjectURL(file) }))
       .catch((e) => console.warn("Record video:", e));
   };
-  const cancelMidi = () => {
+  const cancelLive = () => {
     request.current++;
     take.current++;
     drop();
   };
-  useEffect(() => onSingNoteOn(() => startMidiClip()), []);
+  useEffect(() => onSingNoteOn(() => startLiveClip()), []);
   useEffect(
     () =>
       engine.onRebuilt(() => {
-        if (midiRecRef.current !== "idle") cancelMidi();
+        if (liveRecRef.current !== "idle") cancelLive();
       }),
     [],
   );
-  useEffect(() => {
-    if (!midiConnected || autoSelectedMidi) return;
-    autoSelectedMidi = true;
-    if (tune !== MIDI_TUNE) {
-      stop();
-      setTune(MIDI_TUNE);
-    }
-  }, [midiConnected, tune, setTune]);
-  useEffect(() => {
-    if (midiConnected) return;
-    if (midiRecRef.current === "arming" || midiRecRef.current === "armed") cancelMidi();
-    if (tune === MIDI_TUNE && midiRecRef.current !== "recording" && midiRecRef.current !== "paused") {
-      setTune(fallbackTune());
-    }
-  }, [midiConnected, tune, midiRec, setTune]);
   useEffect(() => () => void (clip && URL.revokeObjectURL(clip.url)), [clip]);
   // leaving Sing: nothing still starting may begin a clip, and one recording goes
   useEffect(
@@ -364,33 +333,33 @@ function SingActions() {
       request.current++;
       take.current++;
       clipRecording.armed = false;
-      midiRecRef.current = "idle";
+      liveRecRef.current = "idle";
       recorder.current?.cancel();
       recorder.current = null;
     },
     [],
   );
-  const midiWaiting = midiRec === "arming" || midiRec === "armed";
-  const midiRecording = midiRec === "recording" || midiRec === "paused";
+  const liveWaiting = liveRec === "arming" || liveRec === "armed";
+  const liveRecording = liveRec === "recording";
   const press = () => {
-    if (midiMode) {
-      if (midiRecording) finishMidi();
-      else if (midiRec === "idle") armMidi();
+    if (liveMode) {
+      if (liveRecording) finishLive();
+      else if (liveRec === "idle") armLive();
       return;
     }
     if (playing || pending) stop();
-    else sing(selectedTune);
+    else sing(tune);
   };
   const share = clip && typeof navigator.canShare === "function" && navigator.canShare({ files: [clip.file] });
   return (
     <ActionBar label="Song" onSpace={press}>
-      {midiMode ? (
+      {liveMode ? (
         <PrimaryButton
           label="Record video"
           icon="breath"
-          playing={midiRecording}
-          busy={!canRecord() ? "Play MIDI" : midiWaiting ? "Play MIDI…" : null}
-          title={midiRecording ? "Stop and finish this video clip" : "Wait for your first MIDI note, then record the face into a video"}
+          playing={liveRecording}
+          busy={!canRecord() ? "Live" : liveWaiting ? "Play a note…" : null}
+          title={liveRecording ? "Stop and finish this video clip" : "Wait for your first note, then record the face into a video"}
           onClick={press}
         />
       ) : (
@@ -399,31 +368,26 @@ function SingActions() {
       <Menu
         label="Tune"
         icon="note"
-        value={selectedTune}
+        value={tune}
         options={tuneOptions}
         onChange={(id) => {
-          if (id === MIDI_TUNE) {
+          if (id === LIVE_TUNE) {
             stop();
             setTune(id);
             return;
           }
-          if (midiRecRef.current !== "idle") cancelMidi();
+          if (liveRecRef.current !== "idle") cancelLive();
           setTune(id);
           if ((playing || pending) && !recording) sing(id);
         }}
       />
-      {!midiMode && canRecord() && (
-        <Chip toggle={false} onClick={() => (recording ? stop() : sing(selectedTune, true))} title="Sing it again and record the face into a video">
+      {!liveMode && canRecord() && (
+        <Chip toggle={false} onClick={() => (recording ? stop() : sing(tune, true))} title="Sing it again and record the face into a video">
           {recording ? "Cancel" : "Record video"}
         </Chip>
       )}
-      {midiMode && midiRecording && canPause() && (
-        <Chip toggle={false} on={midiRec === "paused"} onClick={togglePause} title={midiRec === "paused" ? "Resume recording video" : "Pause recording video"}>
-          {midiRec === "paused" ? "Resume" : "Pause"}
-        </Chip>
-      )}
-      {midiMode && (midiWaiting || midiRecording) && (
-        <Chip toggle={false} onClick={cancelMidi} title="Discard this recording">
+      {liveMode && (liveWaiting || liveRecording) && (
+        <Chip toggle={false} onClick={cancelLive} title="Discard this recording">
           Cancel
         </Chip>
       )}

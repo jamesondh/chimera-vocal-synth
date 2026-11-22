@@ -42,7 +42,7 @@ const engineStub = new Proxy(
   { get: (t, k) => (k in t ? t[k as string] : () => {}), set: (t, k, v) => ((t[k as string] = v), true) },
 );
 mock.module("../src/audio/AudioEngine.ts", () => ({ engine: engineStub }));
-const { useSing, singNoteOn, singNoteOff, playTune, stopSinging, tickSinging, MIDI_TUNE, fallbackTune, onSingNoteOn } = await import("../src/ui/singing.ts");
+const { useSing, singNoteOn, singNoteOff, playTune, stopSinging, tickSinging, LIVE_TUNE, onSingNoteOn } = await import("../src/ui/singing.ts");
 const gesturesOf = () => voice.score();
 /** breath the score is giving now (strength-weighted activation of breath gestures) */
 const breathNow = () => {
@@ -338,7 +338,7 @@ describe("Sing mode, live keys", () => {
     expect(breathNow()).toBeLessThan(0.01);
   });
 
-  test("MIDI tune never plays a built-in melody, preserves lyrics, and onSingNoteOn only fires on live notes", async () => {
+  test("Live tune never plays a built-in melody, preserves lyrics, and onSingNoteOn only fires on live notes", async () => {
     const { TUNES } = await import("../src/song/tunes.ts");
     voice = new WasmVoice(FS);
     const sing = useSing.getState;
@@ -353,21 +353,14 @@ describe("Sing mode, live keys", () => {
     sing().setTune(song.id);
     expect(sing().lyrics).toBe(song.lyrics!);
 
-    // choosing MIDI gives back the player's own lyrics and language, and playTune refuses it
-    sing().setTune(MIDI_TUNE);
-    expect(sing().tune).toBe(MIDI_TUNE);
+    // choosing Live gives back the player's own lyrics and language, and playTune refuses it
+    sing().setTune(LIVE_TUNE);
+    expect(sing().tune).toBe(LIVE_TUNE);
     expect(sing().lang).toBe("tr");
     expect(sing().lyrics).toBe("kendi sözlerim");
-    expect(await playTune(MIDI_TUNE, MALE, () => Promise.resolve())).toBe(false);
+    expect(await playTune(LIVE_TUNE, MALE, () => Promise.resolve())).toBe(false);
     expect(scheduled).toBe(0);
     expect(sing().playing).toBeNull();
-
-    // fallbackTune() is always a mood tune (no fixed demo lyrics), so disconnecting keeps user words
-    const fb = fallbackTune();
-    expect(fb).toBe("joyful");
-    expect(TUNES.find((t) => t.id === fb)?.lyrics).toBeUndefined();
-    sing().setTune(fb);
-    expect(sing().lyrics).toBe("kendi sözlerim");
 
     // onSingNoteOn fires synchronously for live notes only, and stops when unsubscribed
     const seen: [number, number][] = [];
