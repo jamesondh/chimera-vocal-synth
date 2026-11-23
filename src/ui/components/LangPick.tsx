@@ -4,9 +4,10 @@ import { Chip } from "./Screen.tsx";
 const LANGS: { value: Lang; label: string; name: string }[] = [
   { value: "en", label: "EN", name: "English" },
   { value: "tr", label: "TR", name: "Turkish" },
+  { value: "pl", label: "PL", name: "Polish" },
 ];
 
-/** The language typed words are read in: two chips for a screen's tools. `off` lights neither (IPA input). */
+/** The language typed words are read in: a chip per language for a screen's tools. `off` lights neither (IPA input). */
 export function LangPick(props: { value: Lang; onChange: (l: Lang) => void; off?: boolean }) {
   return (
     <div className="lang-pick" role="group" aria-label="Language">

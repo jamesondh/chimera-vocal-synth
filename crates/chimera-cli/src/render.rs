@@ -24,7 +24,7 @@ use chimera::phonetics::sing::{
 use chimera::phonetics::songs::DEMO_SONGS;
 use chimera::phonetics::mandarin::{MandarinLexicon, is_han};
 use chimera::phonetics::syllables::{Lang, lyrics_in, lyrics_to_syllables};
-use chimera::phonetics::turkish;
+use chimera::phonetics::{polish, turkish};
 use chimera::phonetics::{Intonation, Plan, Syllable};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
 use std::io::Read;
@@ -254,6 +254,20 @@ pub fn turkish(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let text = arg(a, 1, "Merhaba, nasılsın?");
     let body_name = arg(a, 2, "male");
     let s = say_phrases(&turkish::to_phrases(text), body_name)?;
+    println!("{}", s.shown);
+    let file = wav_name(name);
+    ctx.write_wav(&file, &s.out)?;
+    println!("wrote {file}  {} s", fixed(s.out.len() as f64 / FS, 2));
+    Ok(())
+}
+
+/// Polish text through its spelling rules and the phrase planner.
+/// `render polish <out> ["Polski tekst."] [body]`
+pub fn polish(ctx: &Ctx, a: &[String]) -> Result<(), String> {
+    let name = arg(a, 0, "out/polish");
+    let text = arg(a, 1, "Dzień dobry, jak się masz?");
+    let body_name = arg(a, 2, "male");
+    let s = say_phrases(&polish::to_phrases(text), body_name)?;
     println!("{}", s.shown);
     let file = wav_name(name);
     ctx.write_wav(&file, &s.out)?;
@@ -567,7 +581,7 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let vibrato = j["vibrato"].as_f64().unwrap_or(35.0);
     let raw: Vec<[f64; 2]> = serde_json::from_value(j["notes"].clone()).map_err(|e| format!("notes: {e}"))?;
     // "syllables" sing what a language front end wrote; otherwise the lyrics go through the front
-    // ends, Latin script read as "lang" ("en", the default, or "tr")
+    // ends, Latin script read as "lang" ("en", the default, "tr" or "pl")
     let syl: Vec<Syllable> = if j.get("syllables").is_some() {
         serde_json::from_value(j["syllables"].clone()).map_err(|e| format!("syllables: {e}"))?
     } else {

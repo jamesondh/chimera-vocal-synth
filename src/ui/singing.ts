@@ -33,7 +33,11 @@ export const roll: { notes: RollNote[] } = { notes: [] };
 
 export const DEFAULT_LYRICS = "Hello there, I am a voice made of air.";
 /** the opening words in each language (choosing the other language swaps one for the other) */
-const DEFAULT_LYRICS_OF: Record<Lang, string> = { en: DEFAULT_LYRICS, tr: "Merhaba, ben havadan yapılmış bir sesim." };
+const DEFAULT_LYRICS_OF: Record<Lang, string> = {
+  en: DEFAULT_LYRICS,
+  tr: "Merhaba, ben havadan yapılmış bir sesim.",
+  pl: "Dzień dobry, jestem głosem zrobionym z powietrza.",
+};
 
 /** sung when the lyrics are empty */
 const AH: Syllable = { text: "ah", onset: [], nucleus: { ipa: "ɑ", stress: 1 }, coda: [], wordEnd: true, phraseEnd: false };
@@ -81,7 +85,7 @@ function kept(): { lyrics: string; lang: Lang; tune: string; tempo: number; key:
     if (!k) return d;
     return {
       lyrics: typeof k.lyrics === "string" ? k.lyrics : d.lyrics,
-      lang: k.lang === "tr" ? "tr" : d.lang,
+      lang: k.lang === "tr" || k.lang === "pl" ? k.lang : d.lang,
       tune: TUNES.some((t) => t.id === k.tune) ? (k.tune as string) : d.tune,
       tempo: typeof k.tempo === "number" && k.tempo >= 0.5 && k.tempo <= 1.5 ? k.tempo : d.tempo,
       key: typeof k.key === "number" && Math.abs(k.key) <= 12 ? Math.round(k.key) : d.key,
@@ -412,7 +416,7 @@ export async function playTune(id: string, body: BodyMix, ready?: () => Promise<
   stopSinging();
   const token = demoToken;
   await ready?.();
-  // Turkish reads by rule: no English dictionary to wait for
+  // Turkish and Polish read by rule: no English dictionary to wait for
   if (useSing.getState().lang === "en")
     try {
       await g2p.load();
