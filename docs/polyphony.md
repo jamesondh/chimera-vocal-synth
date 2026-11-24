@@ -48,3 +48,4 @@ The airway has 76 nodes and 75 branches and steps 96,000 times a second: 1.3 µs
 
 | # | Hypothesis and change | Before | After | Kept |
 |---|---|---|---|---|
+| 1 | The node ramps are bound by their 2 divisions and a root, one node at a time, because the loop also holds the rare squeeze of a closing node's air into its neighbours. Split: a plain loop for the arithmetic (the compiler does two nodes at a time), then the squeeze in node order, only on a sample that has one, with each neighbour's area from before or after its ramp as the old loop saw it. | 92.6% | 80.8% | yes |

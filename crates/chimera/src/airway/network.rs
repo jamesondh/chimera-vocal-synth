@@ -248,6 +248,10 @@ pub struct AirwayNetwork {
     nbr_start: Vec<usize>,
     nbr_list: Vec<usize>,
     spill: Vec<f64>,
+    /// each node's raw −dV/dt this sample, and its area and minimum area before this sample's ramp
+    raw_src: Vec<f64>,
+    area_was: Vec<f64>,
+    amin_was: Vec<f64>,
     /// band-limited moving-wall volume source (2-pole low-pass state per node)
     vol_src1: Vec<f64>,
     vol_src2: Vec<f64>,
@@ -368,6 +372,9 @@ impl AirwayNetwork {
             nbr_start: Vec::new(),
             nbr_list: Vec::new(),
             spill: Vec::new(),
+            raw_src: Vec::new(),
+            area_was: Vec::new(),
+            amin_was: Vec::new(),
             vol_src1: Vec::new(),
             vol_src2: Vec::new(),
             vol_lp_coef: 0.0,
@@ -589,6 +596,9 @@ impl AirwayNetwork {
             fill_n[bb] += 1;
         }
         self.spill = zf(n);
+        self.raw_src = zf(n);
+        self.area_was = zf(n);
+        self.amin_was = zf(n);
         self.vol_src1 = zf(n);
         self.vol_src2 = zf(n);
         self.vol_lp_coef = 1.0 - exp((-2.0 * PI * self.volume_source_hz) / self.fs);
@@ -839,69 +849,97 @@ impl AirwayNetwork {
         //    the split keeps mass conserved.
         let sq = self.squeeze_area;
         let vol_on = self.enable_volume_source;
-        if vol_on {
-            self.spill.fill(0.0);
-        }
+        // The ramps and what follows from each node's own area, as one plain loop over the arrays:
+        // it has two divisions and a root a node and nothing that depends on another node, so the
+        // compiler can do two nodes at a time. The same operations in the same order as ever, so
+        // every value is the same to the bit.
+        let mut squeezed = false;
         {
-            let area = &mut self.area;
-            let amin = &mut self.amin;
-            let dx = &mut self.dx;
-            let inj = &mut self.spill; // the per-node raw injection accumulator
+            let (area, amin, dx) = (&mut self.area[..n], &mut self.amin[..n], &mut self.dx[..n]);
+            let (area_step, amin_step, dx_step) = (&self.area_step[..n], &self.amin_step[..n], &self.dx_step[..n]);
+            let (area_was, amin_was) = (&mut self.area_was[..n], &mut self.amin_was[..n]);
+            let (inv_a, inv_amin, sqrt_a) = (&mut self.inv_a[..n], &mut self.inv_amin[..n], &mut self.sqrt_a[..n]);
+            let (half_l, half_r) = (&mut self.half_l[..n], &mut self.half_r[..n]);
+            let (wall_perim, visc_f) = (&self.wall_perim[..n], &self.visc_f[..n]);
+            let (vol, raw_src, inj) = (&mut self.vol[..n], &mut self.raw_src[..n], &mut self.spill[..n]);
+            let (inv_lsum, flow_sum, ext_flow) = (&mut self.inv_lsum[..n], &mut self.flow_sum[..n], &mut self.ext_flow[..n]);
             for k in 0..n {
-                let mut a = area[k] + self.area_step[k];
+                area_was[k] = area[k];
+                amin_was[k] = amin[k];
+                let mut a = area[k] + area_step[k];
                 if a < 0.0 {
                     a = 0.0;
                 }
                 area[k] = a;
-                let mut am = amin[k] + self.amin_step[k];
+                let mut am = amin[k] + amin_step[k];
                 if am < 0.0 {
                     am = 0.0;
                 }
                 let amk = if am > a { a } else { am };
                 amin[k] = amk;
-                dx[k] += self.dx_step[k];
-                let d = dx[k];
+                let d = dx[k] + dx_step[k];
+                dx[k] = d;
                 let ia = 1.0 / (if a > 1e-6 { a } else { 1e-6 });
-                self.inv_a[k] = ia;
-                self.inv_amin[k] = 1.0 / (if amk > 1e-6 { amk } else { 1e-6 });
+                inv_a[k] = ia;
+                inv_amin[k] = 1.0 / (if amk > 1e-6 { amk } else { 1e-6 });
                 let sa = sqrt(a);
-                self.sqrt_a[k] = sa;
-                self.half_l[k] = d * ia;
-                self.half_r[k] = self.wall_perim[k] * d * sa * ia * ia * self.visc_f[k];
+                sqrt_a[k] = sa;
+                half_l[k] = d * ia;
+                half_r[k] = wall_perim[k] * d * sa * ia * ia * visc_f[k];
                 let v = (if a > min_a { a } else { min_a }) * d;
-                if vol_on {
-                    let raw = -(v - self.vol[k]) * inv_t;
-                    let ae = if amin[k] < a { amin[k] } else { a }; // a node sealed at its minimum cannot hold air either
-                    if raw != 0.0 && ae < sq {
-                        let tt = ae / sq;
-                        let keep = tt * tt * (3.0 - 2.0 * tt);
-                        inj[k] += raw * keep;
-                        let sp = raw * (1.0 - keep);
-                        let (s0, s1) = (self.nbr_start[k], self.nbr_start[k + 1]);
-                        let mut n_open = 0usize;
+                let raw = -(v - vol[k]) * inv_t;
+                raw_src[k] = raw;
+                // a node sealed at its minimum cannot hold air either
+                let ae = if amk < a { amk } else { a };
+                squeezed |= (raw != 0.0) & (ae < sq);
+                // the whole of it stays in the node, unless some node is squeezed (below)
+                inj[k] = 0.0 + raw;
+                vol[k] = v;
+                inv_lsum[k] = 0.0;
+                flow_sum[k] = ext_flow[k];
+                ext_flow[k] = 0.0;
+            }
+        }
+        // A nearly closed node is moving: its air goes to its open neighbours. The sums are taken
+        // in node order with each neighbour's area as it was when that order reached this node
+        // (ramped already below it, not yet above it), as when this was one loop.
+        if vol_on && squeezed {
+            let (area, amin) = (&self.area[..n], &self.amin[..n]);
+            let (area_was, amin_was) = (&self.area_was[..n], &self.amin_was[..n]);
+            let inj = &mut self.spill[..n];
+            inj.fill(0.0);
+            for k in 0..n {
+                let raw = self.raw_src[k];
+                let a = area[k];
+                let ae = if amin[k] < a { amin[k] } else { a };
+                if raw != 0.0 && ae < sq {
+                    let tt = ae / sq;
+                    let keep = tt * tt * (3.0 - 2.0 * tt);
+                    inj[k] += raw * keep;
+                    let sp = raw * (1.0 - keep);
+                    let (s0, s1) = (self.nbr_start[k], self.nbr_start[k + 1]);
+                    let open = |m: usize| {
+                        let (am, mm) = if m > k { (area_was[m], amin_was[m]) } else { (area[m], amin[m]) };
+                        js_min(am, mm) >= sq || self.amin_target[m] >= sq
+                    };
+                    let mut n_open = 0usize;
+                    for e in s0..s1 {
+                        if open(self.nbr_list[e]) {
+                            n_open += 1;
+                        }
+                    }
+                    if n_open > 0 {
+                        let share = sp / n_open as f64;
                         for e in s0..s1 {
                             let m = self.nbr_list[e];
-                            if js_min(area[m], amin[m]) >= sq || self.amin_target[m] >= sq {
-                                n_open += 1;
+                            if open(m) {
+                                inj[m] += share;
                             }
                         }
-                        if n_open > 0 {
-                            let share = sp / n_open as f64;
-                            for e in s0..s1 {
-                                let m = self.nbr_list[e];
-                                if js_min(area[m], amin[m]) >= sq || self.amin_target[m] >= sq {
-                                    inj[m] += share;
-                                }
-                            }
-                        } // else: fully sealed pocket, the squeezed air leaves laterally (absorbed)
-                    } else {
-                        inj[k] += raw;
-                    }
+                    } // else: fully sealed pocket, the squeezed air leaves laterally (absorbed)
+                } else {
+                    inj[k] += raw;
                 }
-                self.vol[k] = v;
-                self.inv_lsum[k] = 0.0;
-                self.flow_sum[k] = self.ext_flow[k];
-                self.ext_flow[k] = 0.0;
             }
         }
         if vol_on {
