@@ -290,6 +290,14 @@ pub struct AirwayNetwork {
     has_wall: Vec<bool>,
     /// the runs of consecutive nodes that have a wall: first node, one past the last
     wall_runs: Vec<(usize, usize)>,
+    /// the runs of consecutive nodes whose pressure isn't fixed
+    free_runs: Vec<(usize, usize)>,
+    /// the nodes with three or more branches, and the nodes that radiate, each in node order
+    junctions: Vec<usize>,
+    rad_sorted: Vec<usize>,
+    /// each node's compliance and pressure step this sample
+    cap: Vec<f64>,
+    dp: Vec<f64>,
     pub wall_y: Vec<f64>,
     wall_v: Vec<f64>,
     /// per-node wall volume velocity (telemetry)
@@ -404,6 +412,11 @@ impl AirwayNetwork {
             wall_rad: Vec::new(),
             has_wall: Vec::new(),
             wall_runs: Vec::new(),
+            free_runs: Vec::new(),
+            junctions: Vec::new(),
+            rad_sorted: Vec::new(),
+            cap: Vec::new(),
+            dp: Vec::new(),
             wall_y: Vec::new(),
             wall_v: Vec::new(),
             wall_u: Vec::new(),
@@ -641,14 +654,23 @@ impl AirwayNetwork {
             self.inv_a[k] = 1.0 / js_max(self.area[k], 1e-6);
         }
         self.wall_runs.clear();
+        self.free_runs.clear();
+        let grow = |runs: &mut Vec<(usize, usize)>, k: usize| match runs.last_mut() {
+            Some(run) if run.1 == k => run.1 = k + 1,
+            _ => runs.push((k, k + 1)),
+        };
         for k in 0..n {
             if self.has_wall[k] {
-                match self.wall_runs.last_mut() {
-                    Some(run) if run.1 == k => run.1 = k + 1,
-                    _ => self.wall_runs.push((k, k + 1)),
-                }
+                grow(&mut self.wall_runs, k);
+            }
+            if !self.fixed[k] {
+                grow(&mut self.free_runs, k);
             }
         }
+        self.junctions = (0..n).filter(|k| self.is_junction[*k]).collect();
+        self.rad_sorted = (0..n).filter(|k| self.rad_of[*k] >= 0 && !self.fixed[*k]).collect();
+        self.cap = zf(n);
+        self.dp = zf(n);
         self.check_cfl();
     }
 
@@ -1138,84 +1160,128 @@ impl AirwayNetwork {
         let t2 = t * t;
         let mut rad_total = wall_rad_sum;
         let cl = self.closed_area;
-        for k in 0..n {
-            if self.fixed[k] {
-                continue;
+        {
+            // each node's compliance and the pressure step it gives, as plain loops: two divisions
+            // a node. A junction's stability floor is put in between (local breathing mode
+            // ω² ≈ ΣL⁻¹/C must satisfy T²ω² ≤ 2.4).
+            let (vol, cap) = (&self.vol[..n], &mut self.cap[..n]);
+            for k in 0..n {
+                cap[k] = vol[k] / RHO_C2;
             }
-            // sealed if the cell itself, or its narrowest point, is closed (then all its series
-            // branches are closed too, and compressing its remaining volume would trap pressure)
-            if self.area[k] < cl || self.amin[k] < cl {
-                let rr = self.rad_of[k];
-                if rr >= 0 {
-                    // sealed aperture: its outer face is the atmosphere, so it relaxes to 0 (tracking the
-                    // pressurised cavity behind would discharge as a radiated spike on reopening)
-                    self.p[k] *= 0.98;
-                } else {
-                    // sealed interior cell (tissue contact): no air of its own; follow open neighbours
-                    let mut sum = 0.0;
-                    let mut cnt = 0usize;
-                    for e in self.nbr_start[k]..self.nbr_start[k + 1] {
-                        let m = self.nbr_list[e];
-                        if self.area[m] >= cl && self.amin[m] >= cl {
-                            sum += self.p[m];
-                            cnt += 1;
+            if self.enable_junction_floor {
+                for i in 0..self.junctions.len() {
+                    let k = self.junctions[i];
+                    let c_min = (t2 * self.inv_lsum[k]) / 2.4;
+                    if self.cap[k] < c_min {
+                        self.cap[k] = c_min;
+                    }
+                }
+            }
+            let (cap, flow_sum, dp) = (&self.cap[..n], &self.flow_sum[..n], &mut self.dp[..n]);
+            for k in 0..n {
+                dp[k] = (t / cap[k]) * flow_sum[k];
+            }
+        }
+        // sealed if the cell itself, or its narrowest point, is closed (then all its series
+        // branches are closed too, and compressing its remaining volume would trap pressure)
+        let mut sealed = false;
+        for i in 0..self.free_runs.len() {
+            let (k0, k1) = self.free_runs[i];
+            let (area, amin) = (&self.area[k0..k1], &self.amin[k0..k1]);
+            for k in 0..k1 - k0 {
+                sealed |= (area[k] < cl) | (amin[k] < cl);
+            }
+        }
+        if !sealed {
+            // the usual sample: no node depends on another, and only the radiators' sum has an order
+            for i in 0..self.free_runs.len() {
+                let (k0, k1) = self.free_runs[i];
+                let (p, dp) = (&mut self.p[k0..k1], &self.dp[k0..k1]);
+                let rad_of = &self.rad_of[k0..k1];
+                for k in 0..k1 - k0 {
+                    p[k] = if rad_of[k] < 0 { p[k] + dp[k] } else { p[k] };
+                }
+            }
+            for r in 0..self.rad_sorted.len() {
+                let k = self.rad_sorted[r];
+                rad_total += self.radiate(k, self.rad_of[k] as usize, self.cap[k]);
+            }
+        } else {
+            for k in 0..n {
+                if self.fixed[k] {
+                    continue;
+                }
+                if self.area[k] < cl || self.amin[k] < cl {
+                    let rr = self.rad_of[k];
+                    if rr >= 0 {
+                        // sealed aperture: its outer face is the atmosphere, so it relaxes to 0 (tracking the
+                        // pressurised cavity behind would discharge as a radiated spike on reopening)
+                        self.p[k] *= 0.98;
+                    } else {
+                        // sealed interior cell (tissue contact): no air of its own; follow open neighbours
+                        let mut sum = 0.0;
+                        let mut cnt = 0usize;
+                        for e in self.nbr_start[k]..self.nbr_start[k + 1] {
+                            let m = self.nbr_list[e];
+                            if self.area[m] >= cl && self.amin[m] >= cl {
+                                sum += self.p[m];
+                                cnt += 1;
+                            }
+                        }
+                        if cnt > 0 {
+                            self.p[k] += 0.02 * (sum / cnt as f64 - self.p[k]);
                         }
                     }
-                    if cnt > 0 {
-                        self.p[k] += 0.02 * (sum / cnt as f64 - self.p[k]);
+                    if rr >= 0 {
+                        let rr = rr as usize;
+                        // sealed aperture: let the radiated flow die away smoothly (no derivative step)
+                        self.rad_ul[rr] *= 0.995;
+                        self.rad_u[rr] = self.rad_ul[rr];
+                        rad_total += self.rad_ul[rr];
                     }
+                    continue;
                 }
-                if rr >= 0 {
-                    let rr = rr as usize;
-                    // sealed aperture: let the radiated flow die away smoothly (no derivative step)
-                    self.rad_ul[rr] *= 0.995;
-                    self.rad_u[rr] = self.rad_ul[rr];
-                    rad_total += self.rad_ul[rr];
+                let r = self.rad_of[k];
+                if r < 0 {
+                    self.p[k] += self.dp[k];
+                } else {
+                    rad_total += self.radiate(k, r as usize, self.cap[k]);
                 }
-                continue;
-            }
-            let mut c = self.vol[k] / RHO_C2;
-            // junction stability: local breathing mode ω² ≈ ΣL⁻¹/C must satisfy T²ω² ≤ 2.4
-            if self.is_junction[k] && self.enable_junction_floor {
-                let c_min = (t2 * self.inv_lsum[k]) / 2.4;
-                if c < c_min {
-                    c = c_min;
-                }
-            }
-            let r = self.rad_of[k];
-            if r < 0 {
-                self.p[k] += (t / c) * self.flow_sum[k];
-            } else {
-                let r = r as usize;
-                let a = if self.area[k] > 1e-4 { self.area[k] } else { 1e-4 };
-                let lr = (8.0 * RHO) / (3.0 * PI * sqrt(PI * a));
-                let rr = (128.0 * RHO * C_SOUND) / (9.0 * PI * PI * a);
-                let p_old = self.p[k];
-                // energy-safe: when the radiation inertance grows (aperture closing) conserve momentum
-                let lp = self.rad_l_prev[r];
-                let mut ul_prev = self.rad_ul[r];
-                if lp > 0.0 && lr > lp {
-                    ul_prev *= lp / lr;
-                }
-                self.rad_l_prev[r] = lr;
-                // Crank–Nicolson coupling of the node and its parallel R–L load (A-stable, energy-
-                // conserving for the reactive part): Lr ∝ A^-½ against C ∝ A makes the explicit form
-                // unstable at small apertures. U_L lives at integer steps; the node sees its mean.
-                let h = t / (2.0 * lr);
-                let g = 0.5 / rr;
-                let p_new = (p_old * (c * inv_t - 0.5 * h - g) + self.flow_sum[k] - ul_prev) / (c * inv_t + 0.5 * h + g);
-                self.p[k] = p_new;
-                let ul = ul_prev + h * (p_old + p_new);
-                self.rad_ul[r] = ul;
-                let ur = 0.5 * (ul_prev + ul) + g * (p_new + p_old);
-                self.rad_u[r] = ur;
-                rad_total += ur;
             }
         }
         let out = (rad_total - self.rad_prev_total) * inv_t;
         self.rad_prev_total = rad_total;
         self.out = out;
         out
+    }
+
+    /// Step node `k` of compliance `c` with its radiation load `r`. Returns the radiated flow.
+    #[inline(always)]
+    fn radiate(&mut self, k: usize, r: usize, c: f64) -> f64 {
+        let (t, inv_t) = (self.t, self.inv_t);
+        let a = if self.area[k] > 1e-4 { self.area[k] } else { 1e-4 };
+        let lr = (8.0 * RHO) / (3.0 * PI * sqrt(PI * a));
+        let rr = (128.0 * RHO * C_SOUND) / (9.0 * PI * PI * a);
+        let p_old = self.p[k];
+        // energy-safe: when the radiation inertance grows (aperture closing) conserve momentum
+        let lp = self.rad_l_prev[r];
+        let mut ul_prev = self.rad_ul[r];
+        if lp > 0.0 && lr > lp {
+            ul_prev *= lp / lr;
+        }
+        self.rad_l_prev[r] = lr;
+        // Crank–Nicolson coupling of the node and its parallel R–L load (A-stable, energy-
+        // conserving for the reactive part): Lr ∝ A^-½ against C ∝ A makes the explicit form
+        // unstable at small apertures. U_L lives at integer steps; the node sees its mean.
+        let h = t / (2.0 * lr);
+        let g = 0.5 / rr;
+        let p_new = (p_old * (c * inv_t - 0.5 * h - g) + self.flow_sum[k] - ul_prev) / (c * inv_t + 0.5 * h + g);
+        self.p[k] = p_new;
+        let ul = ul_prev + h * (p_old + p_new);
+        self.rad_ul[r] = ul;
+        let ur = 0.5 * (ul_prev + ul) + g * (p_new + p_old);
+        self.rad_u[r] = ur;
+        ur
     }
 
     fn compute_noise(&mut self) {

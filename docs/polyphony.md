@@ -51,3 +51,26 @@ The airway has 76 nodes and 75 branches and steps 96,000 times a second: 1.3 µs
 | 1 | The node ramps are bound by their 2 divisions and a root, one node at a time, because the loop also holds the rare squeeze of a closing node's air into its neighbours. Split: a plain loop for the arithmetic (the compiler does two nodes at a time), then the squeeze in node order, only on a sample that has one, with each neighbour's area from before or after its ramp as the old loop saw it. | 92.6% | 80.8% | yes |
 | 2 | The wall-movement source's low-pass is three multiply-adds a node, but it indexed four `Vec`s through `self`, so each access was checked and the loop ran one node at a time. The same statements on slices cut once. | 80.8% | 75.5% | yes |
 | 3 | The wall loop has a division a node behind a "has this node a wall" test, and a sum that must stay in node order. A plain loop for each run of wall nodes (found once, when the network is built), then the sum by itself. | 75.5% | 66.0% | yes |
+| 4 | The node pressures are 2 divisions a node, one node at a time, because the loop also holds the junction floor, the sealed cells (which read their neighbours) and the radiating nodes (whose sum has an order). Split: a plain loop for each node's compliance, the floor for the junctions only (a list made once), a plain loop for the pressure step; then, on a sample with no sealed cell (nearly all of them), a plain loop that adds the step and the radiating nodes in node order. A sample with a sealed cell takes the old loop, node by node. | 66.0% | 59.1% | yes |
+
+## Result
+
+Commit of attempt 4: **59.1%** for 6 voices (four runs: 58.9% to 59.2%), 9.9% a voice, from 92.6%.
+The one-voice line went from 15.3% to 9.9%. The hash is the same and the golden tests pass with no
+re-bless (392 Rust tests). The target is met, so the loop stops here.
+
+## What was not done
+
+Each of these is a proposal, not work in progress. None was measured.
+
+- **The branch loop** (14% of the start profile, about a fifth of what is left). Its flow solve has a
+  root and a division a branch behind a sign test. The same split as attempts 1 to 4 fits, and the
+  result stays bit-exact: the arithmetic in a plain loop, then the sums into the nodes in branch order.
+- **The tract geometry** (20% of the start profile, about a third of what is left). It runs each
+  control step (64 samples) for each voice. Voices with one mouth pose, as the notes of a chord
+  would have, could share one geometry. That is exact only while their bodies are the same and
+  their breath does not move the geometry; this needs a check before any work.
+- **Voices side by side in one SIMD loop.** The plain loops already use both lanes of a NEON
+  register for one voice, so two voices in the same register give nothing more on this machine.
+- **Memory layout.** One voice's airway state is about 76 nodes of a dozen `f64` arrays, near 10 kB:
+  it fits the L1 cache. No miss showed in the profile, so no gain is expected.
