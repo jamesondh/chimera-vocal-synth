@@ -288,6 +288,8 @@ pub struct AirwayNetwork {
     wall_perim: Vec<f64>,
     wall_rad: Vec<f64>,
     has_wall: Vec<bool>,
+    /// the runs of consecutive nodes that have a wall: first node, one past the last
+    wall_runs: Vec<(usize, usize)>,
     pub wall_y: Vec<f64>,
     wall_v: Vec<f64>,
     /// per-node wall volume velocity (telemetry)
@@ -401,6 +403,7 @@ impl AirwayNetwork {
             wall_perim: Vec::new(),
             wall_rad: Vec::new(),
             has_wall: Vec::new(),
+            wall_runs: Vec::new(),
             wall_y: Vec::new(),
             wall_v: Vec::new(),
             wall_u: Vec::new(),
@@ -636,6 +639,15 @@ impl AirwayNetwork {
             let a = js_max(self.area[k], self.min_node_area);
             self.vol[k] = a * self.dx[k];
             self.inv_a[k] = 1.0 / js_max(self.area[k], 1e-6);
+        }
+        self.wall_runs.clear();
+        for k in 0..n {
+            if self.has_wall[k] {
+                match self.wall_runs.last_mut() {
+                    Some(run) if run.1 == k => run.1 = k + 1,
+                    _ => self.wall_runs.push((k, k + 1)),
+                }
+            }
         }
         self.check_cfl();
     }
@@ -944,11 +956,14 @@ impl AirwayNetwork {
         }
         if vol_on {
             let c = self.vol_lp_coef;
+            let (src1, src2) = (&mut self.vol_src1[..n], &mut self.vol_src2[..n]);
+            let (inj, flow_sum) = (&self.spill[..n], &mut self.flow_sum[..n]);
             for k in 0..n {
-                self.vol_src1[k] += c * (self.spill[k] - self.vol_src1[k]);
-                let s1 = self.vol_src1[k];
-                self.vol_src2[k] += c * (s1 - self.vol_src2[k]);
-                self.flow_sum[k] += self.vol_src2[k];
+                let s1 = src1[k] + c * (inj[k] - src1[k]);
+                src1[k] = s1;
+                let s2 = src2[k] + c * (s1 - src2[k]);
+                src2[k] = s2;
+                flow_sum[k] += s2;
             }
         }
 
@@ -1090,20 +1105,33 @@ impl AirwayNetwork {
 
         // 4) walls (velocity at half step from p(n), displacement integrates)
         let mut wall_rad_sum = 0.0;
-        for k in 0..n {
-            if !self.has_wall[k] {
-                continue;
+        {
+            // each run of nodes with a wall as a plain loop (a division a node), then what the
+            // walls radiate, summed in node order as before
+            let sqrt_min = sqrt(min_a);
+            for i in 0..self.wall_runs.len() {
+                let (k0, k1) = self.wall_runs[i];
+                let (wall_m, wall_r, wall_k, wall_perim) = (&self.wall_m[k0..k1], &self.wall_r[k0..k1], &self.wall_k[k0..k1], &self.wall_perim[k0..k1]);
+                let (wall_v, wall_y, wall_u) = (&mut self.wall_v[k0..k1], &mut self.wall_y[k0..k1], &mut self.wall_u[k0..k1]);
+                let (p, area, sqrt_a, dx) = (&self.p[k0..k1], &self.area[k0..k1], &self.sqrt_a[k0..k1], &self.dx[k0..k1]);
+                let flow_sum = &mut self.flow_sum[k0..k1];
+                for k in 0..k1 - k0 {
+                    let m = wall_m[k];
+                    let r = wall_r[k];
+                    let v = ((m * inv_t - 0.5 * r) * wall_v[k] + p[k] - wall_k[k] * wall_y[k]) / (m * inv_t + 0.5 * r);
+                    wall_v[k] = v;
+                    wall_y[k] += t * v;
+                    let sa = if area[k] > min_a { sqrt_a[k] } else { sqrt_min };
+                    let uw = wall_perim[k] * sa * dx[k] * v;
+                    wall_u[k] = uw;
+                    flow_sum[k] -= uw;
+                }
             }
-            let m = self.wall_m[k];
-            let r = self.wall_r[k];
-            let v = ((m * inv_t - 0.5 * r) * self.wall_v[k] + self.p[k] - self.wall_k[k] * self.wall_y[k]) / (m * inv_t + 0.5 * r);
-            self.wall_v[k] = v;
-            self.wall_y[k] += t * v;
-            let sa = if self.area[k] > min_a { self.sqrt_a[k] } else { sqrt(min_a) };
-            let uw = self.wall_perim[k] * sa * self.dx[k] * v;
-            self.wall_u[k] = uw;
-            self.flow_sum[k] -= uw;
-            wall_rad_sum += uw * self.wall_rad[k];
+            for k in 0..n {
+                if self.has_wall[k] {
+                    wall_rad_sum += self.wall_u[k] * self.wall_rad[k];
+                }
+            }
         }
 
         // 5) nodes (radiation loads handled semi-implicitly)

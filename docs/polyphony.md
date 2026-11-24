@@ -49,3 +49,5 @@ The airway has 76 nodes and 75 branches and steps 96,000 times a second: 1.3 µs
 | # | Hypothesis and change | Before | After | Kept |
 |---|---|---|---|---|
 | 1 | The node ramps are bound by their 2 divisions and a root, one node at a time, because the loop also holds the rare squeeze of a closing node's air into its neighbours. Split: a plain loop for the arithmetic (the compiler does two nodes at a time), then the squeeze in node order, only on a sample that has one, with each neighbour's area from before or after its ramp as the old loop saw it. | 92.6% | 80.8% | yes |
+| 2 | The wall-movement source's low-pass is three multiply-adds a node, but it indexed four `Vec`s through `self`, so each access was checked and the loop ran one node at a time. The same statements on slices cut once. | 80.8% | 75.5% | yes |
+| 3 | The wall loop has a division a node behind a "has this node a wall" test, and a sum that must stay in node order. A plain loop for each run of wall nodes (found once, when the network is built), then the sum by itself. | 75.5% | 66.0% | yes |
