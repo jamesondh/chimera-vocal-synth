@@ -168,8 +168,9 @@ fn core_event(ev: &NoteEvent<()>) -> Option<Event> {
     Some(match *ev {
         NoteEvent::NoteOn { note, velocity, channel, .. } => Event::NoteOn { midi: note, velocity: (velocity * 127.0) as f64, channel },
         NoteEvent::NoteOff { note, .. } => Event::NoteOff { midi: note },
-        NoteEvent::Choke { note, .. } => Event::Choke { midi: note },
-        NoteEvent::MidiCC { cc: 120 | 123, .. } => Event::AllOff,
+        // a choke with no key of its own (CLAP's -1, which arrives as 255) stops every note
+        NoteEvent::Choke { note, .. } if note < 128 => Event::Choke { midi: note },
+        NoteEvent::Choke { .. } | NoteEvent::MidiCC { cc: 120 | 123, .. } => Event::AllOff,
         NoteEvent::MidiPitchBend { channel, value, .. } => Event::Bend { channel, value },
         NoteEvent::MidiChannelPressure { channel, pressure, .. } => Event::Pressure { channel, value: pressure },
         NoteEvent::PolyPressure { note, pressure, .. } => Event::KeyPressure { midi: note, value: pressure },
@@ -297,3 +298,19 @@ impl ClapPlugin for Chimera {
 nih_export_clap!(Chimera);
 clap_wrapper::export_vst3!();
 clap_wrapper::export_auv2!();
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A choke names one key, or none: CLAP's "every key" (-1) reaches nih-plug's `u8` as 255.
+    /// Masked to a key it would lift key 127 and leave the chord sounding.
+    #[test]
+    fn a_choke_with_no_key_stops_everything() {
+        let choke = |note| core_event(&NoteEvent::Choke { timing: 0, voice_id: None, channel: 0, note });
+        assert_eq!(choke(60), Some(Event::Choke { midi: 60 }));
+        assert_eq!(choke(127), Some(Event::Choke { midi: 127 }));
+        assert_eq!(choke(255), Some(Event::AllOff));
+    }
+}

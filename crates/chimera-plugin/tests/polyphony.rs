@@ -2,8 +2,9 @@
 use chimera::phonetics::beatbox::beat_ready;
 use chimera::phonetics::syllables::lyrics_to_syllables;
 use chimera::voice::human_voice::{HumanVoice, SourcePatch};
-use chimera_plugin::core::{Core, Event, MAX_VOICES, Mode, Prepared, Settings, Shared, Transport, UiNote, VoiceParams};
+use chimera_plugin::core::{Core, Event, MAX_VOICES, Mode, NOT_SPEAKING, Prepared, Settings, Shared, Transport, UiNote, VoiceParams};
 use chimera_plugin::g2p;
+use chimera_plugin::speech::SpeechSettings;
 
 const FS: f64 = 44100.0;
 
@@ -310,8 +311,17 @@ fn the_editor_hears_each_voices_note_and_its_presses() {
     let mut c = playing(3, &shared);
     let notes = |shared: &Shared| shared.voices.iter().map(|v| v.note.load(Relaxed)).collect::<Vec<_>>();
     let serials = |shared: &Shared| shared.voices.iter().map(|v| v.serial.load(Relaxed)).collect::<Vec<_>>();
-    // before the first block no voice sounds a note: not key 0, eight times over
-    assert!(notes(&shared).iter().all(|n| *n == -1) && shared.voices.iter().all(|v| v.sung.load(Relaxed) == -1));
+    // before the first block no voice sounds a note (not key 0, eight times over): on a `Shared`
+    // nothing has touched, and again after a restart
+    let silent = |shared: &Shared| notes(shared).iter().all(|n| *n == -1) && shared.voices.iter().all(|v| v.sung.load(Relaxed) == -1);
+    assert!(silent(&Shared::default()));
+    for v in &shared.voices {
+        v.note.store(60, Relaxed);
+        v.sung.store(2, Relaxed);
+    }
+    shared.note.store(60, Relaxed);
+    shared.restart(FS);
+    assert!(silent(&shared) && shared.note.load(Relaxed) == -1, "a restart leaves no note from before");
     run(&mut c, &shared, &p, &[(0, on(57, 1)), (0, on(61, 2)), (0, on(64, 3))], GLIDED, 256);
     assert_eq!(notes(&shared)[..4], [57, 61, 64, -1]);
     assert_eq!(shared.shown_voice.load(Relaxed), c.shown() as i32);
@@ -393,6 +403,14 @@ fn a_key_of_a_voice_taken_away_is_up_for_both_owners() {
     // and the host's late note-off doesn't lift the page's note
     run(&mut c, &shared, &voices(1), &[(0, off(64))], GLIDED, 256);
     assert_eq!(chord(&c)[0], hz(64));
+    // the other way round: the page's key on a voice that goes, then the host's finger
+    let mut c = playing(2, &shared);
+    run(&mut c, &shared, &voices(2), &[(0, on(57, 1))], GLIDED, 256);
+    shared.ui_note(UiNote { midi: 64, velocity: 96.0, on: true });
+    run(&mut c, &shared, &voices(2), &[], GLIDED, 256);
+    assert_eq!(chord(&c)[..2], [hz(57), hz(64)]);
+    run(&mut c, &shared, &voices(1), &[(100, on(64, 2))], GLIDED, 256);
+    assert_eq!(chord(&c)[0], hz(64), "the host's finger plays the pitch the page's lost key is on");
 }
 
 #[test]
@@ -405,6 +423,15 @@ fn a_choke_stops_one_note_of_a_chord_and_everything_on_one_voice() {
     let mut c = playing(1, &shared);
     run(&mut c, &shared, &voices(1), &[(0, on(57, 1)), (100, on(61, 1)), (4000, Event::Choke { midi: 61 })], GLIDED, 256);
     assert_eq!(chord(&c)[0], 0.0);
+    // Speak has one voice whatever Voices says, and a line doesn't end with its key: a choke
+    // must still stop it
+    let spoken = |shared: &Shared| shared.spoken_line.load(std::sync::atomic::Ordering::Relaxed);
+    let settings = Settings { mode: Mode::Speak, speech: SpeechSettings { text: "A line long enough to still be said when the choke comes.".into(), ..Default::default() }, ..Default::default() };
+    let mut c = core_with(&settings, &shared, &voices(3));
+    run(&mut c, &shared, &voices(3), &[(0, on(60, 1))], GLIDED, 256);
+    assert_eq!(spoken(&shared), 0);
+    run(&mut c, &shared, &voices(3), &[(0, Event::Choke { midi: 60 })], GLIDED, 256);
+    assert_eq!(spoken(&shared), NOT_SPEAKING);
 }
 
 #[test]
@@ -416,6 +443,10 @@ fn the_pitch_dial_leaves_a_chords_keys_their_pitches() {
     run(&mut c, &shared, &voices(3), &[], GLIDED, 256);
     assert_eq!(chord(&c)[..2], [hz(57), hz(61)], "the keys keep their pitches");
     assert_eq!(body(&c, 2).source.f0, 330.0, "a voice with no key takes the dial's");
+    // the dial's pitch is the voice's again when its key lifts: Hold breathes there, not on the key's
+    shared.edit(|p| p.hold = Some(true));
+    run(&mut c, &shared, &voices(3), &[(0, off(57))], GLIDED, 256);
+    assert_eq!(chord(&c)[..2], [330.0, hz(61)]);
     // one voice: the dial moves the held note, as before polyphony
     let mut c = playing(1, &shared);
     run(&mut c, &shared, &voices(1), &[(0, on(57, 1))], GLIDED, 256);
@@ -481,6 +512,48 @@ fn a_melisma_moves_the_vowel_of_the_note_before_it() {
             assert_eq!(note(2), None, "the free voice stays free");
         }
     }
+    // the melisma's key is one still down on the other voice (a host that sends a note-on twice):
+    // it leaves that voice, so the right vowel moves and no key is left on a voice that lost it
+    let shared = Shared::default();
+    let p = voices(2);
+    let mut c = core_with(&settings, &shared, &p);
+    run(&mut c, &shared, &p, &[(0, on(57, 1)), (ms(200), on(61, 2)), (ms(400), on(57, 1))], ms(600), 256);
+    assert_eq!((c.voice(0).1.any_key_down(), c.voice(1).1.sounding_note()), (false, Some(57)));
+    run(&mut c, &shared, &p, &[(0, off(57))], ms(100), 256);
+    assert_eq!(c.voice(1).1.sounding_note(), Some(61), "and back to its own key");
+}
+
+/// A melisma next in the lyrics holds back the coda of the voice it will continue, and of no
+/// other: "hat" under a held "see" ends with its t, as it does with no melisma to come.
+#[test]
+fn a_melisma_to_come_holds_back_only_the_coda_of_its_own_voice() {
+    let ms = |t: usize| t * FS as usize / 1000;
+    let sing = |lyrics: &str| {
+        let shared = Shared::default();
+        let p = voices(2);
+        let mut c = core_with(&Settings { lyrics: lyrics.into(), ..Default::default() }, &shared, &p);
+        fingerprint(&run(&mut c, &shared, &p, &[(0, on(57, 1)), (ms(300), on(61, 2)), (ms(600), off(57))], ms(1200), 256))
+    };
+    assert_eq!(sing("hat see - you"), sing("hat see you you"));
+}
+
+/// The voices taken away leave the glide's timer when their release ends. A step of theirs still
+/// to come then held back the first step of the voice that plays, by up to 64 samples.
+#[test]
+fn a_voice_taken_away_does_not_hold_back_the_others_glide_once_it_is_gone() {
+    let pressure = |channel, value| Event::Pressure { channel, value };
+    let tail = FS as usize;
+    let play = |late: &[(usize, Event)]| {
+        let shared = Shared::default();
+        let mut c = playing(2, &shared);
+        // the second voice never sang: it follows the master channel, and makes no sound
+        let mut out = run(&mut c, &shared, &voices(2), &[(0, on(57, 1))], FS as usize / 2, 256);
+        out.extend(run(&mut c, &shared, &voices(1), late, tail + FS as usize / 2, 256));
+        fingerprint(&out)
+    };
+    // a pressure for the voice taken away, 20 samples before its last, changes nothing we hear
+    let own = (tail, pressure(1, 0.8));
+    assert_eq!(play(&[(tail - 20, pressure(0, 1.0)), own]), play(&[own]));
 }
 
 #[test]

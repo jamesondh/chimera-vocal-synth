@@ -236,7 +236,9 @@ legato, the glide back to a held key, the coda. Polyphony is which voice a note 
 
 In Sing a melisma is the exception: it goes to the voice that sang the syllable before it, whether
 that key is still down (the vowel glides) or not (the vowel again, with no onset), because it
-continues that vowel and no other.
+continues that vowel and no other. A melisma to come holds back the coda of that voice only; every
+other voice sings its coda when its key lifts. If the Voices parameter has taken that voice away,
+the first voice continues.
 
 What the voices share, and what is each one's own:
 
@@ -251,14 +253,16 @@ What the voices share, and what is each one's own:
   next syllable, as a second key does on one voice. Each voice sings its own coda when its key lifts.
 - **Play.** A voice that starts from silence starts on its pitch; it doesn't glide in from the last
   note it sang (with one voice it still does, as before). Hold keeps the first voice breathing.
-  With several voices the Pitch dial moves only the voices with no key down: a key keeps its pitch
-  (with one voice the dial moves the held note, as before).
+  With several voices the Pitch dial moves only the voices with no key down: a key keeps its pitch,
+  and its voice takes the dial's when its keys lift (with one voice the dial moves the held note,
+  as before).
 - **Speak and Beatbox** use the first voice only.
 - **The level.** Each voice ends in its own limiter, at 0.75, so the plain sum of a loud chord goes
   far over full scale (four voices at full pressure: 2.4). With more than one voice the sum goes
   through one more limiter with the same law (`ChordLimiter`): a loud chord is turned down as a
   whole. One voice sounding stays below its ceiling and passes unchanged, once the level of the
-  chord before it has died away (200 ms).
+  chord before it has died away (a 25 ms hold, then a release with a time constant of 200 ms:
+  about a quarter of a second after the loudest chord).
 - **The editor.** Each voice's pitch is shown: the keys light every note a voice sounds; the roll
   (Sing) has a note and an amber pitch line for each voice; the Keys header (Play) names the chord;
   the lines by the head list each voice's F0 or note; the spectrum marks each F0 and, for a chord,
@@ -276,7 +280,8 @@ because a joining voice starts its control steps from its own phase.
 
 A chord's syllable is forgotten when the lyrics or the cursor change, when the transport starts
 again from the top, and when everything stops, so the first note after that sings from the cursor.
-The host's choke of one note lifts that note; with one voice it stops everything, as it did.
+The host's choke of one note lifts that note in Sing and Play. With one voice, in Speak and
+Beatbox, and for a choke that names no key, it stops everything, as it did.
 
 Known limits. Every voice the parameter asks for is rendered all the time, sounding or not (the cost
 is in `docs/polyphony.md`). The page has no dial for Voices: it is set in the host. The same pitch

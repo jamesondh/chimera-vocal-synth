@@ -227,8 +227,8 @@ pub enum Event {
     /// `velocity` in MIDI units (0–127)
     NoteOn { midi: u8, velocity: f64, channel: u8 },
     NoteOff { midi: u8 },
-    /// the host stops one note. With one voice everything stops, as it always did; with several
-    /// the note lifts and the rest of the chord stays
+    /// the host stops one note (0 to 127). With several voices in Sing or Play the note lifts and
+    /// the rest of the chord stays; otherwise everything stops, as it always did
     Choke { midi: u8 },
     /// all notes off, all sound off
     AllOff,
@@ -591,6 +591,9 @@ impl Shared {
         drop(scope);
         self.sample_rate.store(sample_rate.to_bits(), Ordering::Relaxed);
         self.voices.iter().for_each(VoiceShared::rest);
+        // and the shown voice's: a note left from before would set the page's Pitch dial
+        self.note.store(-1, Ordering::Relaxed);
+        self.sung.store(-1, Ordering::Relaxed);
         self.faulted.store(false, Ordering::Relaxed);
         self.revision.fetch_add(1, Ordering::Relaxed);
     }
@@ -692,8 +695,10 @@ struct Voice {
     expr_moving: bool,
     /// when the note it sounds started, or when its last key lifted if none is down (`Core::order`)
     order: u64,
-    /// presses it has taken (see [`Shared::voice_serial`])
+    /// presses it has taken (see [`VoiceShared::serial`])
     presses: u32,
+    /// the Pitch dial's value that came while a key had this voice (several voices, Play)
+    dial_f0: Option<f64>,
 }
 
 pub struct Core {
@@ -805,7 +810,7 @@ impl Core {
                 engine.set_body(settings.body);
                 let mut singer = Singer::new();
                 singer.body = settings.body;
-                Voice { engine, singer, play_keys: Vec::with_capacity(128), expr_note: None, expr_channel: 0, expr_now: (0.0, 0.0), expr_moving: false, order: 0, presses: 0 }
+                Voice { engine, singer, play_keys: Vec::with_capacity(128), expr_note: None, expr_channel: 0, expr_now: (0.0, 0.0), expr_moving: false, order: 0, presses: 0, dial_f0: None }
             })
             .collect();
         let _ = voices[0].singer.set_syllables(syllables_from(&prepared.syllables));
@@ -973,6 +978,10 @@ impl Core {
         self.count = count;
         if self.shown >= count {
             self.shown = 0;
+        }
+        // the voice a melisma would have continued is gone: with one voice left it is that one's
+        if self.lyric_voice >= count {
+            self.lyric_voice = 0;
         }
         self.update_gate();
     }
@@ -1187,8 +1196,11 @@ impl Core {
                 let chord = self.chord.filter(|_| !self.busy(v) && self.count > 1 && self.chord_left > 0);
                 // a melisma moves the vowel of the note before it: it goes to that note's voice,
                 // whether its key is still down (a glide) or not (the vowel again, with no onset)
-                let repeat = (self.key_voice[midi as usize] as usize) < self.count;
-                if chord.is_none() && !repeat && self.lyric_voice < self.count && self.voices[0].singer.next_is_melisma() {
+                if chord.is_none() && self.lyric_voice < self.count && self.voices[0].singer.next_is_melisma() {
+                    // a key pressed again while it is still down on another voice leaves that voice
+                    if v != self.lyric_voice && self.key_voice[midi as usize] as usize == v {
+                        self.lift(midi);
+                    }
                     v = self.lyric_voice;
                 }
                 self.claim_voice(v, midi);
@@ -1204,6 +1216,7 @@ impl Core {
                 let voice = &mut self.voices[v];
                 voice.play_keys.retain(|&k| k != midi);
                 voice.play_keys.push(midi);
+                voice.dial_f0 = None;
                 voice.engine.set_source(&SourcePatch::f0(midi_to_hz(midi as f64)));
                 // one of several voices starts from silence: at its pitch, with its own channel's
                 // bend, not sliding in from the last note it sang
@@ -1234,7 +1247,9 @@ impl Core {
         }
         self.key_voice[midi as usize] = NO_VOICE;
         if self.mode == Mode::Sing {
-            let melisma_next = self.voices[0].singer.next_is_melisma();
+            // a melisma next continues the vowel of the last syllable's voice: only that voice
+            // holds its coda back for it
+            let melisma_next = v == self.lyric_voice && self.voices[0].singer.next_is_melisma();
             let voice = &mut self.voices[v];
             voice.singer.lift(&mut voice.engine, midi, melisma_next);
         } else {
@@ -1243,6 +1258,9 @@ impl Core {
             // fall back to the most recent note still held (legato)
             if let Some(&last) = voice.play_keys.last() {
                 voice.engine.set_source(&SourcePatch::f0(midi_to_hz(last as f64)));
+            } else if let Some(f0) = voice.dial_f0.take() {
+                // the Pitch dial moved while a key had this voice: now it is the dial's
+                voice.engine.set_source(&SourcePatch::f0(f0));
             }
             self.update_gate();
         }
@@ -1472,6 +1490,10 @@ impl Core {
                 // with several voices a key keeps its pitch: the Pitch dial moves the voices with
                 // no key down (with one voice it moves the note, as it always did)
                 let keyed = self.count > 1 && self.mode == Mode::Play && !voice.play_keys.is_empty();
+                if keyed {
+                    // kept for when its keys lift with no new one pressed (Hold then breathes there)
+                    voice.dial_f0 = p.source.f0.or(voice.dial_f0);
+                }
                 voice.engine.set_source(&if keyed { SourcePatch { f0: None, ..p.source } } else { p.source });
             }
             p.source = SourcePatch::default();
@@ -1628,7 +1650,8 @@ impl Core {
                 }
                 self.follow_expression();
             }
-            Event::Choke { .. } if self.count == 1 => self.stop_notes(),
+            // Speak and Beatbox have one voice whatever the count, and a line doesn't end with its key
+            Event::Choke { .. } if self.count == 1 || matches!(self.mode, Mode::Speak | Mode::Beatbox) => self.stop_notes(),
             Event::NoteOff { midi } | Event::Choke { midi } => {
                 let midi = midi & 127;
                 let bit = 1u128 << midi;
@@ -1706,7 +1729,13 @@ impl Core {
         if self.rendered > self.count {
             self.tail_left -= tail;
             if self.tail_left == 0 {
+                // the voices taken away leave the glide's timer with their last sample: a step of
+                // theirs still to come must not hold back the next one of a voice that plays
+                for v in self.count..self.rendered {
+                    self.arrive(v);
+                }
                 self.rendered = self.count;
+                self.expr_moving = self.voices[..self.count].iter().any(|voice| voice.expr_moving);
                 if self.count == 1 {
                     self.limiter.env = 0.0;
                 }

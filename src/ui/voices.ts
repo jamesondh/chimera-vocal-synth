@@ -26,7 +26,7 @@ export const VOICED = 0.3;
 export function voicedPitches(): number[] | null {
   if (!pluginVoices.voices.length) return null;
   return pluginVoices.voices
-    .filter((v) => v.voicing > VOICED && v.f0 > 20)
+    .filter((v) => v.voicing > VOICED && v.f0 > 0)
     .map((v) => v.f0)
     .sort((a, b) => a - b);
 }
