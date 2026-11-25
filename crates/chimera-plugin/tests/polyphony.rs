@@ -246,6 +246,32 @@ fn with_more_fingers_than_voices_the_oldest_note_gives_way_and_comes_back() {
     assert_eq!(chord(&c), [0.0; MAX_VOICES]);
 }
 
+/// Which voice takes a key, with no MPE: the table the web app's copy of these rules runs too
+/// (src/ui/voiceAlloc.ts, tests/voice-alloc.test.ts). Each step is a key down or up and the note
+/// each voice then sounds (0: none).
+#[test]
+fn the_voice_rules_give_the_answers_of_the_table_shared_with_the_web_app() {
+    #[derive(serde::Deserialize)]
+    struct Rule {
+        name: String,
+        voices: usize,
+        steps: Vec<(String, u8, Vec<u8>)>,
+    }
+    let rules: Vec<Rule> = serde_json::from_str(include_str!("../../../tests/voice-rules.json")).unwrap();
+    for rule in rules {
+        let shared = Shared::default();
+        let p = VoiceParams { mpe: false, ..voices(rule.voices) };
+        let mut c = core_with(&Settings { mode: Mode::Play, ..Default::default() }, &shared, &p);
+        for (i, (what, midi, sounding)) in rule.steps.iter().enumerate() {
+            let event = if what == "on" { on(*midi, 0) } else { off(*midi) };
+            // (long enough for a breath to come on or go off: `chord` reads it)
+            run(&mut c, &shared, &p, &[(0, event)], GLIDED * 2, 256);
+            let want: Vec<f64> = sounding.iter().map(|&m| if m == 0 { 0.0 } else { hz(m) }).collect();
+            assert_eq!(chord(&c)[..rule.voices], want[..], "{}, step {i}", rule.name);
+        }
+    }
+}
+
 #[test]
 fn a_finger_keeps_its_voice_from_note_to_note() {
     let shared = Shared::default();

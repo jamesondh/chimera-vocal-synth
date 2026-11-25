@@ -1,56 +1,39 @@
 /**
  * Which voice of the web app takes a key (src/ui/voiceAlloc.ts): the plugin's rules, less MPE
- * (docs/plugin.md, "Voices"; the plugin's own cases are in crates/chimera-plugin/tests/polyphony.rs).
+ * (docs/plugin.md, "Voices"). The cases are tests/voice-rules.json, which the plugin's tests run
+ * too (crates/chimera-plugin/tests/polyphony.rs): the rules are written twice, in TypeScript and
+ * in Rust, and one table holds both to the same answers.
  */
 import { expect, test } from "bun:test";
 import { VoiceAlloc } from "../src/ui/voiceAlloc.ts";
+import rules from "./voice-rules.json";
 
 const of = (n: number) => {
   const a = new VoiceAlloc();
   a.count = n;
   return a;
 };
-const press = (a: VoiceAlloc, midi: number) => {
-  const v = a.pick(midi);
-  a.press(midi, v);
-  return v;
-};
+const press = (a: VoiceAlloc, midi: number) => a.press(midi, a.pick(midi));
 
-test("one voice takes every key, and they are its keys in order as before", () => {
+for (const rule of rules as { name: string; voices: number; steps: ["on" | "off", number, number[]][] }[]) {
+  test(rule.name, () => {
+    const a = of(rule.voices);
+    for (const [i, [what, midi, sounding]] of rule.steps.entries()) {
+      if (what === "on") press(a, midi);
+      else a.lift(midi);
+      // the note each voice sounds: its newest key still down (0: none)
+      expect([i, a.keys.slice(0, rule.voices).map((k) => k.at(-1) ?? 0)]).toEqual([i, sounding]);
+    }
+  });
+}
+
+test("a lift names the voice and the key it goes back to", () => {
   const a = of(1);
-  expect([press(a, 60), press(a, 64), press(a, 67)]).toEqual([0, 0, 0]);
-  expect(a.keys[0]).toEqual([60, 64, 67]);
-  expect(a.lift(67)).toEqual({ voice: 0, back: 64 });
-  expect(a.lift(60)).toEqual({ voice: 0, back: 64 });
-  expect(a.lift(64)).toEqual({ voice: 0, back: null });
-});
-
-test("a key takes the voice free for the longest", () => {
-  const a = of(3);
-  expect([press(a, 60), press(a, 64)]).toEqual([0, 1]);
-  a.lift(60); // voice 0 is free from now, voice 2 has been free since the start
-  expect(press(a, 67)).toBe(2);
-  expect(press(a, 72)).toBe(0);
-});
-
-test("a key already down stays on its voice", () => {
-  const a = of(3);
   press(a, 60);
   press(a, 64);
-  expect(a.pick(60)).toBe(0);
-});
-
-test("with every voice busy a key takes the voice whose note started longest ago, which goes back to its older key", () => {
-  const a = of(2);
-  press(a, 60);
-  press(a, 64);
-  expect(press(a, 67)).toBe(0);
-  expect(a.keys[0]).toEqual([60, 67]);
-  // voice 1's note (64) is now the oldest
-  expect(press(a, 71)).toBe(1);
-  // voice 0 back on 60 is as old as 60's note again: older than voice 1's 71
-  expect(a.lift(67)).toEqual({ voice: 0, back: 60 });
-  expect(press(a, 74)).toBe(0);
+  expect(a.lift(64)).toEqual({ voice: 0, back: 60 });
+  expect(a.lift(60)).toEqual({ voice: 0, back: null });
+  expect(a.lift(60)).toBeNull();
 });
 
 test("the newest note's voice is the one shown", () => {
