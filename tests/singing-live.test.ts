@@ -397,6 +397,24 @@ describe("Sing mode, a chord of voices", () => {
     for (const x of a.voiced) expect(x).toBeGreaterThan(0.5);
   });
 
+  test("the chord's window is 50 ms of voice time: a key just inside it sings the same syllable, one just outside the next", () => {
+    chordOf(2);
+    useSing.getState().setLyrics("la lo li");
+    const sounding = () => roll.notes.filter((n) => n.t1 === null).map((n) => n.text);
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    runAll(0.04);
+    singNoteOn(52, 96, MALE);
+    expect([useSing.getState().cursor, sounding()]).toEqual([1, ["la", "la"]]);
+    singNoteOff(48, MALE);
+    singNoteOff(52, MALE);
+    runAll(0.3);
+    singNoteOn(48, 96, MALE);
+    runAll(0.06);
+    singNoteOn(52, 96, MALE);
+    expect([useSing.getState().cursor, sounding()]).toEqual([0, ["lo", "li"]]);
+  });
+
   test("a key after the chord sings the next syllable on a free voice; a key lifted leaves the others singing", () => {
     chordOf(4);
     useSing.getState().setLyrics("la lo");

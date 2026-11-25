@@ -43,9 +43,10 @@ test("a note goes to its own voice, and one that starts from silence starts on i
   expect(Math.abs(cents(tele.voices![1].f0, 440))).toBeLessThan(30);
   expect(Math.abs(cents(tele.voices![0].f0, 110))).toBeLessThan(30);
   expect(Math.abs(cents(tele.voices![2].f0, 110))).toBeLessThan(30);
-  // only voice 1 breathes
-  const late = w.run(0.4).tele;
-  expect(late.voices!.map((v) => v.voicing > 0.3)).toEqual([false, true, false]);
+  // only voice 1 breathes, and it is heard: the output is the sum of the voices, not voice 0
+  const late = w.run(0.4);
+  expect(late.tele.voices!.map((v) => v.voicing > 0.3)).toEqual([false, true, false]);
+  expect(late.peak).toBeGreaterThan(0.05);
 });
 
 test("the sum of a loud chord goes through the limiter; one voice does not", () => {

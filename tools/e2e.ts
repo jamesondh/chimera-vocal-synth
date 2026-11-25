@@ -191,6 +191,9 @@ async function run(viewport: { width: number; height: number }, tag: string) {
     return (await voicesChip.textContent())?.trim();
   };
   const chipText = await chipTo("Voices 2");
+  /** the place in the lyrics of the syllable that comes next */
+  const nextAt = () => page.locator(".syl").evaluateAll((els) => els.findIndex((e) => e.classList.contains("next")));
+  const chordAt = await nextAt();
   const chordSylBefore = await nextSyl();
   for (const k of ["a", "d"]) await page.keyboard.down(k);
   await page.waitForTimeout(600);
@@ -200,6 +203,7 @@ async function run(viewport: { width: number; height: number }, tag: string) {
     return vs.filter((v) => v.voicing > 0.3).map((v) => Math.round(69 + 12 * Math.log2(v.f0 / 440))).sort((a, b) => a - b);
   });
   const chordSylHeld = await nextSyl();
+  const chordMoved = (await nextAt()) - chordAt;
   for (const k of ["a", "d"]) await page.keyboard.up(k);
   // (a voice taken away renders for one more second, so the releases are still heard)
   const chipBack = await chipTo("Voices 1");
@@ -212,7 +216,7 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   logs.push(`[${tag}] chord: ${chipText}, pitches ${chordPitches.join(",")}, syllable ${chordSylBefore} -> ${chordSylHeld}, then rms ${chordAfter.toFixed(4)}, ${chipBack}, ${chordRate} Hz`);
   if (chipText !== "Voices 2" || chipBack !== "Voices 1") errors.push(`[${tag}] the Voices chip read ${chipText}, then ${chipBack}`);
   if (chordPitches.join(",") !== "48,52") errors.push(`[${tag}] a chord of C3 and E3 sang ${chordPitches.join(",")}`);
-  if (chordSylBefore === chordSylHeld) errors.push(`[${tag}] the chord did not sing a syllable (${chordSylBefore})`);
+  if (chordMoved !== 1) errors.push(`[${tag}] the chord's two keys moved the words on by ${chordMoved} syllables, not 1 (${chordSylBefore} -> ${chordSylHeld})`);
   if (!(chordAfter < 1e-3)) errors.push(`[${tag}] a voice still sounding after the chord: ${chordAfter}`);
   // a menu isn't an instrument: a letter typed in it picks an entry, it doesn't play a note
   await page.getByRole("combobox", { name: "Tune" }).focus();
