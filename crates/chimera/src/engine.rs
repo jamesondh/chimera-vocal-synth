@@ -142,6 +142,11 @@ impl Engine {
         self.voice.bend = ratio;
     }
 
+    /// Put the voice's pitch on its target now, with no glide (see [`HumanVoice::snap_pitch`]).
+    pub fn snap_pitch(&mut self) {
+        self.voice.snap_pitch();
+    }
+
     pub fn set_gate(&mut self, level: f64) {
         self.gate_level = level;
         self.voice.set_gate(level);

@@ -370,6 +370,12 @@ impl HumanVoice {
         self.score.clear();
     }
 
+    /// Put the pitch on its target now, with no glide: a voice that starts a note from silence,
+    /// as one of several, must not slide in from the last note it sang.
+    pub fn snap_pitch(&mut self) {
+        self.f0 = self.source.f0 * self.bend;
+    }
+
     /// breath/voice on (1) or off (0); intermediate values scale the pressure
     pub fn set_gate(&mut self, level: f64) {
         self.gate_target = clamp(level, 0.0, 1.5);

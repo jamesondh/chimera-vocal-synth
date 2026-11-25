@@ -7,6 +7,10 @@
 //! thread. Only [`syllables_from`] and building a [`Singer`] allocate; do those elsewhere and hand
 //! the result to [`Singer::set_syllables`]. The browser has its own copy of this logic in
 //! `src/ui/singing.ts`, which also keeps the piano roll.
+//!
+//! One `Singer` sings one note at a time. A choir has one for each voice, and one of them holds the
+//! lyrics: it hands out the syllables ([`Singer::next_lyric`]) and each voice sings its own
+//! ([`Singer::sing`], [`Singer::lift`]).
 
 use crate::anatomy::human::BodyMix;
 use crate::control::score::{ControlKey, Gesture};
@@ -30,6 +34,16 @@ struct Sounding {
     /// the syllable whose vowel is sounding (a melisma keeps its parent's, for the coda)
     syl: LiveSyllable,
     tag: f64,
+}
+
+/// A syllable of the lyrics, as a note sings it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lyric {
+    /// where it is in the lyrics
+    pub index: usize,
+    pub syllable: LiveSyllable,
+    /// the syllable a melisma continues (the syllable itself otherwise)
+    pub parent: LiveSyllable,
 }
 
 /// Lyrics as a [`Singer`] holds them. Never empty: no words sing "ah". Allocates.
@@ -173,27 +187,50 @@ impl Singer {
         e.schedule(&self.scratch, LEAD, false);
     }
 
+    /// The syllable at the cursor, for the next note; the cursor moves on.
+    pub fn next_lyric(&mut self) -> Lyric {
+        let index = self.cursor % self.syllables.len();
+        let syllable = self.syllables[index];
+        self.cursor = (index + 1) % self.syllables.len();
+        Lyric { index, syllable, parent: if syllable.melisma { self.parent_of(index) } else { syllable } }
+    }
+
+    /// Whether the next note continues the vowel now sung (a melisma).
+    pub fn next_is_melisma(&self) -> bool {
+        self.syllables.get(self.cursor).is_some_and(|n| n.melisma)
+    }
+
     /// A key went down. `velocity` in MIDI units (0–127).
     pub fn note_on(&mut self, e: &mut Engine, midi: u8, velocity: f64) {
+        let lyric = self.next_lyric();
+        self.sing(e, &lyric, midi, velocity);
+    }
+
+    /// A key went down, and it sings this syllable (from these lyrics or another singer's).
+    pub fn sing(&mut self, e: &mut Engine, lyric: &Lyric, midi: u8, velocity: f64) {
         self.keys.retain(|&k| k != midi);
         self.keys.push(midi);
-        let i = self.cursor % self.syllables.len();
-        let syl = self.syllables[i];
+        let syl = lyric.syllable;
         if syl.melisma && self.sounding.is_some() {
             self.glide(e, midi);
         } else if syl.melisma {
             // a melisma with nothing held: sing its vowel again, without the onset
-            let parent = LiveSyllable { onset: Default::default(), ..self.parent_of(i) };
+            let parent = LiveSyllable { onset: Default::default(), ..lyric.parent };
             self.start_note(e, parent, midi, velocity);
         } else {
             self.start_note(e, syl, midi, velocity);
         }
-        self.sung = Some(i);
-        self.cursor = (i + 1) % self.syllables.len();
+        self.sung = Some(lyric.index);
     }
 
     /// A key went up.
     pub fn note_off(&mut self, e: &mut Engine, midi: u8) {
+        self.lift(e, midi, self.next_is_melisma());
+    }
+
+    /// A key went up. `melisma_next`: the lyrics' next syllable is a melisma (see
+    /// [`Singer::next_is_melisma`], asked of the singer that holds the lyrics).
+    pub fn lift(&mut self, e: &mut Engine, midi: u8, melisma_next: bool) {
         self.keys.retain(|&k| k != midi);
         let Some(s) = self.sounding else { return };
         if s.midi != midi {
@@ -208,7 +245,7 @@ impl Singer {
         e.release(s.tag + 1.0);
         self.sung = None;
         // a melisma comes next: this vowel carries on there, and the coda waits for the chain's end
-        if self.syllables.get(self.cursor).is_some_and(|n| n.melisma) {
+        if melisma_next {
             return;
         }
         self.scratch.clear();
