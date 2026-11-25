@@ -6,12 +6,19 @@ import { engine } from "../audio/AudioEngine.ts";
 import { ARTIC_PARAMS, SOURCE_PARAMS, clipboardShortcuts, dbToVolume, gestureOpen, setRevision } from "../audio/pluginBridge.ts";
 import type { BeatStep, BodyMix, HumanArtic, Syllable, VoiceSource } from "../wasm/engine.ts";
 import { TELE_LABELS, decodeTelemetry } from "../worklet/telemetry.ts";
-import { clearPluginNotes, followPluginNote, roll, useSing } from "./singing.ts";
+import { clearPluginNotes, followPluginVoices, roll, useSing, type PluginVoice } from "./singing.ts";
 import { followSpoken, useSpeech } from "./speech.ts";
 import { useStore } from "./store.ts";
 
 /** Scalars at the head of a `/poll` response: POLL_HEADER in crates/chimera-plugin/src/bridge.rs. */
 const POLL_HEADER = 25;
+/** the plugin's voices: MAX_VOICES in crates/chimera-plugin/src/core.rs */
+const MAX_VOICES = 8;
+/** After those: the voice the head shows, then each voice's note, syllable and presses (VOICES_HEADER). */
+const VOICES_HEADER = 1 + 3 * MAX_VOICES;
+/** Telemetry's clock going back by more than this (s) is a new timeline. A voice that joins takes the
+ *  first voice's clock, but not its control step: their clocks differ by up to a step (under 1 ms). */
+const CLOCK_SLACK = 0.05;
 /** Parameters are read every this many frames: about 20 times a second. */
 const PARAMS_EVERY = 3;
 /** The engine-load readout's window (ms). */
@@ -80,7 +87,7 @@ function adopt(s: Snapshot): void {
   const artic = { ...initial.artic, ...s.settings.artic } as HumanArtic;
   for (const [key, id] of Object.entries(ARTIC_PARAMS)) (artic as unknown as Params)[key] = s.params[id];
   const { mic, ...beat } = s.settings.beat;
-  useStore.setState({ started: true, mode: s.settings.mode, body: s.settings.body, source, artic, tipFree: s.settings.tipFree, volume: dbToVolume(s.params.gain), hold: false, heldNotes: [], mic, beat: { ...beat, playing: false, following: false, hostBpm: 0 } });
+  useStore.setState({ started: true, mode: s.settings.mode, body: s.settings.body, source, artic, tipFree: s.settings.tipFree, volume: dbToVolume(s.params.gain), hold: false, heldNotes: [], voiceNotes: [], mic, beat: { ...beat, playing: false, following: false, hostBpm: 0 } });
   useSing.setState({ lyrics: s.settings.lyrics, syllables: s.syllables, cursor: s.cursor, vibrato: s.params.vibrato });
   linesGeneration = s.speech.generation;
   const { text, ipa, rate } = s.settings.speech;
@@ -117,18 +124,21 @@ let lastClock = 0;
 async function poll(): Promise<void> {
   const r = await request("/poll");
   const buf = await r.arrayBuffer();
-  const h = new Float64Array(buf, 0, POLL_HEADER);
-  const [rev, syllables, cursor, sung, note, serial, busyNs, audioNs, , faulted, , female, child, spokenSerial, spokenLine, spokenGeneration, spokenT0, lines, speechCursor, beatStep, beatRunning, beatFollowing, hostBpm, samples, n] = h;
+  const h = new Float64Array(buf, 0, POLL_HEADER + VOICES_HEADER);
+  const [rev, syllables, cursor, , note, , busyNs, audioNs, , faulted, , female, child, spokenSerial, spokenLine, spokenGeneration, spokenT0, lines, speechCursor, beatStep, beatRunning, beatFollowing, hostBpm, samples, n] = h;
+  const head = POLL_HEADER + VOICES_HEADER;
+  const shownVoice = h[POLL_HEADER];
+  const voices: PluginVoice[] = Array.from({ length: MAX_VOICES }, (_, v) => ({ note: h[POLL_HEADER + 1 + 3 * v], sung: h[POLL_HEADER + 2 + 3 * v], serial: h[POLL_HEADER + 3 + 3 * v] }));
   if (n > 0) {
-    const { t, nPh, nOr } = decodeTelemetry(new Float64Array(buf, 8 * POLL_HEADER, n), new Uint8Array(buf, 8 * (POLL_HEADER + n), TELE_LABELS));
+    const { t, nPh, nOr } = decodeTelemetry(new Float64Array(buf, 8 * head, n), new Uint8Array(buf, 8 * (head + n), TELE_LABELS));
     // a new voice's clock starts from zero: what's on the roll belongs to the old timeline
-    if (t.clock < lastClock) clearPluginNotes();
+    if (t.clock < lastClock - CLOCK_SLACK) clearPluginNotes();
     lastClock = t.clock;
     engine.receive({ type: "telemetry", t, load: engine.load, body: { female, child }, nPh, nOr, beatStep });
   }
   // the output's samples, after the telemetry and its labels; a slice, because they may not be aligned
   if (samples > 0) {
-    const at = 8 * (POLL_HEADER + n) + (n > 0 ? TELE_LABELS : 0);
+    const at = 8 * (head + n) + (n > 0 ? TELE_LABELS : 0);
     analysers?.feed(new Float32Array(buf.slice(at, at + 4 * samples)));
   }
   busy += busyNs;
@@ -161,7 +171,9 @@ async function poll(): Promise<void> {
   const beat = useStore.getState().beat;
   if (beat.playing !== !!beatRunning || beat.following !== !!beatFollowing || beat.hostBpm !== hostBpm) useStore.setState({ beat: { ...beat, playing: !!beatRunning, following: !!beatFollowing, hostBpm } });
   const clock = engine.voiceClock() ?? 0;
-  followPluginNote(note, sung, serial, clock);
+  followPluginVoices(shownVoice, voices, clock);
+  const sounding = voices.map((v) => v.note).filter((m) => m >= 0);
+  if (sounding.join() !== useStore.getState().voiceNotes.join()) useStore.setState({ voiceNotes: sounding });
   if (note !== shownNote) {
     shownNote = note;
     // the keys set the pitch in Play: the encoder and the readout follow

@@ -269,6 +269,48 @@ fn the_editor_shows_the_voice_with_the_newest_note() {
 }
 
 #[test]
+fn the_editor_hears_each_voices_note_and_its_presses() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let shared = Shared::default();
+    let p = voices(3);
+    let mut c = playing(3, &shared);
+    let notes = |shared: &Shared| shared.voice_note.iter().map(|n| n.load(Relaxed)).collect::<Vec<_>>();
+    let serials = |shared: &Shared| shared.voice_serial.iter().map(|n| n.load(Relaxed)).collect::<Vec<_>>();
+    run(&mut c, &shared, &p, &[(0, on(57, 1)), (0, on(61, 2)), (0, on(64, 3))], GLIDED, 256);
+    assert_eq!(notes(&shared)[..4], [57, 61, 64, -1]);
+    assert_eq!(shared.shown_voice.load(Relaxed), c.shown() as i32);
+    let before = serials(&shared);
+    // the same key again on its voice: the same note, one press more, so the roll starts a new note
+    run(&mut c, &shared, &p, &[(0, off(61)), (100, on(61, 2))], GLIDED, 256);
+    assert_eq!(notes(&shared)[..3], [57, 61, 64]);
+    assert_eq!(serials(&shared)[1], before[1] + 1);
+    assert_eq!([serials(&shared)[0], serials(&shared)[2]], [before[0], before[2]]);
+    // a voice taken away says nothing, whatever it still sounds
+    run(&mut c, &shared, &voices(1), &[], 256, 256);
+    assert_eq!(notes(&shared)[..3], [57, -1, -1]);
+    // and in Speak no voice plays a note
+    let mut s = core_with(&Settings { mode: Mode::Speak, ..Default::default() }, &shared, &p);
+    run(&mut s, &shared, &p, &[(0, on(60, 1))], 256, 256);
+    assert!(notes(&shared).iter().all(|n| *n == -1));
+}
+
+#[test]
+fn a_voice_that_joins_takes_the_first_voices_clock() {
+    let shared = Shared::default();
+    let mut c = playing(1, &shared);
+    let resting = body(&c, 1).clock;
+    run(&mut c, &shared, &voices(1), &[(0, on(57, 1))], FS as usize, 256);
+    assert_eq!(body(&c, 1).clock, resting, "a voice that doesn't play isn't rendered");
+    assert!(body(&c, 0).clock > resting + 0.9);
+    run(&mut c, &shared, &voices(3), &[(100, on(61, 2))], GLIDED, 256);
+    for v in 1..3 {
+        // the same time, to within one control step (64 samples at the airway's rate)
+        let gap = (body(&c, v).clock - body(&c, 0).clock).abs();
+        assert!(gap < 1e-3, "voice {v} is {gap} s off the first voice's clock");
+    }
+}
+
+#[test]
 fn a_voice_taken_away_stops_its_note_fades_and_then_costs_nothing() {
     let shared = Shared::default();
     let mut c = playing(3, &shared);

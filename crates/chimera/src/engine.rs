@@ -245,6 +245,13 @@ impl Engine {
         self.voice.clock
     }
 
+    /// Move the voice clock to `clock` (s), as a voice that rested while another sang takes that
+    /// one's time. The beat keeps its phase; gestures already scheduled keep their times.
+    pub fn set_clock(&mut self, clock: f64) {
+        self.beat.rebase(clock - self.voice.clock);
+        self.voice.clock = clock;
+    }
+
     /// Render `out.len()` samples.
     pub fn render(&mut self, out: &mut [f32]) {
         let mut i = 0;

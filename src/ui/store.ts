@@ -52,6 +52,8 @@ interface State {
   /** sustained breath (drone) independent of keys */
   hold: boolean;
   heldNotes: number[];
+  /** in the plugin: the note each of its voices sounds now, for the keys (the host's notes too) */
+  voiceNotes: number[];
   view: ViewOptions;
   mode: Mode;
   setMode: (m: Mode) => void;
@@ -172,6 +174,7 @@ export const useStore = create<State>((set, get) => ({
   volume: 0.8,
   hold: false,
   heldNotes: [],
+  voiceNotes: [],
   view: { pressure: true, particles: true, grid: false, calipers: true, threeD: false },
   // the app opens on Sing: hearing a song is the quickest way in (the plugin opens there too)
   mode: "sing",

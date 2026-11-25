@@ -377,6 +377,12 @@ pub struct Shared {
     pub note: AtomicI32,
     /// bumped by every press, so the editor can tell a new note from the same pitch held
     pub note_serial: AtomicU32,
+    /// the voice the head shows, and each voice's `note`, `sung` and `note_serial`, for the keys
+    /// and the roll (a voice that doesn't play: −1, −1)
+    pub shown_voice: AtomicI32,
+    pub voice_note: [AtomicI32; MAX_VOICES],
+    pub voice_sung: [AtomicI32; MAX_VOICES],
+    pub voice_serial: [AtomicU32; MAX_VOICES],
     pub speech: Mutex<SpeechDoc>,
     generations: AtomicU32,
     /// the line a note says next
@@ -657,6 +663,8 @@ struct Voice {
     expr_moving: bool,
     /// when its newest note started, or when its last key lifted if none is down (`Core::order`)
     order: u64,
+    /// presses it has taken (see [`Shared::voice_serial`])
+    presses: u32,
 }
 
 pub struct Core {
@@ -765,7 +773,7 @@ impl Core {
                 engine.set_body(settings.body);
                 let mut singer = Singer::new();
                 singer.body = settings.body;
-                Voice { engine, singer, play_keys: Vec::with_capacity(128), expr_note: None, expr_channel: 0, expr_now: (0.0, 0.0), expr_moving: false, order: 0 }
+                Voice { engine, singer, play_keys: Vec::with_capacity(128), expr_note: None, expr_channel: 0, expr_now: (0.0, 0.0), expr_moving: false, order: 0, presses: 0 }
             })
             .collect();
         let _ = voices[0].singer.set_syllables(syllables_from(&prepared.syllables));
@@ -917,6 +925,12 @@ impl Core {
         }
         if count < self.count {
             self.tail_left = (VOICE_TAIL * self.engine().sample_rate) as usize;
+        }
+        // a voice that wasn't rendered starts on the first voice's clock: the editor puts every
+        // voice's notes on one timeline, and shows one voice's telemetry at a time
+        let clock = self.voices[0].engine.clock();
+        for voice in self.voices[..count].iter_mut().skip(self.rendered) {
+            voice.engine.set_clock(clock);
         }
         self.rendered = self.rendered.max(count);
         self.count = count;
@@ -1089,6 +1103,7 @@ impl Core {
         self.key_voice[midi as usize] = v as u8;
         self.order += 1;
         self.voices[v].order = self.order;
+        self.voices[v].presses = self.voices[v].presses.wrapping_add(1);
         (v, free)
     }
 
@@ -1636,13 +1651,21 @@ impl Core {
         let shown = &self.voices[self.shown];
         shared.cursor.store(self.singer().cursor() as i32, Ordering::Relaxed);
         shared.sung.store(shown.singer.sung().map_or(-1, |i| i as i32), Ordering::Relaxed);
-        let note = match self.mode {
-            Mode::Sing => shown.singer.sounding_note().map_or(-1, |m| m as i32),
-            Mode::Play => shown.play_keys.last().map_or(-1, |m| *m as i32),
+        let note_of = |voice: &Voice| match self.mode {
+            Mode::Sing => voice.singer.sounding_note().map_or(-1, |m| m as i32),
+            Mode::Play => voice.play_keys.last().map_or(-1, |m| *m as i32),
             Mode::Speak | Mode::Beatbox => -1,
         };
-        shared.note.store(note, Ordering::Relaxed);
+        shared.note.store(note_of(shown), Ordering::Relaxed);
         shared.note_serial.store(self.presses, Ordering::Relaxed);
+        shared.shown_voice.store(self.shown as i32, Ordering::Relaxed);
+        for (v, voice) in self.voices.iter().enumerate() {
+            let plays = v < self.count && !matches!(self.mode, Mode::Speak | Mode::Beatbox);
+            let (note, sung) = if plays { (note_of(voice), voice.singer.sung().map_or(-1, |i| i as i32)) } else { (-1, -1) };
+            shared.voice_note[v].store(note, Ordering::Relaxed);
+            shared.voice_sung[v].store(sung, Ordering::Relaxed);
+            shared.voice_serial[v].store(voice.presses, Ordering::Relaxed);
+        }
         shared.speech_cursor.store(self.speech_cursor as i32, Ordering::Relaxed);
         shared.spoken_line.store(self.spoken_line, Ordering::Relaxed);
         shared.spoken_generation.store(self.spoken_generation, Ordering::Relaxed);

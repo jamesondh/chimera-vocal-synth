@@ -281,41 +281,53 @@ function glide(midi: number, text: string): void {
   s.note = addNote(midi, t, text);
 }
 
-/** the note and press count last seen from the plugin */
-let pluginNote = -1;
-let pluginSerial = -1;
+/** What the plugin says of one of its voices: the note it sounds (−1: none), the syllable it
+ *  sings (−1: none) and the presses it has taken. */
+export interface PluginVoice {
+  note: number;
+  sung: number;
+  serial: number;
+}
+
+/** each voice of the plugin as last seen, and what it sings on the roll */
+let pluginVoices: { note: number; serial: number; sounding: Sounding | null }[] = [];
 
 /**
- * In the plugin Rust plays the notes, so the words at the mouth and the piano roll follow what it
- * reports. A new press is a new syllable, unless it's a melisma on a vowel still sounding; a new
+ * In the plugin Rust plays the notes, so the piano roll and the words at the mouth follow what it
+ * reports: each voice's notes on the roll, and the words of `shown`, the voice the head shows. For
+ * each voice, a new press is a new syllable, unless it's a melisma on a vowel still sounding; a new
  * pitch with no press is the glide back to a key still down.
  */
-export function followPluginNote(note: number, sung: number, serial: number, clock: number): void {
-  const pressed = serial !== pluginSerial;
-  if (!pressed && note === pluginNote) return;
-  pluginSerial = serial;
-  pluginNote = note;
-  const s = sounding;
-  if (s) s.note.t1 = clock;
-  if (note < 0) {
-    sounding = null;
-    return;
-  }
+export function followPluginVoices(shown: number, voices: PluginVoice[], clock: number): void {
   const syls = useSing.getState().syllables;
-  const syl = syls[sung] ?? AH;
-  if (s && (!pressed || syl.melisma)) {
-    s.midi = note;
-    s.note = addNote(note, clock, pressed ? syl.text : "~");
-  } else {
-    sounding = { midi: note, syl: syl.melisma ? parentOf(syls, sung) : syl, tag: 0, note: addNote(note, clock, syl.text) };
-  }
+  voices.forEach(({ note, sung, serial }, v) => {
+    const was = (pluginVoices[v] ??= { note: -1, serial: -1, sounding: null });
+    const pressed = serial !== was.serial;
+    if (!pressed && note === was.note) return;
+    was.serial = serial;
+    was.note = note;
+    const s = was.sounding;
+    if (s) s.note.t1 = clock;
+    if (note < 0) {
+      was.sounding = null;
+      return;
+    }
+    const syl = syls[sung] ?? AH;
+    if (s && (!pressed || syl.melisma)) {
+      s.midi = note;
+      s.note = addNote(note, clock, pressed ? syl.text : "~");
+    } else {
+      was.sounding = { midi: note, syl: syl.melisma ? parentOf(syls, sung) : syl, tag: 0, note: addNote(note, clock, syl.text) };
+    }
+  });
+  sounding = pluginVoices[shown]?.sounding ?? null;
 }
 
 /** The voice clock started again (a new voice or a restore): the roll's times no longer mean anything. */
 export function clearPluginNotes(): void {
   roll.notes = [];
   sounding = null;
-  pluginNote = -1;
+  pluginVoices = [];
 }
 
 export function singNoteOn(midi: number, velocity: number, body: BodyMix): void {

@@ -18,6 +18,8 @@ const NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A�
 const KEY_CENTRE: Record<string, number> = { male: 54, female: 66, child: 70 };
 
 const hzToMidi = (f: number) => 69 + 12 * Math.log2(f / 440);
+/** the telemetry's clock going back by more than this (s) is a new timeline */
+const CLOCK_SLACK = 0.05;
 
 /**
  * Scrolling piano roll for Sing mode: the notes asked for (green frames, with their syllables)
@@ -32,9 +34,13 @@ export function PianoRoll() {
     const body = useStore.getState().body;
     const tele = engine.latest?.t;
     const clock = engine.voiceClock() ?? 0;
-    // sung pitch, sampled as telemetry arrives; a new voice's clock starts again, on a new timeline
-    if (tele && tele.clock < s.lastClock) s.trace.length = 0;
-    if (tele && tele.clock !== s.lastClock) {
+    // sung pitch, sampled as telemetry arrives; a new voice's clock starts again, on a new timeline.
+    // The plugin's telemetry is of one voice at a time, and their clocks differ by under a millisecond
+    if (tele && tele.clock < s.lastClock - CLOCK_SLACK) {
+      s.trace.length = 0;
+      s.lastClock = -Infinity;
+    }
+    if (tele && tele.clock > s.lastClock) {
       s.lastClock = tele.clock;
       s.trace.push({ t: tele.clock, m: tele.f0 > 20 ? hzToMidi(tele.f0) : NaN, v: tele.voicing });
       const cut = tele.clock - (w * NOW_AT) / SPEED - 1;

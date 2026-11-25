@@ -150,6 +150,18 @@ try {
   await host("note", 60);
   await until("a repeated pitch is a new note on the roll", async () => (await rollNotes()).length === before2 + 1);
   await host("off", 60);
+  // ---- a chord on several voices: a note on the roll and a lit key for each
+  await host("param", "voices=3");
+  const chordFrom = (await rollNotes()).length;
+  for (const m of [60, 64, 67]) await host("note", m);
+  const held = async () => (await rollNotes()).slice(chordFrom).filter((n) => n.t1 === null).map((n) => n.midi).sort();
+  await until("each voice of a chord has its note on the roll", async () => (await held()).join() === "60,64,67");
+  check("all three sing the same syllable", new Set((await rollNotes()).slice(chordFrom).map((n) => n.text)).size === 1, (await rollNotes()).slice(chordFrom));
+  await until("the keys light every note of the chord", async () => (await page.locator(".key.down").count()) === 3);
+  for (const m of [60, 64, 67]) await host("off", m);
+  await until("the chord's notes end on the roll", async () => (await held()).length === 0);
+  await until("and its keys go dark", async () => (await page.locator(".key.down").count()) === 0);
+  await host("param", "voices=1");
   await page.locator(".lyrics textarea").fill("one two three");
   await until("back to three syllables", async () => (await page.locator(".syl").count()) === 3);
 

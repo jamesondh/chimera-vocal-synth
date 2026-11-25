@@ -251,15 +251,20 @@ What the voices share, and what is each one's own:
   far over full scale (four voices at full pressure: 2.4). With more than one voice the sum goes
   through one more limiter with the same law (`ChordLimiter`): a loud chord is turned down as a
   whole. One voice sounding stays below its ceiling and passes unchanged.
-- **The editor** shows one voice: the one with the newest note still sounding, and after that its
-  release.
+- **The editor.** The keys light every note a voice sounds, and the roll (Sing) has a note for each
+  voice, each with its syllable. The head, the tube, the folds and the roll's pitch trace show one
+  voice: the one with the newest note still sounding, and after that its release. All voices have
+  one mouth, so the head is right for each; only pitch and breath differ. The poll sends each
+  voice's note, syllable and press count after its header (`VOICES_HEADER`).
 
 Lowering Voices stops the notes of the voices taken away. They are rendered for one more second, so
-their release is heard, and then they cost nothing.
+their release is heard, and then they cost nothing. Raising it sets each voice that joins to the
+first voice's clock (`Engine::set_clock`), so the editor's notes and telemetry are on one timeline.
+The clocks then differ by less than one control step (0.7 ms), because a joining voice starts its
+control steps from its own phase.
 
 Known limits. Every voice the parameter asks for is rendered all the time, sounding or not (the cost
-is in `docs/polyphony.md`). The page has no dial for Voices: it is set in the host. The page's
-keyboard lights only the newest note.
+is in `docs/polyphony.md`). The page has no dial for Voices: it is set in the host.
 
 ## State
 

@@ -12,7 +12,10 @@ const BASE = (b: BodyMix) => BASES[nearestBody(b)];
 
 export function Keys() {
   const body = useStore((s) => s.body);
-  const held = useStore((s) => s.heldNotes);
+  const pressed = useStore((s) => s.heldNotes);
+  const voiced = useStore((s) => s.voiceNotes);
+  // a key is down while it's held here, or while a voice of the plugin sounds it (a chord from the host)
+  const held = voiced.length ? [...pressed, ...voiced] : pressed;
   const noteOn = useStore((s) => s.noteOn);
   const noteOff = useStore((s) => s.noteOff);
   const start = useStore((s) => s.start);
