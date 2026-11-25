@@ -251,7 +251,8 @@ impl Engine {
     }
 
     /// Move the voice clock to `clock` (s), as a voice that rested while another sang takes that
-    /// one's time. The beat keeps its phase; gestures already scheduled keep their times.
+    /// one's time. For a voice with nothing to play: the beat keeps its phase, but gestures already
+    /// scheduled keep their times, so a jump forward goes past them.
     pub fn set_clock(&mut self, clock: f64) {
         self.beat.rebase(clock - self.voice.clock);
         self.voice.clock = clock;

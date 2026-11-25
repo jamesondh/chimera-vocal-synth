@@ -1,7 +1,9 @@
 //! Several voices in the plugin: one for each finger. With one voice it is the instrument it was.
 use chimera::phonetics::beatbox::beat_ready;
-use chimera::voice::human_voice::HumanVoice;
-use chimera_plugin::core::{Core, Event, MAX_VOICES, Mode, Prepared, Settings, Shared, Transport, VoiceParams};
+use chimera::phonetics::syllables::lyrics_to_syllables;
+use chimera::voice::human_voice::{HumanVoice, SourcePatch};
+use chimera_plugin::core::{Core, Event, MAX_VOICES, Mode, Prepared, Settings, Shared, Transport, UiNote, VoiceParams};
+use chimera_plugin::g2p;
 
 const FS: f64 = 44100.0;
 
@@ -116,6 +118,34 @@ fn one_voice_sounds_as_it_did_before_polyphony() {
 /// Long enough for a 12 ms glide to arrive.
 const GLIDED: usize = 8192;
 
+/// A finger's pressure reaches one voice on the sample it arrives, whatever the voices that don't
+/// play are doing. They once shared the glide's timer: while it ran for them (a pressure on a
+/// channel no note is on, a dial that moved them but not the note at its ceiling), the first
+/// voice's step waited for it, up to 64 samples.
+fn expression_while_others_rest() -> [Vec<f32>; 2] {
+    let pressure = |channel, value| Event::Pressure { channel, value };
+    let play = Settings { mode: Mode::Play, ..Default::default() };
+    // a pressure on the master channel, then the note's own, 20 samples later
+    let shared = Shared::default();
+    let p = params();
+    let mut c = core_with(&play, &shared, &p);
+    let master = run(&mut c, &shared, &p, &[(0, on(57, 1)), (9000, pressure(0, 1.0)), (9020, pressure(1, 0.6))], FS as usize / 2, 480);
+    // the Breath dial moves under a note held at the pressure ceiling, then the finger lets go
+    let shared = Shared::default();
+    let (low, high) = (VoiceParams { breath: 15.0, ..params() }, VoiceParams { breath: 16.0, ..params() });
+    let mut c = core_with(&play, &shared, &low);
+    let mut dial = run(&mut c, &shared, &low, &[(0, on(57, 1)), (4000, pressure(1, 1.0))], FS as usize / 2, 480);
+    dial.extend(run(&mut c, &shared, &high, &[(20, pressure(1, 0.2))], FS as usize / 2, 480));
+    [master, dial]
+}
+
+/// Hashes of commit b4d513d, which had one voice.
+#[test]
+fn one_voice_follows_its_finger_on_the_sample_as_before_polyphony() {
+    let got = expression_while_others_rest().map(|x| fingerprint(&x));
+    assert_eq!(got.map(|h| format!("{h:#x}")), [0xe264a69735a5212fu64, 0x6024b109e039d3b5].map(|h| format!("{h:#x}")));
+}
+
 fn voices(n: usize) -> VoiceParams {
     VoiceParams { voices: n, ..params() }
 }
@@ -204,10 +234,14 @@ fn with_more_fingers_than_voices_the_oldest_note_gives_way_and_comes_back() {
     assert_eq!(chord(&c)[..3], [hz(64), hz(61), 0.0], "the third note takes the first one's voice");
     run(&mut c, &shared, &p, &[(0, off(64))], GLIDED, 256);
     assert_eq!(chord(&c)[..2], [hz(57), hz(61)], "and the first note, still held, comes back");
-    // now the second note is the one that started longest ago: it gives way, and lifts unheard
-    run(&mut c, &shared, &p, &[(0, on(64, 3)), (100, off(61))], GLIDED, 256);
-    assert_eq!(chord(&c)[..2], [hz(57), hz(64)]);
-    run(&mut c, &shared, &p, &[(0, off(64)), (0, off(57))], GLIDED * 2, 256);
+    // the first note is still the one that started longest ago, though its voice sang another
+    // since: the next note takes its voice again, not the second note's
+    run(&mut c, &shared, &p, &[(0, on(69, 3))], GLIDED, 256);
+    assert_eq!(chord(&c)[..2], [hz(69), hz(61)]);
+    // a key that lifts while another has its voice lifts unheard
+    run(&mut c, &shared, &p, &[(0, off(57))], GLIDED, 256);
+    assert_eq!(chord(&c)[..2], [hz(69), hz(61)]);
+    run(&mut c, &shared, &p, &[(0, off(69)), (0, off(61))], GLIDED * 2, 256);
     assert_eq!(chord(&c), [0.0; MAX_VOICES]);
 }
 
@@ -274,18 +308,20 @@ fn the_editor_hears_each_voices_note_and_its_presses() {
     let shared = Shared::default();
     let p = voices(3);
     let mut c = playing(3, &shared);
-    let notes = |shared: &Shared| shared.voice_note.iter().map(|n| n.load(Relaxed)).collect::<Vec<_>>();
-    let serials = |shared: &Shared| shared.voice_serial.iter().map(|n| n.load(Relaxed)).collect::<Vec<_>>();
+    let notes = |shared: &Shared| shared.voices.iter().map(|v| v.note.load(Relaxed)).collect::<Vec<_>>();
+    let serials = |shared: &Shared| shared.voices.iter().map(|v| v.serial.load(Relaxed)).collect::<Vec<_>>();
+    // before the first block no voice sounds a note: not key 0, eight times over
+    assert!(notes(&shared).iter().all(|n| *n == -1) && shared.voices.iter().all(|v| v.sung.load(Relaxed) == -1));
     run(&mut c, &shared, &p, &[(0, on(57, 1)), (0, on(61, 2)), (0, on(64, 3))], GLIDED, 256);
     assert_eq!(notes(&shared)[..4], [57, 61, 64, -1]);
     assert_eq!(shared.shown_voice.load(Relaxed), c.shown() as i32);
     // each voice's pitch, for its own pitch line: within vibrato of its key, and voiced
     let bits = |a: &std::sync::atomic::AtomicU64| f64::from_bits(a.load(Relaxed));
     for (v, midi) in [57u8, 61, 64].into_iter().enumerate() {
-        let (f0, voicing) = (bits(&shared.voice_f0[v]), bits(&shared.voice_voicing[v]));
+        let (f0, voicing) = (bits(&shared.voices[v].f0), bits(&shared.voices[v].voicing));
         assert!((f0 / hz(midi) - 1.0).abs() < 0.05 && voicing > 0.3, "voice {v}: {f0} Hz, voicing {voicing}, for {} Hz", hz(midi));
     }
-    assert_eq!((bits(&shared.voice_f0[3]), bits(&shared.voice_voicing[3])), (0.0, 0.0), "a voice not rendered");
+    assert_eq!((bits(&shared.voices[3].f0), bits(&shared.voices[3].voicing)), (0.0, 0.0), "a voice not rendered");
     let before = serials(&shared);
     // the same key again on its voice: the same note, one press more, so the roll starts a new note
     run(&mut c, &shared, &p, &[(0, off(61)), (100, on(61, 2))], GLIDED, 256);
@@ -304,16 +340,19 @@ fn the_editor_hears_each_voices_note_and_its_presses() {
 #[test]
 fn a_voice_that_joins_takes_the_first_voices_clock() {
     let shared = Shared::default();
-    let mut c = playing(1, &shared);
-    let resting = body(&c, 1).clock;
-    run(&mut c, &shared, &voices(1), &[(0, on(57, 1))], FS as usize, 256);
-    assert_eq!(body(&c, 1).clock, resting, "a voice that doesn't play isn't rendered");
-    assert!(body(&c, 0).clock > resting + 0.9);
-    run(&mut c, &shared, &voices(3), &[(100, on(61, 2))], GLIDED, 256);
-    for v in 1..3 {
-        // the same time, to within one control step (64 samples at the airway's rate)
-        let gap = (body(&c, v).clock - body(&c, 0).clock).abs();
-        assert!(gap < 1e-3, "voice {v} is {gap} s off the first voice's clock");
+    // the first voice anywhere in its control step when the others join, and looked at anywhere
+    for (lead, after) in [(0, GLIDED), (1, 1), (37, 300), (63, 64)] {
+        let mut c = playing(1, &shared);
+        let resting = body(&c, 1).clock;
+        run(&mut c, &shared, &voices(1), &[(0, on(57, 1))], FS as usize + lead, 256);
+        assert_eq!(body(&c, 1).clock, resting, "a voice that doesn't play isn't rendered");
+        assert!(body(&c, 0).clock > resting + 0.9);
+        run(&mut c, &shared, &voices(3), &[], after, 256);
+        for v in 1..3 {
+            // the same time, to within one control step: 64 samples of output
+            let gap = (body(&c, v).clock - body(&c, 0).clock).abs();
+            assert!(gap < 64.5 / FS, "voice {v} is {gap} s off the first voice's clock, {lead} and {after} samples in");
+        }
     }
 }
 
@@ -329,12 +368,119 @@ fn a_voice_taken_away_stops_its_note_fades_and_then_costs_nothing() {
     run(&mut c, &shared, &voices(1), &[], FS as usize, 256);
     let stopped = body(&c, 2).clock;
     assert!(stopped < before + 1.1, "rendered for {} s after it was taken away", stopped - before);
-    run(&mut c, &shared, &voices(1), &[(0, off(61)), (0, off(64)), (100, on(66, 2))], GLIDED, 256);
+    run(&mut c, &shared, &voices(1), &[(100, on(66, 2))], GLIDED, 256);
     assert_eq!(body(&c, 2).clock, stopped);
     assert_eq!(chord(&c)[..3], [hz(66), 0.0, 0.0], "one voice: a second key is legato on it");
-    // and back: the keys still down from before start nothing by themselves
+    // and back, with the fingers of the voices taken away still down: they start nothing by
+    // themselves, and lift unheard
     run(&mut c, &shared, &voices(3), &[(100, on(69, 4))], GLIDED, 256);
     assert_eq!(chord(&c)[..3], [hz(66), hz(69), 0.0]);
+    run(&mut c, &shared, &voices(3), &[(0, off(61)), (0, off(64))], GLIDED, 256);
+    assert_eq!(chord(&c)[..3], [hz(66), hz(69), 0.0]);
+}
+
+#[test]
+fn a_key_of_a_voice_taken_away_is_up_for_both_owners() {
+    let shared = Shared::default();
+    let mut c = playing(2, &shared);
+    run(&mut c, &shared, &voices(2), &[(0, on(57, 1)), (0, on(64, 2))], GLIDED, 256);
+    run(&mut c, &shared, &voices(1), &[], GLIDED, 256);
+    assert_eq!(chord(&c)[..2], [hz(57), 0.0]);
+    // the host's finger is still on 64, on a voice that is gone: the page's key must play it
+    shared.ui_note(UiNote { midi: 64, velocity: 96.0, on: true });
+    run(&mut c, &shared, &voices(1), &[], GLIDED, 256);
+    assert_eq!(chord(&c)[0], hz(64), "the page's key plays the pitch the host's lost finger is on");
+    // and the host's late note-off doesn't lift the page's note
+    run(&mut c, &shared, &voices(1), &[(0, off(64))], GLIDED, 256);
+    assert_eq!(chord(&c)[0], hz(64));
+}
+
+#[test]
+fn a_choke_stops_one_note_of_a_chord_and_everything_on_one_voice() {
+    let shared = Shared::default();
+    let mut c = playing(3, &shared);
+    run(&mut c, &shared, &voices(3), &[(0, on(57, 1)), (0, on(61, 2)), (0, on(64, 3)), (4000, Event::Choke { midi: 61 })], GLIDED, 256);
+    assert_eq!(chord(&c)[..3], [hz(57), 0.0, hz(64)], "the rest of the chord stays");
+    // one voice: as before polyphony, a choke stops all of it, the key still held too
+    let mut c = playing(1, &shared);
+    run(&mut c, &shared, &voices(1), &[(0, on(57, 1)), (100, on(61, 1)), (4000, Event::Choke { midi: 61 })], GLIDED, 256);
+    assert_eq!(chord(&c)[0], 0.0);
+}
+
+#[test]
+fn the_pitch_dial_leaves_a_chords_keys_their_pitches() {
+    let shared = Shared::default();
+    let mut c = playing(3, &shared);
+    run(&mut c, &shared, &voices(3), &[(0, on(57, 1)), (0, on(61, 2))], GLIDED, 256);
+    shared.edit(|p| p.source = SourcePatch::f0(330.0));
+    run(&mut c, &shared, &voices(3), &[], GLIDED, 256);
+    assert_eq!(chord(&c)[..2], [hz(57), hz(61)], "the keys keep their pitches");
+    assert_eq!(body(&c, 2).source.f0, 330.0, "a voice with no key takes the dial's");
+    // one voice: the dial moves the held note, as before polyphony
+    let mut c = playing(1, &shared);
+    run(&mut c, &shared, &voices(1), &[(0, on(57, 1))], GLIDED, 256);
+    shared.edit(|p| p.source = SourcePatch::f0(330.0));
+    run(&mut c, &shared, &voices(1), &[], GLIDED, 256);
+    assert_eq!(chord(&c)[0], 330.0);
+}
+
+#[test]
+fn a_chord_forgets_its_syllable_when_the_cursor_or_the_lyrics_change() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let ms = |t: usize| t * FS as usize / 1000;
+    let shared = Shared::default();
+    let p = voices(2);
+    let settings = Settings { lyrics: "one two three four".into(), ..Default::default() };
+    // the cursor is moved 10 ms after a note: the next note, 10 ms on, sings from the cursor
+    let mut c = core_with(&settings, &shared, &p);
+    run(&mut c, &shared, &p, &[(0, on(57, 1))], ms(10), 256);
+    shared.edit(|p| p.cursor = Some(2));
+    run(&mut c, &shared, &p, &[(ms(10), on(61, 2))], ms(40), 256);
+    assert_eq!((c.voice(0).1.sung(), c.voice(1).1.sung(), c.singer().cursor()), (Some(0), Some(2), 3));
+    // new lyrics: the next note sings their first syllable, and the note still held on the other
+    // voice no longer points into them
+    let mut c = core_with(&settings, &shared, &p);
+    run(&mut c, &shared, &p, &[(0, on(57, 1)), (ms(5), on(61, 2)), (ms(8), off(57))], ms(10), 256);
+    assert_eq!(c.voice(1).1.sung(), Some(0));
+    shared.send_lyrics(lyrics_to_syllables("la", g2p()));
+    run(&mut c, &shared, &p, &[(ms(10), on(64, 1))], ms(40), 256);
+    assert_eq!((c.voice(0).1.sung(), c.voice(1).1.sung()), (Some(0), None));
+    assert_eq!(shared.voices[1].sung.load(Relaxed), -1);
+    // a transport that starts again from the top: the first note of the bar sings the first word
+    let mut c = core_with(&settings, &shared, &p);
+    let playing = |position| Transport { playing: true, position: Some(position), ..Default::default() };
+    let block = |c: &mut Core, t: Transport, events: &[(usize, Event)]| {
+        c.begin_block(&p, t, &shared);
+        for (_, e) in events {
+            c.event(*e);
+        }
+        c.render(&mut [0.0f32; 256]);
+        c.end_block(256, &shared);
+    };
+    block(&mut c, playing(4.0), &[(0, on(57, 1))]);
+    block(&mut c, playing(4.1), &[(0, off(57))]);
+    block(&mut c, playing(0.0), &[(0, on(61, 2))]);
+    assert_eq!((c.voice(1).1.sung(), c.singer().cursor()), (Some(0), 1), "after the loop, the first word");
+}
+
+#[test]
+fn a_melisma_moves_the_vowel_of_the_note_before_it() {
+    let ms = |t: usize| t * FS as usize / 1000;
+    let settings = Settings { lyrics: "one two - three".into(), ..Default::default() };
+    for n in [2, 3] {
+        let shared = Shared::default();
+        let p = voices(n);
+        let mut c = core_with(&settings, &shared, &p);
+        // "one" and "two" held on two voices, then the melisma's key: with every voice busy it
+        // once took the oldest note's voice and bent "one"; with a free voice it sang "two" twice
+        run(&mut c, &shared, &p, &[(0, on(57, 1)), (ms(200), on(61, 2)), (ms(400), on(64, 3))], ms(600), 256);
+        let note = |v: usize| c.voice(v).1.sounding_note();
+        assert_eq!((note(0), note(1)), (Some(57), Some(64)), "{n} voices: the voice singing two glides");
+        assert_eq!((c.voice(0).1.sung(), c.voice(1).1.sung()), (Some(0), Some(2)));
+        if n == 3 {
+            assert_eq!(note(2), None, "the free voice stays free");
+        }
+    }
 }
 
 #[test]

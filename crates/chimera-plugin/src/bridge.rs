@@ -304,7 +304,8 @@ impl Bridge {
         out.extend_from_slice(&(s.shown_voice.load(Ordering::Relaxed) as f64).to_le_bytes());
         for v in 0..MAX_VOICES {
             let bits = |a: &std::sync::atomic::AtomicU64| f64::from_bits(a.load(Ordering::Relaxed));
-            for x in [s.voice_note[v].load(Ordering::Relaxed) as f64, s.voice_sung[v].load(Ordering::Relaxed) as f64, s.voice_serial[v].load(Ordering::Relaxed) as f64, bits(&s.voice_f0[v]), bits(&s.voice_voicing[v])] {
+            let voice = &s.voices[v];
+            for x in [voice.note.load(Ordering::Relaxed) as f64, voice.sung.load(Ordering::Relaxed) as f64, voice.serial.load(Ordering::Relaxed) as f64, bits(&voice.f0), bits(&voice.voicing)] {
                 out.extend_from_slice(&x.to_le_bytes());
             }
         }

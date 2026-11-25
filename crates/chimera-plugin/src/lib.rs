@@ -168,7 +168,8 @@ fn core_event(ev: &NoteEvent<()>) -> Option<Event> {
     Some(match *ev {
         NoteEvent::NoteOn { note, velocity, channel, .. } => Event::NoteOn { midi: note, velocity: (velocity * 127.0) as f64, channel },
         NoteEvent::NoteOff { note, .. } => Event::NoteOff { midi: note },
-        NoteEvent::Choke { .. } | NoteEvent::MidiCC { cc: 120 | 123, .. } => Event::AllOff,
+        NoteEvent::Choke { note, .. } => Event::Choke { midi: note },
+        NoteEvent::MidiCC { cc: 120 | 123, .. } => Event::AllOff,
         NoteEvent::MidiPitchBend { channel, value, .. } => Event::Bend { channel, value },
         NoteEvent::MidiChannelPressure { channel, pressure, .. } => Event::Pressure { channel, value: pressure },
         NoteEvent::PolyPressure { note, pressure, .. } => Event::KeyPressure { midi: note, value: pressure },

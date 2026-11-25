@@ -232,25 +232,33 @@ legato, the glide back to a held key, the coda. Polyphony is which voice a note 
 3. or the voice free for the longest;
 4. or, with every voice busy, the voice whose note started longest ago. It takes the note as one
    voice takes a second key: legato, and back to the older key if that is still down when the new
-   one lifts.
+   one lifts. A voice back on its older key is as old as that key's note again.
+
+In Sing a melisma is the exception: it goes to the voice that sang the syllable before it, whether
+that key is still down (the vowel glides) or not (the vowel again, with no onset), because it
+continues that vowel and no other.
 
 What the voices share, and what is each one's own:
 
 - **Shared:** the body, the posture, the lyrics, every dial, the wheel (channel 1's bend).
 - **Each voice's own:** its note, and that note's channel: bend (±48), pressure (breath), slide
-  (brightness), and its key's poly pressure. With MPE off every note is on the same footing, so
-  channel pressure moves all the voices.
+  (brightness), and its key's poly pressure. With MPE off the bend is the wheel, for every voice,
+  and slide does nothing; pressure still moves only the voices whose note is on its channel (a
+  keyboard that isn't MPE sends every note on one channel, so there it moves them all).
 - **Sing.** A chord sings one syllable: a note that starts within 50 ms of the note before, on a
   voice of its own, sings that note's syllable. Any other note sings the next one, so a melody over
   a held note moves through the words. A note that had to take a busy voice (rule 4) also sings the
   next syllable, as a second key does on one voice. Each voice sings its own coda when its key lifts.
 - **Play.** A voice that starts from silence starts on its pitch; it doesn't glide in from the last
   note it sang (with one voice it still does, as before). Hold keeps the first voice breathing.
+  With several voices the Pitch dial moves only the voices with no key down: a key keeps its pitch
+  (with one voice the dial moves the held note, as before).
 - **Speak and Beatbox** use the first voice only.
 - **The level.** Each voice ends in its own limiter, at 0.75, so the plain sum of a loud chord goes
   far over full scale (four voices at full pressure: 2.4). With more than one voice the sum goes
   through one more limiter with the same law (`ChordLimiter`): a loud chord is turned down as a
-  whole. One voice sounding stays below its ceiling and passes unchanged.
+  whole. One voice sounding stays below its ceiling and passes unchanged, once the level of the
+  chord before it has died away (200 ms).
 - **The editor.** Each voice's pitch is shown: the keys light every note a voice sounds; the roll
   (Sing) has a note and an amber pitch line for each voice; the Keys header (Play) names the chord;
   the lines by the head list each voice's F0 or note; the spectrum marks each F0 and, for a chord,
@@ -263,11 +271,20 @@ What the voices share, and what is each one's own:
 Lowering Voices stops the notes of the voices taken away. They are rendered for one more second, so
 their release is heard, and then they cost nothing. Raising it sets each voice that joins to the
 first voice's clock (`Engine::set_clock`), so the editor's notes and telemetry are on one timeline.
-The clocks then differ by less than one control step (0.7 ms), because a joining voice starts its
-control steps from its own phase.
+The clocks then differ by up to one control step (64 samples of output: 1.5 ms at 44.1 kHz),
+because a joining voice starts its control steps from its own phase.
+
+A chord's syllable is forgotten when the lyrics or the cursor change, when the transport starts
+again from the top, and when everything stops, so the first note after that sings from the cursor.
+The host's choke of one note lifts that note; with one voice it stops everything, as it did.
 
 Known limits. Every voice the parameter asks for is rendered all the time, sounding or not (the cost
-is in `docs/polyphony.md`). The page has no dial for Voices: it is set in the host.
+is in `docs/polyphony.md`). The page has no dial for Voices: it is set in the host. The same pitch
+on two channels is one key: the second press takes the first one's voice and channel, and the note
+ends when either finger lifts (a note-off carries no channel here; on a Push each pitch is on more
+than one pad). A choke lifts its note with its release; it doesn't cut it dead. A voice not being
+rendered takes a new pressure, brightness or dial value at once, with no glide: nothing of it is
+heard, and with one voice the glide's timing is exactly the single voice's.
 
 ## State
 
