@@ -267,7 +267,8 @@ What the voices share, and what is each one's own:
   (Sing) has a note and an amber pitch line for each voice; the Keys header (Play) names the chord;
   the lines by the head list each voice's F0 or note; the spectrum marks each F0 and, for a chord,
   draws the whole curve instead of one voice's harmonics. The head, the tube and the folds show one
-  voice: the one with the newest note still sounding, and after that its release. The voices share
+  voice: the one with the newest note still sounding, and after that its release; with Hold on and
+  no key down, the first voice, which Hold breathes. The voices share
   one pose, so in Play the head is right for each: only pitch and breath differ. In Sing a voice
   may be on another syllable, and the head is the mouth of the voice shown. The Pitch dial is a
   control, so it shows the newest note. The poll sends each voice's note, syllable, press count,
@@ -313,8 +314,10 @@ The body, the pose and the dials go to every voice, and a voice made later gets 
 gestures, pitch and breath go to its own voice; a release goes to every voice, because a tag is
 one note's. With more than one voice the sum goes through the plugin's limiter
 (`chimera::voice::chord_limiter`, through `mix_limit`); with one, the output is the first voice's
-as before. A voice that joins takes the first voice's clock, so the telemetry of any voice is on one
-timeline; the head shows the voice with the newest note, and each voice's pitch comes with the
+as before. A voice taken away rings on for a second only if it had a note (the chip's way from 2
+back to 1 is by 3 and 4, which then cost nothing), and under a creature not at all: the creature is
+the first voice's, and its human voice stops at once too. A voice that joins takes the first voice's
+clock, so the telemetry of any voice is on one timeline; the head shows the voice with the newest note, and each voice's pitch comes with the
 telemetry for the pitch lines.
 
 Different from the plugin: at most 4 voices, because a voice costs about 15.5% of one core in wasm
