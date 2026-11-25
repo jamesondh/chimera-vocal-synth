@@ -241,7 +241,11 @@ function addNote(midi: number, t0: number, text: string, demo = false, t1: numbe
   roll.notes.push(n);
   // keep a minute of history
   const cut = t0 - 60;
-  if (roll.notes.length > 400 || (roll.notes[0] && (roll.notes[0].t1 ?? t0) < cut)) roll.notes = roll.notes.filter((x) => (x.t1 ?? t0) >= cut).slice(-400);
+  if (roll.notes.length > 400 || (roll.notes[0] && (roll.notes[0].t1 ?? t0) < cut)) {
+    const recent = roll.notes.filter((x) => (x.t1 ?? t0) >= cut);
+    // a note still held stays, however many came after it (in the plugin, a drone under a melody)
+    roll.notes = recent.filter((x, i) => x.t1 === null || i >= recent.length - 400);
+  }
   return n;
 }
 

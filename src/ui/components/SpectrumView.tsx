@@ -32,8 +32,7 @@ export function SpectrumView(props: { ring?: boolean }) {
     const tele = engine.latest && sameBody(engine.latest.body, st.body) ? engine.latest : null;
     // a chord in the plugin: a marker at each voice's pitch, and the whole curve (one voice's
     // harmonics would leave the others out)
-    const chord = voicedPitches();
-    const f0s = chord && chord.length > 1 ? chord : tele && tele.t.voicing > 0.3 ? [tele.t.f0] : [];
+    const f0s = voicedPitches() ?? (tele && tele.t.voicing > 0.3 ? [tele.t.f0] : []);
     const f0 = f0s.length === 1 ? f0s[0] : 0;
 
     // the F0 label is written to the left of the lowest marker: a frequency label under the markers gives way

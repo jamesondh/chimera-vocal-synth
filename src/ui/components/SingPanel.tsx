@@ -34,10 +34,11 @@ export const singWords = mouthWords(sungNow, V.green);
 /** Sing mode's lines over the face: the note, the syllable, the ring */
 export const singInfo: InfoFn = (_m, _f, tele) => {
   const out: string[] = [];
-  // a chord in the plugin: each voice's note
-  const chord = voicedPitches();
-  if (chord && chord.length > 1) out.push(`Notes ${chord.map(noteName).join(" ")}`);
-  else if (tele && tele.t.voicing > 0.3) out.push(`Note ${noteName(tele.t.f0)} ${tele.t.f0.toFixed(0)} Hz`);
+  // in the plugin: the note of each voice that sings (the telemetry is of one voice, which may be
+  // on a voiceless consonant while another holds a vowel)
+  const notes = voicedPitches() ?? (tele && tele.t.voicing > 0.3 ? [tele.t.f0] : []);
+  if (notes.length > 1) out.push(`Notes ${notes.map(noteName).join(" ")}`);
+  else if (notes.length) out.push(`Note ${noteName(notes[0])} ${notes[0].toFixed(0)} Hz`);
   const syl = syllableNow();
   if (syl) out.push(`Syllable ${syl}`);
   out.push(useStore.getState().artic.epilarynx >= RING - 0.05 ? "Ring on" : "Ring off");

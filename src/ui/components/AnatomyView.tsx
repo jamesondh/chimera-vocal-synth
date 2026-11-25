@@ -24,9 +24,10 @@ export type OverlayFn = (ctx: CanvasRenderingContext2D, r: FaceView, m: VoiceMod
 /** the tract's length and mouth opening, then the live pitch and lungs */
 export const tractInfo: InfoFn = (_m, f, tele) => {
   const info = [`Tract ${f.length.toFixed(1)} cm`, `Mouth ${f.lipArea.toFixed(1)} cm²`];
-  // a chord in the plugin: each voice's pitch
+  // in the plugin: the pitch of each voice that sings (the telemetry is of one voice, which may be
+  // on a voiceless consonant while another holds a vowel)
   const chord = voicedPitches();
-  const f0 = chord && chord.length > 1 ? chord.map((f) => f.toFixed(0)).join(" ") : tele?.t.f0.toFixed(1);
+  const f0 = chord?.length ? chord.map((f) => f.toFixed(chord.length > 1 ? 0 : 1)).join(" ") : tele?.t.f0.toFixed(1);
   if (tele) info.push(`F0 ${f0} Hz`, `Lungs ${tele.t.pLung.toFixed(1)} cmH₂O`);
   return info;
 };
