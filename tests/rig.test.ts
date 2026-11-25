@@ -3,17 +3,25 @@
  * (the head is fitted to a VoiceModel), without a GPU.
  */
 import { beforeAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { initEngine } from "./harness.ts";
-import type { Rig as RigT } from "../src/rig/rig.ts";
+import type { AnatomyParams, Rig as RigT } from "../src/rig/rig.ts";
 import type { Pose } from "../src/rig/pose.ts";
 
 type Mods = {
   Rig: typeof import("../src/rig/rig.ts").Rig;
+  vertexNormals: typeof import("../src/rig/rig.ts").vertexNormals;
+  armClearance: typeof import("../src/rig/rig.ts").armClearance;
   motion: typeof import("../src/rig/motion.ts");
   pose: typeof import("../src/rig/pose.ts");
   head: typeof import("../src/rig/head.ts");
+  view: typeof import("../src/rig/view.ts");
+  physics: typeof import("../src/rig/physics.ts");
+  maleAnatomy: typeof import("../src/rig/maleAnatomy.ts");
+  muscles: typeof import("../src/rig/muscles.ts");
+  walk: typeof import("../src/rig/walk.ts");
   VoiceModel: typeof import("../src/ui/analysis.ts").VoiceModel;
   BODIES: typeof import("../src/ui/body.ts").PRESETS;
   REST_ARTIC: typeof import("../src/ui/render/anatomy3d.ts").REST_ARTIC;
@@ -22,8 +30,21 @@ let M: Mods;
 beforeAll(async () => {
   await initEngine();
   // the head reads the engine's tables as it loads: after the engine
-  const [rig, pose, head, analysis, body, a3d, motion] = await Promise.all([import("../src/rig/rig.ts"), import("../src/rig/pose.ts"), import("../src/rig/head.ts"), import("../src/ui/analysis.ts"), import("../src/ui/body.ts"), import("../src/ui/render/anatomy3d.ts"), import("../src/rig/motion.ts")]);
-  M = { Rig: rig.Rig, motion, pose, head, VoiceModel: analysis.VoiceModel, BODIES: body.PRESETS, REST_ARTIC: a3d.REST_ARTIC };
+  const [rig, pose, head, view, analysis, body, a3d, motion, physics, maleAnatomy, muscles, walk] = await Promise.all([
+    import("../src/rig/rig.ts"),
+    import("../src/rig/pose.ts"),
+    import("../src/rig/head.ts"),
+    import("../src/rig/view.ts"),
+    import("../src/ui/analysis.ts"),
+    import("../src/ui/body.ts"),
+    import("../src/ui/render/anatomy3d.ts"),
+    import("../src/rig/motion.ts"),
+    import("../src/rig/physics.ts"),
+    import("../src/rig/maleAnatomy.ts"),
+    import("../src/rig/muscles.ts"),
+    import("../src/rig/walk.ts"),
+  ]);
+  M = { Rig: rig.Rig, vertexNormals: rig.vertexNormals, armClearance: rig.armClearance, motion, pose, head, view, physics, maleAnatomy, muscles, walk, VoiceModel: analysis.VoiceModel, BODIES: body.PRESETS, REST_ARTIC: a3d.REST_ARTIC };
 });
 
 function loadRig(): RigT {
@@ -466,5 +487,549 @@ describe("motion from other tools", () => {
     moved.pose(0.5);
     motion.pose(0.5);
     expect(jointsApart(dst, still, false).cm).toBeLessThan(0.01);
+  });
+});
+
+describe("anatomy morphs, soft-tissue jiggle, muscles & walking gait", () => {
+  test("male and female anatomy morph cleanly with valid skeletal proportions and closed head join", () => {
+    const male = loadRig();
+    const female = loadRig();
+    female.setAnatomy({ female: 1, fat: 0.4, muscle: 0.5, breast: 0.6, butt: 0.6 });
+
+    // Female body is shorter at the neck rim with distinct chest/pelvis geometry
+    expect(female.header.rimShape.centre[1]).toBeLessThan(male.header.rimShape.centre[1] - 8);
+    expect(female.H[female.bone("upperchest")].y).toBeLessThan(male.H[male.bone("upperchest")].y - 6);
+
+    // Body-shaping morphs (fat, muscle, breast, butt) preserve the neck rim so they can update live
+    const rimBefore = female.rim.map((i) => at(female.rest, i));
+    female.setAnatomy({ fat: 1.0, muscle: 0.2, breast: 1.0, butt: 1.0 });
+    female.rim.forEach((i, k) => expect(at(female.rest, i).distanceTo(rimBefore[k])).toBeLessThan(1e-3));
+
+    // Female CHIMERA head fits cleanly onto the morphed female neck rim with only the lips cut open
+    const model = new M.VoiceModel(M.BODIES.female, 48000);
+    M.head.wearHead(female, model);
+    const open = openEdges(female);
+    expect(open.every(([a, b]) => a >= female.bodyVertices && b >= female.bodyVertices)).toBe(true);
+    // Neutral pose still hangs arms straight down on the female skeleton
+    female.pose(M.pose.neutral());
+    for (const s of ["R", "L"]) {
+      const dir = female.P[female.bone(`forearm.${s}`)].clone().sub(female.P[female.bone(`upperarm.${s}`)]).normalize();
+      expect(dir.y).toBeLessThan(-0.999);
+    }
+    model.dispose();
+  });
+
+  test("soft-tissue physics produces stable breast and butt jiggle during female walking and quiets when disabled", () => {
+    const rig = loadRig();
+    rig.setAnatomy({ female: 1, fat: 0.55, muscle: 0.3, breast: 0.85, butt: 0.85 });
+    const tissue = new M.physics.SoftTissue(rig);
+    const skinned = new Float32Array(3 * rig.n);
+    let peakBreast = 0, peakButt = 0;
+
+    for (let step = 0; step < 120; step++) {
+      const wf = M.walk.walkFrame(step / 60, "catwalk", rig.anatomy);
+      rig.pose(wf.pose);
+      tissue.step(1 / 60);
+      rig.skin(skinned);
+      const before = skinned.slice();
+      tissue.apply(skinned);
+      for (let i = 0; i < skinned.length; i++) expect(Number.isFinite(skinned[i])).toBe(true);
+      peakBreast = Math.max(peakBreast, tissue.region("breastL")!.magnitude, tissue.region("breastR")!.magnitude);
+      peakButt = Math.max(peakButt, tissue.region("buttL")!.magnitude, tissue.region("buttR")!.magnitude);
+      if (step === 60) expect(maxMove(before, skinned, [...Array(rig.bodyVertices).keys()])).toBeGreaterThan(0.2);
+    }
+    // Realistic anatomical bounce range (cm): clearly visible, bounded below explosion
+    expect(peakBreast).toBeGreaterThan(0.4);
+    expect(peakBreast).toBeLessThan(6.0);
+    expect(peakButt).toBeGreaterThan(0.25);
+    expect(peakButt).toBeLessThan(5.0);
+
+    // Lean male chest has minimal breast jiggle compared to female
+    const male = loadRig();
+    male.setAnatomy({ female: 0, fat: 0.08, muscle: 1.0, breast: 0, butt: 0.3 });
+    const maleTissue = new M.physics.SoftTissue(male);
+    let maleBreast = 0;
+    for (let step = 0; step < 60; step++) {
+      male.pose(M.walk.walkFrame(step / 60, "walk", male.anatomy).pose);
+      maleTissue.step(1 / 60);
+      maleBreast = Math.max(maleBreast, maleTissue.region("breastL")!.magnitude);
+    }
+    expect(maleBreast).toBeLessThan(0.15);
+
+    // Disabling jiggle yields zero displacement
+    tissue.settings.enabled = false;
+    tissue.step(1 / 60);
+    expect(tissue.region("breastL")!.magnitude).toBe(0);
+    expect(tissue.region("buttR")!.magnitude).toBe(0);
+  });
+
+  test("muscle system fires kinematically on flex biceps, follows gait loads, bulges skin, and renders cleanly", () => {
+    const rig = loadRig();
+    rig.setAnatomy({ female: 0, fat: 0.05, muscle: 1.0, breast: 0, butt: 0.3 });
+    const ms = new M.muscles.MuscleSystem(rig);
+    expect(ms.muscles.length).toBe(30);
+
+    // Kinematic activation: flexing biceps fires biceps.L and biceps.R strongly without external loads
+    rig.pose(M.pose.PRESETS["flex biceps"]);
+    ms.update(0);
+    expect(ms.byName.get("biceps.R")!.activation).toBeGreaterThan(0.5);
+    expect(ms.byName.get("biceps.L")!.activation).toBeGreaterThan(0.5);
+
+    // Volume-preserving surface bulge moves nearby skin vertices outward and attenuates under high body fat
+    const skinned = new Float32Array(3 * rig.n);
+    const norms = new Float32Array(3 * rig.n);
+    rig.skin(skinned);
+    M.vertexNormals(rig, skinned, norms);
+    const leanBase = skinned.slice();
+    ms.deform(skinned, norms);
+    const leanMove = maxMove(leanBase, skinned, [...Array(rig.bodyVertices).keys()]);
+    expect(leanMove).toBeGreaterThan(0.3);
+
+    rig.setAnatomy({ fat: 1.0 });
+    const fatSkinned = leanBase.slice();
+    ms.deform(fatSkinned, norms);
+    const fatMove = maxMove(leanBase, fatSkinned, [...Array(rig.bodyVertices).keys()]);
+    expect(fatMove).toBeLessThan(leanMove);
+
+    // Gait load firing & vector beam draw (headless safe)
+    const wf = M.walk.walkFrame(0.44 / 0.96, "walk", rig.anatomy);
+    rig.pose(wf.pose);
+    ms.update(0, wf.loads);
+    expect(ms.byName.get("gastrocnemius.R")!.activation).toBeGreaterThan(0.6);
+    ms.draw();
+    ms.dispose();
+  });
+
+  test("walking gait is periodic, finite across all styles, and adapts hip sway to female anatomy", () => {
+    for (const style of M.walk.GAIT_STYLES) {
+      const a = M.walk.walkFrame(0, style, { female: 1 });
+      const b = M.walk.walkFrame(100, style, { female: 1 });
+      expect(a.speedCmPerSec).toBeGreaterThan(50);
+      expect(Number.isFinite(b.pose.body.y)).toBe(true);
+      expect(Number.isFinite(b.pose.legs.R.flex)).toBe(true);
+    }
+    // Periodicity: exactly one cycle returns identical angles
+    const t0 = M.walk.walkFrame(0.15, "walk", { female: 0.5 });
+    const t1 = M.walk.walkFrame(0.15 + 1 / 0.96, "walk", { female: 0.5 });
+    expect(t0.pose.legs.R.flex).toBeCloseTo(t1.pose.legs.R.flex, 4);
+    expect(t0.pose.legs.L.knee).toBeCloseTo(t1.pose.legs.L.knee, 4);
+    // Female gait has fuller pelvic list / sway at mid-stance than male gait
+    const mMid = M.walk.walkFrame(0.25 / 0.96, "walk", { female: 0 });
+    const fMid = M.walk.walkFrame(0.25 / 0.96, "walk", { female: 1 });
+    expect(Math.abs(fMid.pose.body.lean)).toBeGreaterThan(Math.abs(mMid.pose.body.lean));
+    expect(Math.abs(fMid.pose.body.z)).toBeGreaterThan(Math.abs(mMid.pose.body.z));
+  });
+
+  test("adaptive 4× Catmull-Clark subdivision, independent male breast/butt jiggle, and male penis anatomy work cleanly", () => {
+    const rig = loadRig();
+    rig.setAnatomy({ female: 0, fat: 0.2, muscle: 0.4, breast: 1.0, butt: 1.0 });
+    const view = new M.view.RigView(rig);
+    expect(view.quadCount).toBe(rig.nq);
+    view.subdivide = 1;
+    expect(view.quadCount).toBe(4 * rig.nq);
+    rig.pose(M.walk.walkFrame(0.2, "walk", rig.anatomy).pose);
+    rig.skin(view.posed);
+    view.update();
+    view.dispose();
+
+    // Independent breast & butt jiggle works on male when breast/butt sliders are raised
+    const tissue = new M.physics.SoftTissue(rig);
+    let maleBreast = 0, maleButt = 0;
+    for (let step = 0; step < 60; step++) {
+      rig.pose(M.walk.walkFrame(step / 60, "walk", rig.anatomy).pose);
+      tissue.step(1 / 60);
+      maleBreast = Math.max(maleBreast, tissue.region("breastL")!.magnitude);
+      maleButt = Math.max(maleButt, tissue.region("buttL")!.magnitude);
+    }
+    expect(maleBreast).toBeGreaterThan(0.25);
+    expect(maleButt).toBeGreaterThan(0.15);
+
+    // Male external anatomy toggles cleanly with size and oscillates stably during walking
+    const maleGeo = new M.maleAnatomy.MaleAnatomy(rig);
+    maleGeo.size = M.maleAnatomy.PENIS_SIZES.none;
+    maleGeo.update(1 / 60);
+    expect(maleGeo.group.visible).toBe(false);
+    maleGeo.size = M.maleAnatomy.PENIS_SIZES.L;
+    let peakPenis = 0;
+    for (let step = 0; step < 60; step++) {
+      rig.pose(M.walk.walkFrame(step / 60, "walk", rig.anatomy).pose);
+      maleGeo.update(1 / 60);
+      peakPenis = Math.max(peakPenis, maleGeo.magnitude);
+    }
+    expect(maleGeo.group.visible).toBe(true);
+    expect(peakPenis).toBeGreaterThan(0.2);
+    expect(peakPenis).toBeLessThan(6.0);
+    maleGeo.dispose();
+  });
+});
+
+describe("the shaped body and the rest of the rig", () => {
+  /** bodies from slight to the sliders' far ends, of each sex */
+  const SHAPES: Record<string, Partial<AnatomyParams>> = {
+    "the file's": {},
+    "female, slight": { female: 1, fat: 0, muscle: 0.2, breast: 0, butt: 0 },
+    "female, full": { female: 1, fat: 0.15, muscle: 0.3, breast: 0.9, butt: 1 },
+    "female, heavy": { female: 1, fat: 0.8, muscle: 0.25, breast: 1, butt: 1 },
+    "male, muscular": { female: 0, fat: 0.08, muscle: 1.15, breast: 0, butt: 0.45 },
+    "male, heavy": { female: 0, fat: 0.95, muscle: 0.3, breast: 0.15, butt: 0.65 },
+  };
+  /** how far (cm) the deepest forearm or hand vertex is behind the skin of the trunk and thighs nearest it */
+  function sunk(rig: RigT, P: Float32Array, N: Float32Array): number {
+    const INF = rig.INF;
+    const bone = (i: number) => {
+      let most = 0, at = 0;
+      for (let j = 0; j < INF; j++) {
+        if (rig.skinWeight[INF * i + j] > most) {
+          most = rig.skinWeight[INF * i + j];
+          at = rig.skinIndex[INF * i + j];
+        }
+      }
+      return rig.bones[at].name;
+    };
+    let deepest = 0;
+    for (const s of ["R", "L"]) {
+      const arm: number[] = [], body: number[] = [];
+      for (let i = 0; i < rig.bodyVertices; i++) {
+        const n = bone(i);
+        if ([`forearm.${s}`, `forearm2.${s}`, `hand.${s}`].includes(n)) arm.push(i);
+        else if (/^(hips|spine|chest|upperchest)/.test(n) || [`pelvis.${s}`, `thigh.${s}`, `thigh2.${s}`, `hipHelper.${s}`, `hipFront.${s}`].includes(n)) body.push(i);
+      }
+      for (const i of arm) {
+        let best = 36, q = -1;
+        for (const b of body) {
+          const d = at(P, i).distanceToSquared(at(P, b));
+          if (d < best) {
+            best = d;
+            q = b;
+          }
+        }
+        if (q >= 0) deepest = Math.max(deepest, -at(P, i).sub(at(P, q)).dot(at(N, q)));
+      }
+    }
+    return deepest;
+  }
+
+  test("with no anatomy set the body is the one from before there was any, byte for byte (a third taken as a weight, not a division, put one midline vertex on another triangle, 0.56 cm off)", () => {
+    const b = readFileSync(new URL("../src/rig/body.rig.bin", import.meta.url));
+    const len = b.readUInt32LE(0), h = JSON.parse(b.subarray(4, 4 + len).toString("utf8"));
+    expect([h.vertices, h.quads, h.bones.length, h.rim.length]).toEqual([2915, 2896, 43, 36]);
+    // the rest mesh, the skin's bones and weights, the quads: what main's file holds after its header
+    const core = b.subarray(4 + len, 4 + len + h.vertices * (12 + 3 * h.influences) + 8 * h.quads);
+    expect(createHash("sha256").update(core).digest("hex")).toBe("b811aa00cc27d71598cc5cc4bfd86b4cb94f82627fc168267145683249b3ffb2");
+    // and a rig nothing was asked of rests where the file has it
+    const plain = loadRig(), shaped = loadRig();
+    shaped.setAnatomy({ fat: 0.5, breast: 0.7 });
+    shaped.setAnatomy({ fat: 0, breast: 0 });
+    expect(maxMove(plain.rest, shaped.rest, Array(plain.bodyVertices).keys())).toBeLessThan(1e-4);
+  });
+
+  test("a slider moved with the head on leaves the neck as the head fitted it (the rest mesh was rebuilt from the file's, and the rim sprang back 2 cm under the head); the sex then is refused", () => {
+    for (const sex of ["male", "female"] as const) {
+      const rig = loadRig();
+      rig.setAnatomy({ female: sex === "female" ? 1 : 0, fat: 0.35, muscle: 0.45, breast: 0.55, butt: 0.55 });
+      const model = new M.VoiceModel(M.BODIES[sex], 48000);
+      M.head.wearHead(rig, model);
+      const fitted = rig.rest.slice(), y = rig.header.rimShape.centre[1];
+      const neck = [...Array(rig.bodyVertices).keys()].filter((i) => fitted[3 * i + 1] > y - 1.5);
+      expect(neck.length).toBeGreaterThan(rig.rim.length);
+      rig.setAnatomy({ fat: 1, muscle: 0.1, breast: 1, butt: 1 });
+      expect([sex, maxMove(fitted, rig.rest, neck) < 1e-3]).toEqual([sex, true]);
+      // the body under it did take the shape
+      expect(maxMove(fitted, rig.rest, Array(rig.bodyVertices).keys())).toBeGreaterThan(1);
+      expect(() => rig.setAnatomy({ female: sex === "female" ? 0 : 1 })).toThrow("before wearHead");
+      expect(rig.anatomy.female).toBe(sex === "female" ? 1 : 0);
+      model.dispose();
+    }
+  });
+
+  test("standing still, the soft tissue stays where the mesh has it (a sag of its own slid a full breast 1.6 cm down the chest, into a ledge)", () => {
+    const rig = loadRig();
+    rig.setAnatomy(SHAPES["female, heavy"]);
+    const tissue = new M.physics.SoftTissue(rig);
+    tissue.settings.jiggle = 2;
+    rig.pose(M.pose.PRESETS.neutral);
+    for (let k = 0; k < 240; k++) tissue.step(1 / 60);
+    for (const r of tissue.regions) expect([r.def.name, r.magnitude < 0.01]).toEqual([r.def.name, true]);
+  });
+
+  test("hanging arms clear every body, standing and through each gait (a hand hung 3 cm inside the file's thigh and 6 inside a wide hip; the walk turned the upper arm in, the hand into the thigh)", () => {
+    for (const [name, shape] of Object.entries(SHAPES)) {
+      const rig = loadRig();
+      rig.setAnatomy(shape);
+      const P = new Float32Array(3 * rig.n), N = new Float32Array(3 * rig.n);
+      const deep = (p: Pose) => {
+        rig.pose(p);
+        rig.skin(P);
+        M.vertexNormals(rig, P, N);
+        return sunk(rig, P, N);
+      };
+      // anatomical zero itself is left as it is, hands in the thighs
+      expect([name, deep(M.pose.PRESETS.neutral) > 2]).toEqual([name, true]);
+      const out = M.armClearance(rig);
+      expect([name, out > 2 && out < 20]).toEqual([name, true]);
+      expect([name, "standing", deep(M.pose.armsOut(M.pose.PRESETS.neutral, out)) < 0.5]).toEqual([name, "standing", true]);
+      for (const style of M.walk.GAIT_STYLES) {
+        let worst = 0;
+        // 4 s: more than a cycle of each
+        for (let f = 0; f < 96; f++) worst = Math.max(worst, deep(M.walk.walkFrame(f / 24, style, rig.anatomy, 1, out).pose));
+        expect([name, style, worst < 0.5]).toEqual([name, style, true]);
+      }
+    }
+    // an arm already further out is left where it is, and so is one that doesn't hang at the side:
+    // raised, or across the body (held out regardless, twist & look's arm across the chest went 21 cm off it)
+    const { PRESETS, armsOut, pose } = M.pose;
+    const out = (a: Pose["arms"]["R"]) => a.raise * Math.cos((a.plane * Math.PI) / 180);
+    for (const [name, p] of Object.entries(PRESETS)) {
+      for (const s of ["R", "L"] as const) {
+        const a = p.arms[s], b = armsOut(p, 8).arms[s];
+        if (a.raise >= 45 || Math.abs(a.plane) >= 90 || out(a) >= 8) expect([name, s, b]).toEqual([name, s, a]);
+        else expect([name, s, out(b) >= out(a) - 1e-9 && out(b) <= 8 + 1e-9]).toEqual([name, s, true]);
+      }
+    }
+    expect(out(armsOut(PRESETS.neutral, 8).arms.R)).toBeCloseTo(8, 6);
+    expect(out(armsOut(pose({ bothArms: { raise: 8, plane: 40 } }), 8).arms.L)).toBeCloseTo(8, 6);
+    const across = pose({ bothArms: { raise: 40, plane: 120, elbow: 90 } });
+    expect(armsOut(across, 8)).toEqual(across);
+  });
+
+  test("a clip from another tool lands on a shaped female body as it does on the file's", async () => {
+    const { PRESETS } = M.pose, names = Object.keys(PRESETS);
+    const frames = [...names.map((n) => PRESETS[n]), PRESETS.neutral];
+    const src = loadRig(), dst = loadRig();
+    for (const rig of [src, dst]) rig.setAnatomy(SHAPES["female, full"]);
+    src.settings.thighTwist = 1;
+    const motion = await M.motion.Motion.load(dst, buffer(toBVH(src, PRESETS.neutral, frames, 90, 1 / 2.54)), "rig.bvh");
+    names.forEach((name, k) => {
+      src.pose(PRESETS[name]);
+      motion.pose(0.5 * k);
+      expect([name, jointsApart(src, dst, true).cm < 0.1, handsApart(src, dst) < 0.5]).toEqual([name, true, true]);
+    });
+  });
+
+  test("a body that travels carries its soft tissue with it (damped against the world, not the body, the buttocks trailed 2.5 cm at a walk's pace and the breasts sat on their stops)", () => {
+    const rig = loadRig();
+    rig.setAnatomy(SHAPES["female, heavy"]);
+    const tissue = new M.physics.SoftTissue(rig), part = new M.maleAnatomy.MaleAnatomy(rig);
+    tissue.settings.jiggle = 2;
+    part.size = M.maleAnatomy.PENIS_SIZES.M;
+    const run = (speed: number) => {
+      tissue.reset();
+      part.reset();
+      for (let f = 0; f < 180; f++) {
+        rig.pose(M.pose.pose({ body: { x: (speed * f) / 60 } }));
+        tissue.step(1 / 60);
+        part.update(1 / 60);
+      }
+      return part.magnitude;
+    };
+    const still = run(0), going = run(138);
+    for (const r of tissue.regions) expect([r.def.name, r.magnitude < 0.01]).toEqual([r.def.name, true]);
+    expect(Math.abs(going - still)).toBeLessThan(0.01);
+    part.dispose();
+  });
+
+  test("the male part is rooted under the skin of every body, and swings the same whichever way the body faces (placed from two sliders it stood up to 2.5 cm proud; its swing read the world's x)", () => {
+    /** how far the skin is ahead of a point, along the body's forward: over 0 if the point is inside */
+    const under = (rig: RigT, P: Float32Array, at: THREE.Vector3): number => {
+      // a little off the midline, where the ray would run along the mesh's own edges
+      const py = at.y + 0.113, pz = at.z + 0.371;
+      let ahead = Infinity, hits = 0;
+      for (let f = 0; f < rig.nq; f++) {
+        const q = [0, 1, 2, 3].map((j) => rig.quads[4 * f + j]);
+        if (q.some((v) => v >= rig.bodyVertices)) continue;
+        for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
+          const ay = P[3 * a + 1] - py, az = P[3 * a + 2] - pz, by = P[3 * b + 1] - py, bz = P[3 * b + 2] - pz, cy = P[3 * c + 1] - py, cz = P[3 * c + 2] - pz;
+          const w0 = by * cz - bz * cy, w1 = cy * az - cz * ay, w2 = ay * bz - az * by, sum = w0 + w1 + w2;
+          if (!sum || !((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0))) continue;
+          const x = (w0 * P[3 * a] + w1 * P[3 * b] + w2 * P[3 * c]) / sum - at.x;
+          if (x > 0) {
+            hits++;
+            ahead = Math.min(ahead, x);
+          }
+        }
+      }
+      return hits % 2 ? ahead : -1;
+    };
+    for (const [name, shape] of Object.entries(SHAPES)) {
+      const rig = loadRig();
+      rig.setAnatomy(shape);
+      const part = new M.maleAnatomy.MaleAnatomy(rig), P = new Float32Array(3 * rig.n);
+      part.size = M.maleAnatomy.PENIS_SIZES.M;
+      for (let f = 0; f <= 24; f++) {
+        rig.pose(f ? M.walk.walkFrame(f / 24, "walk", rig.anatomy).pose : M.pose.PRESETS.neutral);
+        rig.skin(P);
+        // given the frame's skin, 1 cm under it; without it, where the hips' bone carries its place: deeper, never out
+        part.update(1 / 60, P);
+        const d = under(rig, P, part.root);
+        expect([name, f, d > 0.5 && d < 1.6]).toEqual([name, f, true]);
+        part.update(0);
+        expect([name, f, under(rig, P, part.root) > 0.4]).toEqual([name, f, true]);
+      }
+      part.dispose();
+    }
+    const rig = loadRig(), part = new M.maleAnatomy.MaleAnatomy(rig);
+    part.size = M.maleAnatomy.PENIS_SIZES.L;
+    const swing = (turn: number) => {
+      part.reset();
+      let sum = 0;
+      for (let f = 0; f < 120; f++) {
+        const p = M.walk.walkFrame(f / 60, "walk", rig.anatomy).pose;
+        p.body.turn += turn;
+        rig.pose(p);
+        part.update(1 / 60);
+        if (f >= 60) sum += part.magnitude;
+      }
+      return sum / 60;
+    };
+    const ahead = swing(0);
+    expect(ahead).toBeGreaterThan(0.5);
+    for (const turn of [90, 180]) expect(Math.abs(swing(turn) - ahead)).toBeLessThan(0.05);
+    part.dispose();
+  });
+
+  test("standing at anatomical zero no muscle reads as contracted (their rest lengths were the A pose's: the pectorals read a third contracted, and lit)", () => {
+    for (const [name, shape] of Object.entries(SHAPES)) {
+      const rig = loadRig();
+      rig.setAnatomy(shape);
+      const ms = new M.muscles.MuscleSystem(rig);
+      rig.pose(M.pose.PRESETS.neutral);
+      ms.update(0);
+      for (const m of ms.muscles) expect([name, m.name, m.activation < 0.02]).toEqual([name, m.name, true]);
+      ms.dispose();
+    }
+  });
+
+  test("the subdivided skin passes through the mesh it is made from, at one level and at two, and stays smooth (smoothed inwards, a full breast drew 1.4 cm inside its own vertices and the lips' cut 0.2 cm off the drawn lips; put back vertex by vertex, it creased along the mesh's edges and a buttock drew pointed)", () => {
+    const rig = loadRig();
+    rig.setAnatomy(SHAPES["female, heavy"]);
+    const model = new M.VoiceModel(M.BODIES.female, 48000);
+    M.head.wearHead(rig, model);
+    const view = new M.view.RigView(rig);
+    expect(view.subdivided).toBe(null);
+    rig.pose(M.pose.PRESETS["flex biceps"]);
+    rig.skin(view.posed);
+    for (const level of [1, 2] as const) {
+      view.subdivide = level;
+      view.update();
+      const drawn = view.subdivided!;
+      // the mesh's own vertices are the surface's first points: within 2.5 mm of where the mesh has them
+      expect([level, maxMove(view.posed, drawn, Array(rig.n).keys()) < 0.25]).toEqual([level, true]);
+      // the lines drawn: four to each of the mesh's quads, sixteen where its quads are big
+      expect(view.quadCount >= 4 * rig.nq && (level === 1 ? view.quadCount === 4 * rig.nq : view.quadCount > 4 * rig.nq && view.quadCount < 16 * rig.nq)).toBe(true);
+    }
+    // smooth over the buttock's big quads: the surface at each quad's middle (its point after the mesh's
+    // own vertices) is no further from the mean of the quad's corners than an eighth of the quad's size
+    const drawn = view.subdivided!, butt = rig.tissues.buttL;
+    let worst = 0;
+    for (let f = 0; f < rig.nq; f++) {
+      const q = [0, 1, 2, 3].map((j) => rig.quads[4 * f + j]);
+      if (q.some((v) => v >= rig.bodyVertices || butt[v] < 0.6)) continue;
+      const mid = at(drawn, rig.n + f), mean = q.reduce((s, v) => s.add(at(view.posed, v)), new THREE.Vector3()).multiplyScalar(0.25);
+      const size = at(view.posed, q[0]).distanceTo(at(view.posed, q[2]));
+      worst = Math.max(worst, mid.distanceTo(mean) / size);
+    }
+    expect(worst).toBeLessThan(0.12);
+    // the mesh's own normals are kept up while it is drawn subdivided
+    expect(maxMove(view.normals, M.vertexNormals(rig, view.posed), Array(rig.n).keys())).toBeLessThan(1e-6);
+    view.dispose();
+    model.dispose();
+  });
+
+  test("a refused change of sex leaves the anatomy as it was (the rest of what was asked stayed set, on a body that hadn't moved)", () => {
+    const rig = loadRig();
+    rig.setAnatomy({ female: 1, fat: 0.2 });
+    const model = new M.VoiceModel(M.BODIES.female, 48000);
+    M.head.wearHead(rig, model);
+    const was = { ...rig.anatomy }, rest = rig.rest.slice();
+    expect(() => rig.setAnatomy({ female: 0, fat: 1.2, breast: 1 })).toThrow("before wearHead");
+    expect(rig.anatomy).toEqual(was);
+    expect(maxMove(rest, rig.rest, Array(rig.n).keys())).toBe(0);
+    model.dispose();
+  });
+
+  test("the waist comes in and the hips fill out without the body with no anatomy changing (Curvy's waist was as wide as its ribs)", () => {
+    /** the body's half width (cm) at a height, in the rest mesh, the arms left out */
+    const half = (rig: RigT, y: number) => {
+      let w = 0;
+      for (let i = 0; i < rig.bodyVertices; i++) {
+        let most = 0, bone = 0;
+        for (let j = 0; j < rig.INF; j++) {
+          if (rig.skinWeight[rig.INF * i + j] > most) {
+            most = rig.skinWeight[rig.INF * i + j];
+            bone = rig.skinIndex[rig.INF * i + j];
+          }
+        }
+        if (/arm|hand|clavicle|shoulder|elbow/.test(rig.bones[bone].name)) continue;
+        if (Math.abs(rig.rest[3 * i + 1] - y) < 1.5) w = Math.max(w, Math.abs(rig.rest[3 * i + 2]));
+      }
+      return w;
+    };
+    const plain = loadRig(), full = loadRig();
+    plain.setAnatomy({ female: 1 });
+    full.setAnatomy({ female: 1, butt: 1, waist: 1 });
+    // the waist: the narrowest the trunk is between the hips' joint and the chest's; the hips: the widest under it
+    const lo = plain.bones[plain.bone("hips")].head[1], hi = plain.bones[plain.bone("chest")].head[1];
+    const waist = (rig: RigT) => Math.min(...Array.from({ length: 12 }, (_, k) => half(rig, lo + 6 + ((hi - lo - 6) * k) / 11)));
+    const hips = (rig: RigT) => Math.max(...Array.from({ length: 8 }, (_, k) => half(rig, lo - 6 + (12 * k) / 7)));
+    const was = [waist(plain), hips(plain)], now = [waist(full), hips(full)];
+    // the waist narrower, the hips wider, and the one to the other well under what it was
+    // the waist narrower (0.7 cm a side), the hips wider (1.5), and the one to the other well under what it was
+    expect([was[0] - now[0] > 0.5, now[1] - was[1] > 1, now[0] / now[1] < 0.9 * (was[0] / was[1])]).toEqual([true, true, true]);
+    // the buttocks carried further back
+    const back = (rig: RigT) => {
+      let x = Infinity;
+      for (let i = 0; i < rig.bodyVertices; i++) if (rig.tissues.buttL[i] > 0.5) x = Math.min(x, rig.rest[3 * i]);
+      return x;
+    };
+    expect(back(plain) - back(full)).toBeGreaterThan(1.5);
+    // taken off again, the body is the one it was
+    full.setAnatomy({ butt: 0, waist: 0 });
+    expect(maxMove(plain.rest, full.rest, Array(plain.bodyVertices).keys())).toBeLessThan(1e-4);
+  });
+
+  test("a jolt runs through the soft tissue as a wave, a buttock stays on the pelvis and a breast isn't thrown up the chest (moved as one piece, at full jiggle a buttock slid off in a lump, 5 cm, with a corner at the hip)", () => {
+    const rig = loadRig();
+    rig.setAnatomy({ female: 1, fat: 0.05, muscle: 0.35, breast: 0.85, butt: 1, waist: 1 });
+    const tissue = new M.physics.SoftTissue(rig);
+    tissue.settings.jiggle = 2;
+    const butt = tissue.region("buttL")!, P = new Float32Array(3 * rig.n), Q = new Float32Array(3 * rig.n);
+    // the vertex most of the region, and one at its edge
+    const mid = butt.verts.reduce((a, v) => (v.sw > a.sw ? v : a)), edge = butt.verts.reduce((a, v) => (Math.abs(v.sw - 0.15) < Math.abs(a.sw - 0.15) ? v : a));
+    let far = 0, apart = 0;
+    for (let f = 0; f < 240; f++) {
+      rig.pose(M.walk.walkFrame(f / 60, "jog", rig.anatomy).pose);
+      tissue.step(1 / 60);
+      rig.skin(P);
+      Q.set(P);
+      tissue.apply(Q);
+      if (f < 60) continue;
+      const moved = (v: { idx: number; sw: number }) => at(Q, v.idx).sub(at(P, v.idx));
+      far = Math.max(far, moved(mid).length());
+      // as one piece, every vertex moves the way the centre does, by its weight: the middle is now late on that
+      apart = Math.max(apart, moved(mid).sub(butt.dispWorld.clone().multiplyScalar(mid.sw)).length());
+      expect(moved(edge).length()).toBeLessThan(1.5);
+    }
+    expect(far).toBeGreaterThan(1);
+    expect(far).toBeLessThan(3.6);
+    expect(apart).toBeGreaterThan(0.3);
+    // a breast drops and swings, and rises under half as far (free to rise as far, 6 cm on this jog, it was flattened up the chest each stride)
+    const breast = tissue.region("breastL")!;
+    let up = 0, down = 0;
+    for (let f = 0; f < 180; f++) {
+      rig.pose(M.walk.walkFrame(4 + f / 60, "jog", rig.anatomy).pose);
+      tissue.step(1 / 60);
+      up = Math.max(up, breast.dispLocal.y);
+      down = Math.max(down, -breast.dispLocal.y);
+    }
+    expect([down > 1.5 && down < 3.6, up < 0.5 * down]).toEqual([true, true]);
+    // and standing still it comes to rest on the mesh
+    for (let f = 0; f < 240; f++) {
+      rig.pose(M.pose.PRESETS.neutral);
+      tissue.step(1 / 60);
+    }
+    rig.skin(P);
+    Q.set(P);
+    tissue.apply(Q);
+    expect(maxMove(P, Q, Array(rig.bodyVertices).keys())).toBeLessThan(0.01);
   });
 });

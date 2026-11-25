@@ -3,22 +3,189 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CHIMERA body rig</title>
+<title>CHIMERA — body rig</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #000; color: #4fb6f2; font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+  @font-face {
+    font-family: "Hershey";
+    src: url("/fonts/AVHersheySimplexMedium.otf") format("opentype");
+    font-weight: 400 700;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Archivo";
+    src: url("/fonts/archivo-latin.woff2") format("woff2");
+    font-weight: 400 700;
+    font-display: swap;
+  }
+  :root {
+    --blue: #4fb6f2;
+    --blue-mid: #3487c4;
+    --blue-dim: #1f5f8c;
+    --frame: #133954;
+    --line-strong: #2a6a95;
+    --ink: #eaf7ff;
+    --label: #a9dcf8;
+    --quiet: #7cbfe6;
+    --amber: #ffb340;
+    --pink: #ff73cf;
+    --glow: 0 0 2px rgba(79, 182, 242, 0.85), 0 0 8px rgba(79, 182, 242, 0.28);
+    --font: "Hershey", "Archivo", ui-monospace, SFMono-Regular, Menlo, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #000;
+    color: var(--label);
+    font: 500 12px/1.35 var(--font);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.03em;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  form { position: fixed; left: 12px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: rgba(0, 0, 0, 0.6); padding: 8px 10px; border: 1px solid #133954; border-radius: 6px; }
-  select, input { accent-color: #4fb6f2; background: #000; color: inherit; border: 1px solid #1f5f8c; border-radius: 4px; font: inherit; }
+
+  #hud {
+    position: fixed;
+    left: 14px;
+    top: 12px;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.72);
+    border-left: 2px solid var(--blue);
+    border-top: 1px solid var(--frame);
+    border-right: 1px solid var(--frame);
+    border-bottom: 1px solid var(--frame);
+    color: var(--label);
+    font-size: 11px;
+    line-height: 1.55;
+    pointer-events: none;
+    text-transform: uppercase;
+  }
+  #hud .title { color: var(--ink); text-shadow: var(--glow); letter-spacing: 0.08em; }
+  #hud .dim { color: var(--quiet); }
+  #hud .pk { color: var(--pink); }
+  #hud .hi { color: var(--amber); }
+
+  form.console {
+    position: fixed;
+    left: 14px;
+    right: 14px;
+    bottom: 12px;
+    max-width: 1220px;
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 0, 0, 0.84);
+    border: 1px solid var(--frame);
+  }
+  .strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 6px 10px;
+  }
+  .strip + .strip { border-top: 1px solid var(--frame); }
+  .sep { width: 1px; height: 16px; background: var(--frame); }
+
+  label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    text-transform: uppercase;
+    font-size: 11px;
+    color: var(--label);
+  }
+  select, button, .file-btn {
+    background: #000;
+    color: var(--ink);
+    border: 1px solid var(--blue-dim);
+    border-radius: 0;
+    font: 500 11px/1.2 var(--font);
+    letter-spacing: 0.04em;
+    padding: 3px 6px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 120ms, color 120ms, background 120ms;
+  }
+  select:hover, button:hover, .file-btn:hover { border-color: var(--blue); color: #fff; }
+  select:focus-visible, button:focus-visible, input:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; }
+  button.active { background: var(--frame); border-color: var(--blue); color: #fff; text-shadow: var(--glow); }
+
+  .cams { display: inline-flex; }
+  .cams button { margin-left: -1px; padding: 3px 7px; }
+  .cams button:first-child { margin-left: 0; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 64px;
+    height: 14px;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 2px;
+    background: var(--blue-dim);
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 7px;
+    height: 11px;
+    margin-top: -4.5px;
+    background: var(--blue);
+    border: 1px solid var(--ink);
+    border-radius: 0;
+    box-shadow: var(--glow);
+  }
+  input[type="range"]::-moz-range-track { height: 2px; background: var(--blue-dim); }
+  input[type="range"]::-moz-range-thumb {
+    width: 7px;
+    height: 11px;
+    background: var(--blue);
+    border: 1px solid var(--ink);
+    border-radius: 0;
+  }
+  .val { color: var(--ink); min-width: 26px; text-align: right; display: inline-block; font-size: 11px; }
+  .file-btn { display: inline-flex; align-items: center; gap: 4px; color: var(--label); }
+  .file-btn input { display: none; }
 </style>
 </head>
 <body>
 <canvas></canvas>
-<form>
-  <label>pose <select name="pose"></select></label>
-  <label>mouth <input name="mouth" type="range" min="0" max="1" step="0.01" value="0"></label>
-  <label>head <select name="look"></select></label>
-  <label>motion <input name="motion" type="file" accept=".fbx,.bvh,.glb,.gltf"></label>
-  <select name="clip" hidden></select>
+<div id="hud"></div>
+<form class="console" autocomplete="off">
+  <div class="strip">
+    <label>body <select name="body"></select></label>
+    <label>anim <select name="pose"></select></label>
+    <button type="button" name="play">pause</button>
+    <label>spd <input name="speed" type="range" min="0.2" max="1.8" step="0.05" value="1"><span class="val" data-for="speed">1.0</span></label>
+    <span class="sep"></span>
+    <label>view <select name="view"></select></label>
+    <label>head <select name="look"></select></label>
+    <span class="sep"></span>
+    <span class="cams">
+      <button type="button" data-cam="3/4" class="active">3/4</button>
+      <button type="button" data-cam="front">front</button>
+      <button type="button" data-cam="side">side</button>
+      <button type="button" data-cam="back">back</button>
+    </span>
+    <label class="file-btn">clip… <input name="motion" type="file" accept=".fbx,.bvh,.glb,.gltf"></label>
+    <select name="clip" hidden></select>
+  </div>
+  <div class="strip">
+    <label>fat <input name="fat" type="range" min="0" max="1.4" step="0.02" value="0.35"><span class="val" data-for="fat">0.35</span></label>
+    <label>muscle <input name="muscle" type="range" min="0" max="1.4" step="0.02" value="0.45"><span class="val" data-for="muscle">0.45</span></label>
+    <label>breast <input name="breast" type="range" min="0" max="1.4" step="0.02" value="0.6"><span class="val" data-for="breast">0.60</span></label>
+    <label>butt <input name="butt" type="range" min="0" max="1.4" step="0.02" value="0.6"><span class="val" data-for="butt">0.60</span></label>
+    <label>waist <input name="waist" type="range" min="0" max="1.4" step="0.02" value="0"><span class="val" data-for="waist">0.00</span></label>
+    <span class="sep"></span>
+    <label>penis <select name="penis"></select></label>
+    <span class="sep"></span>
+    <label>jiggle <input name="jiggle" type="range" min="0" max="2" step="0.05" value="1.15"><span class="val" data-for="jiggle">1.15</span></label>
+    <label>mouth <input name="mouth" type="range" min="0" max="1" step="0.01" value="0"></label>
+  </div>
 </form>
 <script type="module" src="/src/rig/demo.ts"></script>
 </body>

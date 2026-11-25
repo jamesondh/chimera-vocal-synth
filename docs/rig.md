@@ -12,12 +12,16 @@ or play a motion file from another tool).
 
 | | |
 |---|---|
-| `src/rig/rig.ts` | the rig: loading, posing by joint angles, skinning |
+| `src/rig/rig.ts` | the rig: loading, anatomy morphs (male/female, fat, muscle, breast, butt, waist), posing, skinning |
 | `src/rig/pose.ts` | the `Pose` type (anatomical angles), ranges of motion, presets |
 | `src/rig/head.ts` | `wearHead`: the head's skin grown from the neck, the head's lines on the head bone, the face moving |
+| `src/rig/physics.ts` | `SoftTissue`: 3-DOF damped spring-mass fat & jiggle physics for breasts, buttocks and belly |
+| `src/rig/maleAnatomy.ts` | `MaleAnatomy`: all-quad male pelvic anatomy with size scaling (`S`–`XL`) & pendulum physics |
+| `src/rig/muscles.ts` | `MuscleSystem`: 30 anatomical muscles with contraction bulging & CHIMERA vector fiber rendering |
+| `src/rig/walk.ts` | `walkFrame`: procedural biomechanical walking, catwalk and jog gait with EMG muscle loads |
 | `src/rig/motion.ts` | `Motion`: a clip from another tool (Mixamo's FBX, BVH, glTF) carried over onto the rig |
-| `src/rig/view.ts` | the wireframe in CHIMERA's blue (and heat and weights views for finding faults) |
-| `src/rig/body.rig.bin` | the mesh, skeleton and weights (generated: `bun tools/rig/gen-body.ts`, never edited) |
+| `src/rig/view.ts` | the wireframe in CHIMERA's blue (drawn as the mesh, or its Catmull-Clark subdivision once or twice over: `subdivide`), heat & weights views |
+| `src/rig/body.rig.bin` | the mesh, skeleton, weights, morphs and tissue masks (generated: `bun tools/rig/gen-body.ts`, never edited) |
 | `src/rig/demo.ts`, `rig.html` | the dev page (not in the app's build) |
 
 ## Use
@@ -77,7 +81,49 @@ is fitted to the model once.
 - **Body:** MakeHuman's CC0 low-poly body (proxy741, hand-laid loops), on MPFB2's Rigify human
   skeleton and weights: 33 bones, each limb bone split in two for twist, and Rigify's helpers
   (the shoulder's cap and the hip turn half way with the limb; the elbow and knee swell as they
-  bend).
+  bend). Embedded MakeHuman CC0 morph targets shape male/female proportions (with matching skeletal
+  joints and neck rim), body fat, muscularity, breast cup volume and gluteal volume (`rig.setAnatomy`).
+  Every one at 0 is the body as it was before there were any, byte for byte (a test pins it), and
+  the bodies are adults: MakeHuman's "young" (adult) targets only, none of its child ones. The
+  breast is MakeHuman's largest cup between its average and firm shapes; `butt` is its buttocks
+  volume a third past full with some of its wider hip, and `waist` draws the waist in (its
+  waist measure and a half-toned stomach): its artists' shapes, mixed, not ones made here.
+  `female` moves the skeleton and the neck's rim, so it is set before `wearHead`; the other four
+  move live with the head on (they fade out under the rim, and only the change in shape is added
+  to the rest mesh, which the head has fitted its neck into).
+- **Arms that clear the body:** at anatomical zero a hand hangs inside the thigh's side (3 cm on
+  the file's body, 6 on wide hips). `armClearance(rig)` measures how far out the arms have to hang
+  for the body as it's shaped, a centimetre clear of it; `armsOut(pose, deg)` holds a pose's hanging arms that far out (an arm
+  raised, or held across the body, is left where it is), and
+  `walkFrame` takes it as its last argument. `PRESETS.neutral` stays anatomical zero. Motion from
+  other tools isn't touched: a clip's arms are where its own body had them.
+- **The drawn skin (`view.subdivide`):** 0 draws the mesh as it is; 1 its Catmull-Clark subdivision,
+  four quads to each; 2 that again, so every curve is drawn sixteen times as fine. The surface is
+  brought through the mesh's own vertices (the mesh is moved out by what the smoothing takes, so
+  the surface stays smooth), within 2.5 mm, and so stays under the head's lines, the muscles and
+  the tissue's rings. At 2 the lines are sixteen to the quad where the mesh's quads are big
+  (`fineOver`, 3.2 cm: the breasts, buttocks and hips of a full body), four elsewhere, the finer
+  ones coming in by degrees between, so they stay about as far apart all over. An update costs 0.3 ms, 1.6 ms and 4.4 ms.
+- **Soft-tissue physics (`src/rig/physics.ts`):** 3-DOF damped spring-mass oscillators on the
+  breasts (`breastL`/`R`, from MPFB2's `breast.L`/`R` vertex groups), buttocks (`buttL`/`R`, from
+  MakeHuman's buttocks volume target, split at the midline with ipsilateral thigh coupling) and
+  abdominal adipose (`belly`). Integrates in world space (4 symplectic substeps/frame) with
+  anatomical inward collision clamping and volume-preserving squash-and-stretch. Standing still,
+  a region stays where the mesh has it: the shapes were drawn hanging under gravity already. A
+  region's skin follows its centre late, the later the nearer its middle, so a jolt runs through
+  it as a wave and it doesn't move as a block. The
+  springs are damped against the body, so one that travels through a scene carries its tissue
+  with it.
+- **Muscle system (`src/rig/muscles.ts`):** 30 superficial anatomical muscles (15 bilateral pairs)
+  anchored across the skeleton. Contraction combines kinematic shortening strain with optional
+  weight-bearing gait loads (`MuscleLoads`), twitch-filtered (~45 ms attack / ~130 ms decay) to
+  drive both normal-directed wireframe skin bulging (attenuated by body fat) and CHIMERA-style
+  glowing `Beams` striated fiber bundles (cool vector blue at rest, flaring amber to hot red-core
+  as muscles fire).
+- **Walking gait (`src/rig/walk.ts`):** periodic Catmull-Rom clinical gait curves (`walk`, `catwalk`,
+  `jog`) with heel-strike loading, mid-stance vault, push-off toe extension, pelvic list/yaw/sway,
+  thoracic counter-rotation, head stabilization, sex-aware stride nuances and phase-locked EMG
+  muscle loads.
 - **Poses** are angles as an anatomist names them, from anatomical zero (standing, arms
   hanging, thumbs forward). The shoulder is the ISB "globe": `raise`, `plane` (0 out to the side,
   90 forward) and `rotate`. Left and right take the same angles; the rig mirrors them. The rig

@@ -99,18 +99,105 @@ for (const line of (await get("3dobjs/base.obj")).split("\n")) {
   }
 }
 const mh = base.map((p) => [...p] as V3);
-for (const race of ["african", "asian", "caucasian"]) {
-  for (const line of (await get(`targets/macrodetails/${race}-male-young.target`)).split("\n")) {
+/** a target's offsets added to `pts`, times `weight` and divided by `over` (a third is `over` 3, not
+ *  a weight of 1/3: the last bit differs, and one vertex on the midline then lands on another triangle) */
+const addTarget = async (pts: V3[], path: string, weight = 1, over = 1) => {
+  for (const line of (await get(path)).split("\n")) {
     if (!line || line.startsWith("#")) continue;
     const [i, dx, dy, dz] = line.split(/\s+/).map(Number);
-    mh[i][0] += dx / 3;
-    mh[i][1] += dy / 3;
-    mh[i][2] += dz / 3;
+    pts[i][0] += (weight * dx) / over;
+    pts[i][1] += (weight * dy) / over;
+    pts[i][2] += (weight * dz) / over;
+  }
+};
+const targetMag = async (path: string): Promise<Float64Array> => {
+  const m = new Float64Array(base.length);
+  for (const line of (await get(path)).split("\n")) {
+    if (!line || line.startsWith("#")) continue;
+    const [i, dx, dy, dz] = line.split(/\s+/).map(Number);
+    m[i] = Math.hypot(dx, dy, dz) * 10;
+  }
+  return m;
+};
+for (const race of ["african", "asian", "caucasian"]) await addTarget(mh, `targets/macrodetails/${race}-male-young.target`, 1, 3);
+const mhFemale = base.map((p) => [...p] as V3);
+for (const race of ["african", "asian", "caucasian"]) await addTarget(mhFemale, `targets/macrodetails/${race}-female-young.target`, 1, 3);
+
+// Morph target base meshes (in MakeHuman dm):
+// - fat: subcutaneous adipose fullness (universal maxweight + regional fat pads)
+// - muscle: athletic muscularity (universal maxmuscle + major superficial muscle groups)
+// - breast: bust cup volume (female maxcup - averagecup)
+// - butt: gluteal volume (buttocks-volume-incr)
+// - waist: the waist drawn in
+const mhFat = mh.map((p) => [...p] as V3);
+await addTarget(mhFat, "targets/macrodetails/universal-male-young-averagemuscle-maxweight.target", 0.55);
+await addTarget(mhFat, "targets/macrodetails/universal-female-young-averagemuscle-maxweight.target", 0.55);
+await addTarget(mhFat, "targets/stomach/stomach-tone-decr.target", 0.6);
+await addTarget(mhFat, "targets/armslegs/l-upperleg-fat-incr.target", 0.6);
+await addTarget(mhFat, "targets/armslegs/r-upperleg-fat-incr.target", 0.6);
+await addTarget(mhFat, "targets/armslegs/l-upperarm-fat-incr.target", 0.5);
+await addTarget(mhFat, "targets/armslegs/r-upperarm-fat-incr.target", 0.5);
+await addTarget(mhFat, "targets/hip/hip-scale-horiz-incr.target", 0.4);
+await addTarget(mhFat, "targets/buttocks/buttocks-volume-incr.target", 0.45);
+
+const mhMuscle = mh.map((p) => [...p] as V3);
+await addTarget(mhMuscle, "targets/macrodetails/universal-male-young-maxmuscle-averageweight.target", 0.75);
+await addTarget(mhMuscle, "targets/macrodetails/universal-female-young-maxmuscle-averageweight.target", 0.25);
+await addTarget(mhMuscle, "targets/torso/torso-muscle-pectoral-incr.target", 0.55);
+await addTarget(mhMuscle, "targets/torso/torso-muscle-dorsi-incr.target", 0.65);
+await addTarget(mhMuscle, "targets/armslegs/l-upperarm-muscle-incr.target", 0.65);
+await addTarget(mhMuscle, "targets/armslegs/r-upperarm-muscle-incr.target", 0.65);
+await addTarget(mhMuscle, "targets/armslegs/l-upperarm-shoulder-muscle-incr.target", 0.65);
+await addTarget(mhMuscle, "targets/armslegs/r-upperarm-shoulder-muscle-incr.target", 0.65);
+await addTarget(mhMuscle, "targets/armslegs/l-lowerarm-muscle-incr.target", 0.5);
+await addTarget(mhMuscle, "targets/armslegs/r-lowerarm-muscle-incr.target", 0.5);
+await addTarget(mhMuscle, "targets/armslegs/l-upperleg-muscle-incr.target", 0.65);
+await addTarget(mhMuscle, "targets/armslegs/r-upperleg-muscle-incr.target", 0.65);
+await addTarget(mhMuscle, "targets/armslegs/l-lowerleg-muscle-incr.target", 0.6);
+await addTarget(mhMuscle, "targets/armslegs/r-lowerleg-muscle-incr.target", 0.6);
+await addTarget(mhMuscle, "targets/stomach/stomach-tone-incr.target", 0.6);
+
+const mhBreast = mhFemale.map((p) => [...p] as V3);
+// the largest cup MakeHuman's artists drew, between its average and its firm shape: the two weights
+// sum to 1, as its own sliders mix them (past 1 the shape is extrapolated and stops being a breast)
+await addTarget(mhBreast, "targets/breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness.target", 0.55);
+await addTarget(mhBreast, "targets/breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness.target", 0.45);
+
+// MakeHuman's buttocks volume, a third past its full weight (its full weight is slight), and some
+// of its wider hip where the buttocks are, so the hip runs into them. (With the hips made deeper
+// and higher and the thighs' girth added, the buttocks came to a point seen from the side.)
+const mhButt = mhFemale.map((p) => [...p] as V3);
+await addTarget(mhButt, "targets/buttocks/buttocks-volume-incr.target", 1.35);
+// the waist drawn in: MakeHuman's waist measure taken down to its end, and the stomach half toned
+const mhWaist = mhFemale.map((p) => [...p] as V3);
+await addTarget(mhWaist, "targets/measure/measure-waist-circ-decr.target", 1);
+await addTarget(mhWaist, "targets/stomach/stomach-tone-incr.target", 0.5);
+const hipWide = await targetMag("targets/hip/hip-scale-horiz-incr.target");
+const buttMag = await targetMag("targets/buttocks/buttocks-volume-incr.target");
+const bellyMag = await targetMag("targets/stomach/stomach-tone-decr.target");
+{
+  // Blend hip-scale-horiz-incr onto mhButt strictly around the buttocks/pelvis zone
+  const hipLines = (await get("targets/hip/hip-scale-horiz-incr.target")).split("\n");
+  for (const line of hipLines) {
+    if (!line || line.startsWith("#")) continue;
+    const [i, dx, dy, dz] = line.split(/\s+/).map(Number);
+    const local = Math.min(1, buttMag[i] / 0.8 + (hipWide[i] > 0.3 ? 0.35 : 0));
+    if (local <= 0) continue;
+    mhButt[i][0] += 0.3 * local * dx;
+    mhButt[i][1] += 0.3 * local * dy;
+    mhButt[i][2] += 0.3 * local * dz;
   }
 }
+
 /** MakeHuman decimetres, facing +z with its left on +x → body cm */
 const cm = ([x, y, z]: V3): V3 => [z * 10, y * 10, -x * 10];
 const male = mh.map(cm);
+const female = mhFemale.map(cm);
+const MORPH_NAMES = ["female", "fat", "muscle", "breast", "butt", "waist"] as const;
+const MORPH_MH: V3[][] = [mhFemale, mhFat, mhMuscle, mhBreast, mhButt, mhWaist];
+const NM = MORPH_NAMES.length;
+const TISSUE_NAMES = ["breastL", "breastR", "buttL", "buttR", "belly"] as const;
+const NT = TISSUE_NAMES.length;
 
 // ------------------------------------------------------------------ the rig
 // MakeHuman's "Rigify human" (MPFB2): the one of its rigs whose weights were tuned for how the body
@@ -130,22 +217,24 @@ const getMpfb = async (file: string) => {
 type End = { strategy: string; cube_name?: string; vertex_index?: number; vertex_indices?: number[] };
 const rigify = JSON.parse(await getMpfb("rig.human_toes.json")) as { bones: Record<string, { head: End; tail: End; parent: string }> };
 const weights = (JSON.parse(await getMpfb("weights.human_toes.json")) as { weights: Record<string, [number, number][]> }).weights;
-const mean = (ids: Iterable<number>): V3 => {
+const meanOn = (mesh: V3[], ids: Iterable<number>): V3 => {
   const c: V3 = [0, 0, 0];
   let n = 0;
   for (const i of ids) {
-    for (let k = 0; k < 3; k++) c[k] += male[i][k];
+    for (let k = 0; k < 3; k++) c[k] += mesh[i][k];
     n++;
   }
   return [c[0] / n, c[1] / n, c[2] / n];
 };
-const end = (e: End): V3 => {
-  if (e.strategy === "CUBE") return mean(cubes.get(e.cube_name!)!);
-  if (e.strategy === "VERTEX") return [...male[e.vertex_index!]] as V3;
-  if (e.strategy === "MEAN") return mean(e.vertex_indices!);
+const endOn = (mesh: V3[], e: End): V3 => {
+  if (e.strategy === "CUBE") return meanOn(mesh, cubes.get(e.cube_name!)!);
+  if (e.strategy === "VERTEX") return [...mesh[e.vertex_index!]] as V3;
+  if (e.strategy === "MEAN") return meanOn(mesh, e.vertex_indices!);
   throw new Error(`no place for ${JSON.stringify(e)}`);
 };
-const cube = (name: string) => mean(cubes.get(name)!);
+const mean = (ids: Iterable<number>): V3 => meanOn(male, ids);
+const end = (e: End): V3 => endOn(male, e);
+const cubeOn = (mesh: V3[], name: string) => meanOn(mesh, cubes.get(name)!);
 const midpoint = (a: V3, b: V3): V3 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
 /**
  * The rig's bones, named for what they are, each from a Rigify bone: its ends, and the weights
@@ -197,11 +286,22 @@ const parentOf = (name: string): number => {
   const p = SPECS[keepIndex.get(name)!].parent;
   return p ? keepIndex.get(p)! : -1;
 };
-const ends = (name: string): { head: V3; tail: V3 } => {
+const endsOn = (mesh: V3[], name: string): { head: V3; tail: V3 } => {
   const s = SPECS[keepIndex.get(name)!];
-  const rb = rigify.bones[s.from] ?? rigify.bones[s.from.replace(/^DEF-(.*)\.([LR])\.001$/, "$1.$2")];
-  return { head: s.head ?? end(rb.head), tail: s.tail ?? end(rb.tail) };
+  const m = /^DEF-(.*)\.([LR])\.001$/.exec(s.from);
+  if (m) {
+    const rb = rigify.bones[`${m[1]}.${m[2]}`];
+    const h = endOn(mesh, rb.head), t = endOn(mesh, rb.tail);
+    return { head: midpoint(h, t), tail: t };
+  }
+  const rb = rigify.bones[s.from];
+  if (s.head && s.tail) {
+    const h = endOn(mesh, rb.head), t = endOn(mesh, rb.tail);
+    return { head: h, tail: midpoint(h, t) };
+  }
+  return { head: endOn(mesh, rb.head), tail: endOn(mesh, rb.tail) };
 };
+const ends = (name: string): { head: V3; tail: V3 } => endsOn(male, name);
 /** which of the rig's bones a Rigify weight group goes to */
 const BY_FROM = new Map(SPECS.map((s) => [s.from, s.name]));
 const owner = (group: string): number | null => {
@@ -227,48 +327,112 @@ console.log("weights folded:", [...new Set(folded.values())].length, "bones from
 // the cut at the neck is where the lotus film's was: from MakeHuman's default rig's neck joint
 const skel = JSON.parse(await get("rigs/default.mhskel")) as { joints: Record<string, number[]> };
 const neck01 = mean(skel.joints["neck01____head"]);
-const fingers = (side: string) => ({
-  [`finger1-1.${side}`]: cube(`joint-${side.toLowerCase()}-finger-1-3`),
-  [`finger3-1.${side}`]: cube(`joint-${side.toLowerCase()}-finger-3-1`),
-  [`finger3-4.${side}`]: cube(`joint-${side.toLowerCase()}-finger-3-4`),
-  [`finger5-1.${side}`]: cube(`joint-${side.toLowerCase()}-finger-5-1`),
+const neck01F = meanOn(female, skel.joints["neck01____head"]);
+const fingersOn = (mesh: V3[], side: string) => ({
+  [`finger1-1.${side}`]: cubeOn(mesh, `joint-${side.toLowerCase()}-finger-1-3`),
+  [`finger3-1.${side}`]: cubeOn(mesh, `joint-${side.toLowerCase()}-finger-3-1`),
+  [`finger3-4.${side}`]: cubeOn(mesh, `joint-${side.toLowerCase()}-finger-3-4`),
+  [`finger5-1.${side}`]: cubeOn(mesh, `joint-${side.toLowerCase()}-finger-5-1`),
 });
+const fingers = (side: string) => fingersOn(male, side);
+
+// Soft-tissue anatomical masks on the base mesh (breastL, breastR, buttL, buttR, belly)
+const baseT = new Float64Array(base.length * NT);
+{
+  const smooth01 = (x: number) => {
+    const t = Math.max(0, Math.min(1, x));
+    return t * t * (3 - 2 * t);
+  };
+  const hipMid = endsOn(female, "hips").head;
+  // Breasts directly from MPFB2 Rigify breast.L / breast.R vertex groups
+  for (const [ti, group, sideSign] of [[0, "breast.L", -1], [1, "breast.R", 1]] as const) {
+    const list = weights[group] ?? [];
+    let maxW = 0;
+    for (const [, w] of list) if (w > maxW) maxW = w;
+    for (const [vi, w] of list) {
+      const z = female[vi][2];
+      // slight midline taper so left and right breasts oscillate independently without pulling the sternum
+      const sideMask = smooth01((sideSign * z - 0.6) / 3.0);
+      baseT[vi * NT + ti] = Math.min(1, (w / (maxW || 1)) * sideMask);
+    }
+  }
+  // Buttocks from MakeHuman buttocks-volume-incr target magnitude, split cleanly at gluteal cleft
+  let maxButt = 0;
+  for (let i = 0; i < base.length; i++) if (buttMag[i] > maxButt) maxButt = buttMag[i];
+  const buttNorm = maxButt * 0.85 || 1;
+  for (let i = 0; i < base.length; i++) {
+    if (buttMag[i] <= 0.05) continue;
+    const p = female[i];
+    if (p[0] > hipMid[0] + 3) continue;
+    const mag = Math.min(1, buttMag[i] / buttNorm);
+    const z = p[2];
+    if (z < 0) baseT[i * NT + 2] = mag * smooth01((-z - 0.5) / 2.6);
+    if (z > 0) baseT[i * NT + 3] = mag * smooth01((z - 0.5) / 2.6);
+  }
+  // Belly adipose pad from stomach-tone-decr target magnitude
+  let maxBelly = 0;
+  for (let i = 0; i < base.length; i++) if (bellyMag[i] > maxBelly) maxBelly = bellyMag[i];
+  const bellyNorm = maxBelly * 0.8 || 1;
+  for (let i = 0; i < base.length; i++) {
+    if (bellyMag[i] <= 0.1) continue;
+    const p = male[i];
+    if (p[0] < hipMid[0] - 1) continue;
+    baseT[i * NT + 4] = Math.min(1, bellyMag[i] / bellyNorm);
+  }
+}
 
 // ------------------------------------------------------------------ the proxy
-const scale: Record<string, number> = {};
+const scaleDefs: [string, number, number, number][] = [];
 const refs: { v: number[]; w: number[]; d: number[] }[] = [];
 let inVerts = false;
 for (const line of readFileSync(`${proxyPath}.proxy`, "utf8").split("\n")) {
   const w = line.trim().split(/\s+/);
   if (!w[0] || w[0].startsWith("#")) continue;
   if (/^[xyz]_scale$/.test(w[0])) {
-    const axis = "xyz".indexOf(w[0][0]);
-    scale[w[0][0]] = Math.abs(mh[+w[1]][axis] - mh[+w[2]][axis]) / +w[3];
+    scaleDefs.push([w[0][0], +w[1], +w[2], +w[3]]);
   } else if (w[0] === "verts") inVerts = true;
   else if (inVerts && /^-?\d/.test(w[0])) {
     if (w.length === 1) refs.push({ v: [+w[0], +w[0], +w[0]], w: [1, 0, 0], d: [0, 0, 0] });
     else refs.push({ v: w.slice(0, 3).map(Number), w: w.slice(3, 6).map(Number), d: w.slice(6, 9).map(Number) });
   } else inVerts = false;
 }
+const proxyScale = (mesh: V3[]) => {
+  const s: Record<string, number> = {};
+  for (const [k, a, b, div] of scaleDefs) {
+    const axis = "xyz".indexOf(k);
+    s[k] = Math.abs(mesh[a][axis] - mesh[b][axis]) / div;
+  }
+  return s;
+};
+const evalProxy = (mesh: V3[], r: { v: number[]; w: number[]; d: number[] }, s: Record<string, number>): V3 => {
+  const p: V3 = [0, 0, 0];
+  for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) p[k] += r.w[j] * mesh[r.v[j]][k];
+  p[0] += r.d[0] * s.x;
+  p[1] += r.d[1] * s.y;
+  p[2] += r.d[2] * s.z;
+  return cm(p);
+};
 let quads: number[][] = [];
 for (const line of readFileSync(`${proxyPath}.obj`, "utf8").split("\n")) {
   const w = line.trim().split(/\s+/);
   if (w[0] === "f") quads.push(w.slice(1).map((s) => parseInt(s, 10) - 1));
 }
 if (quads.some((q) => q.length !== 4)) throw new Error("the proxy is not all quads");
-/** each vertex: position (3) then the kept bones' weights */
-const D = 3 + NB;
+/** each vertex: position (3), bone weights (NB), morph positions (3*NM), tissue masks (NT) */
+const OFF_W = 3;
+const OFF_M = OFF_W + NB;
+const OFF_T = OFF_M + 3 * NM;
+const D = OFF_T + NT;
+const scaleMale = proxyScale(mh);
+const scalesMorph = MORPH_MH.map(proxyScale);
 let V = new Float64Array(refs.length * D);
 refs.forEach((r, i) => {
-  const p: V3 = [0, 0, 0];
+  V.set(evalProxy(mh, r, scaleMale), i * D);
   for (let j = 0; j < 3; j++) {
-    for (let k = 0; k < 3; k++) p[k] += r.w[j] * mh[r.v[j]][k];
-    for (let b = 0; b < NB; b++) V[i * D + 3 + b] += r.w[j] * baseW[r.v[j] * NB + b];
+    for (let b = 0; b < NB; b++) V[i * D + OFF_W + b] += r.w[j] * baseW[r.v[j] * NB + b];
+    for (let t = 0; t < NT; t++) V[i * D + OFF_T + t] += r.w[j] * baseT[r.v[j] * NT + t];
   }
-  p[0] += r.d[0] * scale.x;
-  p[1] += r.d[1] * scale.y;
-  p[2] += r.d[2] * scale.z;
-  V.set(cm(p), i * D);
+  for (let m = 0; m < NM; m++) V.set(evalProxy(MORPH_MH[m], r, scalesMorph[m]), i * D + OFF_M + 3 * m);
 });
 
 // ------------------------------------------------------------------ the cut at the neck
@@ -441,10 +605,10 @@ for (let t = 0; t < baseTris.length; t += 3) {
   const nn = cross(sub(b, a), sub(c, a)), l = Math.hypot(...nn) || 1;
   triN.push([nn[0] / l, nn[1] / l, nn[2] / l]);
 }
-/** each vertex's normal, from its quads */
-const normals = (qs: number[][], n: number): V3[] => {
+/** each vertex's normal, from its quads, reading xyz at `off` in V */
+const normalsAt = (qs: number[][], n: number, off = 0): V3[] => {
   const N: V3[] = Array.from({ length: n }, () => [0, 0, 0]);
-  const p = (i: number): V3 => [V[i * D], V[i * D + 1], V[i * D + 2]];
+  const p = (i: number): V3 => [V[i * D + off], V[i * D + off + 1], V[i * D + off + 2]];
   for (const q of qs) {
     const nn = cross(sub(p(q[2]), p(q[0])), sub(p(q[3]), p(q[1])));
     for (const v of q) for (let k = 0; k < 3; k++) N[v][k] += nn[k];
@@ -454,20 +618,29 @@ const normals = (qs: number[][], n: number): V3[] => {
     return [v[0] / l, v[1] / l, v[2] / l];
   });
 };
-/** move every vertex (but `keep`) to the nearest point of the base mesh's skin that faces its way */
-const project = (qs: number[][], n: number, keep: Set<number>) => {
-  const N = normals(qs, n);
+/** move every vertex (but `keep`) at channel `off` to the nearest point of `mesh`'s skin that faces its way */
+const projectOn = (qs: number[][], n: number, keep: Set<number>, mesh: V3[], off: number, label: string) => {
+  const mMid: V3[] = [], mRad: number[] = [], mN: V3[] = [];
+  for (let t = 0; t < baseTris.length; t += 3) {
+    const a = mesh[baseTris[t]], b = mesh[baseTris[t + 1]], c = mesh[baseTris[t + 2]];
+    const m: V3 = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+    mMid.push(m);
+    mRad.push(Math.max(Math.hypot(...sub(a, m)), Math.hypot(...sub(b, m)), Math.hypot(...sub(c, m))));
+    const nn = cross(sub(b, a), sub(c, a)), l = Math.hypot(...nn) || 1;
+    mN.push([nn[0] / l, nn[1] / l, nn[2] / l]);
+  }
+  const N = normalsAt(qs, n, off);
   let moved = 0, far = 0;
   for (let i = 0; i < n; i++) {
     if (keep.has(i)) continue;
-    const p: V3 = [V[i * D], V[i * D + 1], V[i * D + 2]];
+    const p: V3 = [V[i * D + off], V[i * D + off + 1], V[i * D + off + 2]];
     let best = Infinity, at = p;
-    for (let t = 0; t < triMid.length; t++) {
-      const dm = Math.hypot(p[0] - triMid[t][0], p[1] - triMid[t][1], p[2] - triMid[t][2]) - triRad[t];
+    for (let t = 0; t < mMid.length; t++) {
+      const dm = Math.hypot(p[0] - mMid[t][0], p[1] - mMid[t][1], p[2] - mMid[t][2]) - mRad[t];
       if (dm > 0 && dm * dm >= best) continue;
       // only skin that faces the way this vertex does: not the next finger's, nor the other side of an armpit
-      if (dot(triN[t], N[i]) < 0.2) continue;
-      const c = nearest(p, male[baseTris[3 * t]], male[baseTris[3 * t + 1]], male[baseTris[3 * t + 2]]);
+      if (dot(mN[t], N[i]) < 0.2) continue;
+      const c = nearest(p, mesh[baseTris[3 * t]], mesh[baseTris[3 * t + 1]], mesh[baseTris[3 * t + 2]]);
       const d = (c[0] - p[0]) ** 2 + (c[1] - p[1]) ** 2 + (c[2] - p[2]) ** 2;
       if (d < best) {
         best = d;
@@ -476,9 +649,14 @@ const project = (qs: number[][], n: number, keep: Set<number>) => {
     }
     if (best > 1) far++;
     moved = Math.max(moved, Math.sqrt(best));
-    V.set(at, i * D);
+    V.set(at, i * D + off);
   }
-  console.log(`  put back on the body: furthest ${moved.toFixed(2)} cm, ${far} over 1 cm`);
+  console.log(`  put back on ${label}: furthest ${moved.toFixed(2)} cm, ${far} over 1 cm`);
+};
+const MORPH_CM: V3[][] = MORPH_MH.map((m) => m.map(cm));
+const project = (qs: number[][], n: number, keep: Set<number>) => {
+  projectOn(qs, n, keep, male, 0, "male");
+  for (let m = 0; m < NM; m++) projectOn(qs, n, keep, MORPH_CM[m], OFF_M + 3 * m, MORPH_NAMES[m]);
 };
 const rimOf = (qs: number[][], n: number): number[] => {
   const { edgeFaces } = topology(qs, n);
@@ -500,6 +678,13 @@ const rimOf = (qs: number[][], n: number): number[] => {
 // body was cut), and the loops under it take up the difference, each less than the one above: the
 // rows stand a little taller down the throat and closer at the nape, and nothing is bunched.
 const LEVEL = CUT - 0.65, SPREAD = 3;
+const CUT_F = (() => {
+  const neckYF = neck01F[1];
+  const midF = female.slice(0, BODY).filter((p) => Math.abs(p[2]) < 1);
+  const throatF = Math.max(...midF.filter((p) => Math.abs(p[1] - neckYF) < 0.5).map((p) => p[0]));
+  return Math.min(...midF.filter((p) => p[0] > throatF + 3 && p[1] > neckYF).map((p) => p[1])) - 0.7;
+})();
+const LEVEL_F = CUT_F - 0.65;
 /** the edges that run up the neck, between the loops that were moved */
 const neckEdges = new Set<number>();
 {
@@ -521,22 +706,32 @@ const neckEdges = new Set<number>();
     }
     ring = next;
   }
-  const cx = (Math.max(...rim.map((i) => V[i * D])) + Math.min(...rim.map((i) => V[i * D]))) / 2;
-  const ang = (i: number) => Math.atan2(V[i * D + 2], V[i * D] - cx);
-  const shift = rim.map((i) => ({ a: ang(i), dy: LEVEL - V[i * D + 1] })).sort((p, q) => p.a - q.a);
-  /** the rim's shift at a turn round the neck: between the rim vertices either side of it */
-  const at = (a: number) => {
-    let j = shift.findIndex((s) => s.a > a);
-    if (j < 0) j = 0;
-    const hi = shift[j], lo = shift[(j + shift.length - 1) % shift.length];
-    let span = hi.a - lo.a, t = a - lo.a;
-    if (span <= 0) span += 2 * Math.PI;
-    if (t < 0) t += 2 * Math.PI;
-    return lo.dy + (hi.dy - lo.dy) * (t / span);
+  const levelAt = (off: number, lvl: number) => {
+    const cx = (Math.max(...rim.map((i) => V[i * D + off])) + Math.min(...rim.map((i) => V[i * D + off]))) / 2;
+    const ang = (i: number) => Math.atan2(V[i * D + off + 2], V[i * D + off] - cx);
+    const shift = rim.map((i) => ({ a: ang(i), dy: lvl - V[i * D + off + 1] })).sort((p, q) => p.a - q.a);
+    const at = (a: number) => {
+      let j = shift.findIndex((s) => s.a > a);
+      if (j < 0) j = 0;
+      const hi = shift[j], lo = shift[(j + shift.length - 1) % shift.length];
+      let span = hi.a - lo.a, t = a - lo.a;
+      if (span <= 0) span += 2 * Math.PI;
+      if (t < 0) t += 2 * Math.PI;
+      return lo.dy + (hi.dy - lo.dy) * (t / span);
+    };
+    for (let i = 0; i < n; i++) if (hops[i] >= 0) V[i * D + off + 1] += at(ang(i)) * (1 - hops[i] / (SPREAD + 1));
+    return shift;
   };
-  for (let i = 0; i < n; i++) if (hops[i] >= 0) V[i * D + 1] += at(ang(i)) * (1 - hops[i] / (SPREAD + 1));
+  const shift = levelAt(0, LEVEL);
+  // female, breast, butt live on female neck level; fat and muscle live on male neck level
+  levelAt(OFF_M + 0, LEVEL_F);
+  levelAt(OFF_M + 3, LEVEL);
+  levelAt(OFF_M + 6, LEVEL);
+  levelAt(OFF_M + 9, LEVEL_F);
+  levelAt(OFF_M + 12, LEVEL_F);
+  levelAt(OFF_M + 15, LEVEL_F);
   for (let i = 0; i < n; i++) for (const o of near[i]) if (hops[i] >= 0 && hops[o] === hops[i] + 1) neckEdges.add(edgeKey(i, o));
-  console.log(`rim levelled at ${LEVEL.toFixed(2)}: moved ${Math.min(...shift.map((s) => s.dy)).toFixed(2)} to ${Math.max(...shift.map((s) => s.dy)).toFixed(2)} cm`);
+  console.log(`rim levelled at ${LEVEL.toFixed(2)} (female ${LEVEL_F.toFixed(2)}): moved ${Math.min(...shift.map((s) => s.dy)).toFixed(2)} to ${Math.max(...shift.map((s) => s.dy)).toFixed(2)} cm`);
 }
 
 // ------------------------------------------------------------------ loops added where the quads are long
@@ -686,11 +881,85 @@ const n = V.length / D;
 if (n > 65535) throw new Error(`${n} vertices: too many for 16-bit indices`);
 const rim = rimOf(quads, n);
 const r2 = (x: number) => Math.round(x * 100) / 100;
-const xs = rim.map((i) => V[i * D]), ys = rim.map((i) => V[i * D + 1]), zs = rim.map((i) => Math.abs(V[i * D + 2]));
+const rimShapeAt = (off: number) => {
+  const xs = rim.map((i) => V[i * D + off]), ys = rim.map((i) => V[i * D + off + 1]), zs = rim.map((i) => Math.abs(V[i * D + off + 2]));
+  return { centre: [r2((Math.max(...xs) + Math.min(...xs)) / 2), r2(ys.reduce((a, b) => a + b) / ys.length), 0], a: r2((Math.max(...xs) - Math.min(...xs)) / 2), b: r2(Math.max(...zs)) };
+};
+const maleRimShape = rimShapeAt(0);
+const femaleRimShape = rimShapeAt(OFF_M);
+
+// Morph deltas (cm), quantized to int16 at MORPH_SCALE cm/unit.
+// Body-shaping morphs (fat, muscle, breast, butt) fade smoothly to 0 near the neck rim so they
+// can be adjusted live without detaching or shifting an already-mounted head.
+const MORPH_SCALE = 0.005; // ±163.8 cm at 0.05 mm precision
+const rimY = maleRimShape.centre[1];
+const smooth01 = (x: number) => {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
+};
+const morphDeltas = new Int16Array(NM * n * 3);
+// Reference channel for each morph: female/fat/muscle relative to male (0); breast/butt relative to female (OFF_M)
+const MORPH_REF_OFF = [0, 0, 0, OFF_M, OFF_M, OFF_M];
+for (let m = 0; m < NM; m++) {
+  const off = OFF_M + 3 * m, ref = MORPH_REF_OFF[m], keepNeck = m > 0;
+  let maxD = 0;
+  for (let i = 0; i < n; i++) {
+    const fade = keepNeck ? smooth01((rimY - 1.5 - V[i * D + 1]) / 6.5) : 1;
+    for (let k = 0; k < 3; k++) {
+      const d = (V[i * D + off + k] - V[i * D + ref + k]) * fade;
+      maxD = Math.max(maxD, Math.abs(d));
+      morphDeltas[(m * n + i) * 3 + k] = Math.max(-32767, Math.min(32767, Math.round(d / MORPH_SCALE)));
+    }
+  }
+  console.log(`morph ${MORPH_NAMES[m]}: max delta ${maxD.toFixed(2)} cm`);
+}
+
+// Soft-tissue vertex masks (u8 0..255) and rest centres of mass
+const tissueWeights = new Uint8Array(NT * n);
+const TISSUE_META = [
+  { name: "breastL", bone: "chest", side: -1 },
+  { name: "breastR", bone: "chest", side: 1 },
+  { name: "buttL", bone: "hips", side: -1 },
+  { name: "buttR", bone: "hips", side: 1 },
+  { name: "belly", bone: "spine1", side: 0 },
+] as const;
+const tissues = TISSUE_META.map((meta, t) => {
+  let wSum = 0;
+  const cM: V3 = [0, 0, 0], cF: V3 = [0, 0, 0];
+  let count = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.max(0, Math.min(1, V[i * D + OFF_T + t]));
+    tissueWeights[t * n + i] = Math.round(w * 255);
+    if (w > 0.05) {
+      count++;
+      wSum += w;
+      for (let k = 0; k < 3; k++) {
+        cM[k] += w * V[i * D + k];
+        cF[k] += w * V[i * D + OFF_M + k];
+      }
+    }
+  }
+  const centerMale = (wSum > 0 ? cM.map((v) => r2(v / wSum)) : [0, 0, 0]) as V3;
+  const centerFemale = (wSum > 0 ? cF.map((v) => r2(v / wSum)) : [0, 0, 0]) as V3;
+  let r2Sum = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.max(0, Math.min(1, V[i * D + OFF_T + t]));
+    if (w > 0.1) {
+      const dx = V[i * D + OFF_M] - centerFemale[0];
+      const dy = V[i * D + OFF_M + 1] - centerFemale[1];
+      const dz = V[i * D + OFF_M + 2] - centerFemale[2];
+      r2Sum += w * (dx * dx + dy * dy + dz * dz);
+    }
+  }
+  const radius = r2(Math.sqrt(r2Sum / Math.max(1e-6, wSum)));
+  console.log(`tissue ${meta.name}: ${count} verts, centerF=${centerFemale.join(",")}, r=${radius} cm`);
+  return { ...meta, centerMale, centerFemale, radius };
+});
+
 /** at most this many bones move each vertex */
 const INF = 8;
 const header = {
-  source: `MakeHuman (CC0): ${PROXY} on the base mesh hm08 (adult male), MPFB2's Rigify human rig and weights; subdivided ${LEVELS}×`,
+  source: `MakeHuman (CC0): ${PROXY} on the base mesh hm08 (adult male + female/fat/muscle/breast/butt/waist targets), MPFB2's Rigify human rig and weights; subdivided ${LEVELS}×`,
   licence: "CC0 (MakeHuman assets)",
   bones: KEEP.map((name, i) => {
     const e = ends(name);
@@ -698,17 +967,31 @@ const header = {
   }),
   points: Object.fromEntries(Object.entries({ ...fingers("R"), ...fingers("L") }).map(([k, v]) => [k, v.map(r2)])),
   rim,
-  rimShape: { centre: [r2((Math.max(...xs) + Math.min(...xs)) / 2), r2(ys.reduce((a, b) => a + b) / ys.length), 0], a: r2((Math.max(...xs) - Math.min(...xs)) / 2), b: r2(Math.max(...zs)) },
+  rimShape: maleRimShape,
   influences: INF,
   vertices: n,
   quads: quads.length,
+  anatomy: {
+    morphNames: [...MORPH_NAMES],
+    morphScale: MORPH_SCALE,
+    femaleBones: KEEP.map((name) => {
+      const e = endsOn(female, name);
+      return { head: e.head.map(r2), tail: e.tail.map(r2) };
+    }),
+    femalePoints: Object.fromEntries(Object.entries({ ...fingersOn(female, "R"), ...fingersOn(female, "L") }).map(([k, v]) => [k, v.map(r2)])),
+    femaleRimShape,
+    tissues,
+  },
 };
 // padded to 4 bytes (bytes, not characters: the arrays after it must start aligned)
 let json = JSON.stringify(header);
 while (new TextEncoder().encode(json).length % 4) json += " ";
 const H = new TextEncoder().encode(json);
-const size = 4 + H.length + n * 12 + n * INF + n * INF * 2 + quads.length * 8;
-const buf = new ArrayBuffer(size + (size % 4 ? 4 - (size % 4) : 0));
+const coreSize = 4 + H.length + n * 12 + n * INF + n * INF * 2 + quads.length * 8;
+const morphOff = coreSize + (coreSize % 4 ? 4 - (coreSize % 4) : 0);
+const tissueOff = morphOff + morphDeltas.byteLength;
+const totalSize = tissueOff + tissueWeights.byteLength;
+const buf = new ArrayBuffer(totalSize + (totalSize % 4 ? 4 - (totalSize % 4) : 0));
 const dv = new DataView(buf);
 dv.setUint32(0, H.length, true);
 new Uint8Array(buf, 4, H.length).set(H);
@@ -718,7 +1001,7 @@ const skin: [number, number][][] = [];
 let most = 0, dropped = 0;
 for (let i = 0; i < n; i++) {
   const all: [number, number][] = [];
-  for (let b = 0; b < NB; b++) if (V[i * D + 3 + b] > 1e-4) all.push([b, V[i * D + 3 + b]]);
+  for (let b = 0; b < NB; b++) if (V[i * D + OFF_W + b] > 1e-4) all.push([b, V[i * D + OFF_W + b]]);
   all.sort((a, b) => b[1] - a[1]);
   most = Math.max(most, all.length);
   const top = all.slice(0, INF);
@@ -740,10 +1023,14 @@ for (const q of quads) for (const v of q) {
   dv.setUint16(o, v, true);
   o += 2;
 }
+// Extra anatomy section (4-byte aligned): i16 morphDeltas, then u8 tissueWeights
+o = morphOff;
+for (let i = 0; i < morphDeltas.length; i++, o += 2) dv.setInt16(o, morphDeltas[i], true);
+new Uint8Array(buf, tissueOff, tissueWeights.byteLength).set(tissueWeights);
 writeFileSync(OUT, new Uint8Array(buf));
 // how many edges meet at each vertex: the mesh's poles
 const { near } = topology(quads, n);
 const valence = new Map<number, number>();
 for (const s of near) valence.set(s.size, (valence.get(s.size) ?? 0) + 1);
-console.log(`${n} vertices, ${quads.length} quads, ${(buf.byteLength / 1024).toFixed(0)} KB; rim ${rim.length} vertices`, header.rimShape, `edges per vertex`, Object.fromEntries([...valence].sort((a, b) => a[0] - b[0])));
+console.log(`${n} vertices, ${quads.length} quads, ${(buf.byteLength / 1024).toFixed(0)} KB; rim ${rim.length} vertices`, header.rimShape, `female rim`, femaleRimShape, `edges per vertex`, Object.fromEntries([...valence].sort((a, b) => a[0] - b[0])));
 

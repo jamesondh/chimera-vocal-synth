@@ -23,7 +23,7 @@
  * (bind) pose is the mesh's (an A pose), and every bone's transform is from rest: x' = S x + t.
  */
 import * as THREE from "three";
-import type { Arm, Leg, Pose } from "./pose.ts";
+import { pose as poseOf, type Arm, type Leg, type Pose } from "./pose.ts";
 
 export interface BoneDef {
   name: string;
@@ -32,6 +32,38 @@ export interface BoneDef {
   tail: number[];
   helper?: boolean;
 }
+export interface TissueDef {
+  name: string;
+  bone: string;
+  side: -1 | 0 | 1;
+  centerMale: number[];
+  centerFemale: number[];
+  radius: number;
+}
+export interface AnatomyHeader {
+  morphNames: string[];
+  morphScale: number;
+  femaleBones: { head: number[]; tail: number[] }[];
+  femalePoints: Record<string, number[]>;
+  femaleRimShape: { centre: number[]; a: number; b: number };
+  tissues: TissueDef[];
+}
+export interface AnatomyParams {
+  /** 0 = adult male, 1 = adult female (continuous morph + skeletal proportions) */
+  female: number;
+  /** 0..1 subcutaneous body fat / adipose fullness */
+  fat: number;
+  /** 0..1 muscular build / bulk */
+  muscle: number;
+  /** 0..1 breast cup volume */
+  breast: number;
+  /** 0..1 gluteal / buttocks volume */
+  butt: number;
+  /** 0..1 the waist drawn in */
+  waist: number;
+}
+export const ANATOMY_DEFAULT: Readonly<AnatomyParams> = { female: 0, fat: 0, muscle: 0, breast: 0, butt: 0, waist: 0 };
+
 export interface Header {
   source: string;
   licence: string;
@@ -42,6 +74,7 @@ export interface Header {
   influences: number;
   vertices: number;
   quads: number;
+  anatomy?: AnatomyHeader;
 }
 
 export type Method = "lbs" | "cor";
@@ -97,6 +130,16 @@ export class Rig {
   readonly INF: number;
   /** rest positions (cm), n × 3 */
   rest: Float32Array;
+  /** what the anatomy has moved each body vertex by so far (cm), bodyVertices × 3 */
+  private readonly shaped: Float32Array;
+  /** decoded morph target vertex deltas (cm), keyed by morph name */
+  readonly morphs: Record<string, Float32Array> = {};
+  /** decoded soft-tissue vertex weights (0..1), keyed by region name */
+  readonly tissues: Record<string, Float32Array> = {};
+  /** soft-tissue region metadata (centres, parent bones, radii) */
+  readonly tissueDefs: TissueDef[] = [];
+  /** current anatomy morph weights */
+  readonly anatomy: AnatomyParams = { ...ANATOMY_DEFAULT };
   quads: Uint32Array;
   skinIndex: Uint8Array;
   skinWeight: Float32Array;
@@ -118,6 +161,9 @@ export class Rig {
 
   /** rest joint places */
   readonly H: THREE.Vector3[];
+  private readonly maleBones: { head: number[]; tail: number[] }[];
+  private readonly malePoints: Record<string, number[]>;
+  private readonly maleRimShape: { centre: number[]; a: number; b: number };
   /** rest → neutral turn per bone */
   readonly N: THREE.Quaternion[];
   /** posed: each bone's turn from rest, where its head is, and the transform's shift (x' = S x + t) */
@@ -140,6 +186,7 @@ export class Rig {
     const n = (this.n = header.vertices), nq = (this.nq = header.quads), INF = (this.INF = header.influences);
     let o = 4 + len;
     this.rest = new Float32Array(buf.slice(o, o + 12 * n));
+    this.shaped = new Float32Array(3 * n);
     o += 12 * n;
     this.skinIndex = new Uint8Array(buf.slice(o, o + INF * n));
     o += INF * n;
@@ -147,7 +194,32 @@ export class Rig {
     o += 2 * INF * n;
     this.skinWeight = Float32Array.from(w16, (w) => w / 65535);
     this.quads = Uint32Array.from(new Uint16Array(buf.slice(o, o + 8 * nq)));
+    o += 8 * nq;
+    if (header.anatomy) {
+      const a = header.anatomy;
+      o += o % 4 ? 4 - (o % 4) : 0;
+      const mCount = a.morphNames.length, mStride = 3 * n;
+      const mRaw = new Int16Array(buf.slice(o, o + 2 * mCount * mStride));
+      o += 2 * mCount * mStride;
+      a.morphNames.forEach((name, m) => {
+        const d = new Float32Array(mStride);
+        const base = m * mStride;
+        for (let i = 0; i < mStride; i++) d[i] = mRaw[base + i] * a.morphScale;
+        this.morphs[name] = d;
+      });
+      this.tissueDefs = a.tissues;
+      const tRaw = new Uint8Array(buf.slice(o, o + a.tissues.length * n));
+      a.tissues.forEach((td, t) => {
+        const w = new Float32Array(n);
+        const base = t * n;
+        for (let i = 0; i < n; i++) w[i] = tRaw[base + i] / 255;
+        this.tissues[td.name] = w;
+      });
+    }
     this.bones = header.bones;
+    this.maleBones = header.bones.map((b) => ({ head: [...b.head], tail: [...b.tail] }));
+    this.malePoints = Object.fromEntries(Object.entries(header.points).map(([k, v]) => [k, [...v]]));
+    this.maleRimShape = { centre: [...header.rimShape.centre], a: header.rimShape.a, b: header.rimShape.b };
     this.B = this.bones.length;
     this.idx = Object.fromEntries(this.bones.map((b, i) => [b.name, i]));
     this.rim = header.rim;
@@ -161,6 +233,82 @@ export class Rig {
     this.t = this.bones.map(() => new THREE.Vector3());
     this.sc = this.bones.map(() => 1);
     this.N = this.neutralTurns();
+  }
+
+  /**
+   * Shape the body's anatomy from the embedded MakeHuman morph targets (`female`, `fat`, `muscle`,
+   * `breast`, `butt`). Changing `female` updates the skeleton's joint proportions and neck rim as
+   * well, so it is set before `wearHead` (after it, it throws: make the rig and the head again).
+   * Body-shaping morphs (`fat`, `muscle`, `breast`, `butt`) fade to zero at the neck rim and update
+   * live, with the head on: only the change in shape is added to the rest mesh, so the neck stays
+   * as `wearHead` fitted it.
+   */
+  setAnatomy(params: Partial<AnatomyParams>): void {
+    const a = this.header.anatomy;
+    if (!a) return;
+    const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
+    const prevFemale = this.anatomy.female, f = params.female !== undefined ? clamp(params.female, 0, 1) : prevFemale;
+    const femaleChanged = Math.abs(f - prevFemale) > 1e-6;
+    // refused before anything is taken (the rest of what was asked stayed set, on a body that hadn't moved)
+    if (femaleChanged && this.n > this.bodyVertices) throw new Error("setAnatomy: `female` moves the skeleton and the neck's rim, which the head was fitted to; set it before wearHead");
+    this.anatomy.female = f;
+    if (params.fat !== undefined) this.anatomy.fat = clamp(params.fat, 0, 1.5);
+    if (params.muscle !== undefined) this.anatomy.muscle = clamp(params.muscle, 0, 1.5);
+    if (params.breast !== undefined) this.anatomy.breast = clamp(params.breast, 0, 1.5);
+    if (params.butt !== undefined) this.anatomy.butt = clamp(params.butt, 0, 1.5);
+    if (params.waist !== undefined) this.anatomy.waist = clamp(params.waist, 0, 1.5);
+
+    const active: [Float32Array, number][] = [];
+    for (const [k, w] of [
+      ["female", this.anatomy.female],
+      ["fat", this.anatomy.fat],
+      ["muscle", this.anatomy.muscle],
+      ["breast", this.anatomy.breast],
+      ["butt", this.anatomy.butt],
+      ["waist", this.anatomy.waist],
+    ] as const) {
+      if (w && this.morphs[k]) active.push([this.morphs[k], w]);
+    }
+    const len = 3 * this.bodyVertices;
+    // the rest mesh takes the change in shape, not the shape: wearHead has fitted the neck since
+    // (rebuilt from the file's mesh, the rim sprang back 2 cm under the head at the first slider).
+    // The cached centres of rotation go along with their vertices: near enough while a slider is
+    // dragged (up to 0.6 cm off in an extreme pose), and `weightsChanged()` works them out afresh
+    // (0.1 s) once it rests.
+    const cor = femaleChanged ? null : this.corCache;
+    for (let i = 0; i < len; i++) {
+      let to = 0;
+      for (const [delta, w] of active) to += w * delta[i];
+      const by = to - this.shaped[i];
+      this.rest[i] += by;
+      if (cor) cor[i] += by;
+      this.shaped[i] = to;
+    }
+    if (femaleChanged) {
+      const mix = (u: number, v: number) => u + (v - u) * f;
+      for (let i = 0; i < this.B; i++) {
+        const mb = this.maleBones[i], fb = a.femaleBones[i];
+        for (let k = 0; k < 3; k++) {
+          this.bones[i].head[k] = mix(mb.head[k], fb.head[k]);
+          this.bones[i].tail[k] = mix(mb.tail[k], fb.tail[k]);
+        }
+        this.H[i].fromArray(this.bones[i].head);
+        this.P[i].copy(this.H[i]);
+      }
+      for (const k of Object.keys(this.malePoints)) {
+        const mp = this.malePoints[k], fp = a.femalePoints[k];
+        this.header.points[k] = [mix(mp[0], fp[0]), mix(mp[1], fp[1]), mix(mp[2], fp[2])];
+      }
+      const mr = this.maleRimShape, fr = a.femaleRimShape;
+      this.header.rimShape = {
+        centre: [mix(mr.centre[0], fr.centre[0]), mix(mr.centre[1], fr.centre[1]), mix(mr.centre[2], fr.centre[2])],
+        a: mix(mr.a, fr.a),
+        b: mix(mr.b, fr.b),
+      };
+      const N = this.neutralTurns();
+      for (let i = 0; i < this.B; i++) this.N[i].copy(N[i]);
+      this.weightsChanged();
+    } else if (!cor) this.weightsChanged();
   }
 
   /** each vertex's neighbours and quads, and which are on an open edge */
@@ -478,6 +626,64 @@ export function vertexNormals(rig: Rig, P: Float32Array<ArrayBufferLike>, out: F
     out[3 * i + 2] /= l;
   }
   return out;
+}
+
+/**
+ * How far out to the side (degrees) the hanging arms have to be held for the forearms and hands
+ * to clear the trunk and thighs, as the body is shaped now. At anatomical zero they don't: a hand
+ * hangs 3 cm inside the thigh on the file's body, 6 cm on one with wide hips. The rig is posed to
+ * find it (and left standing with its arms that far out): the angle is halved until every forearm
+ * and hand vertex is `gap` cm or more in front of the body's skin nearest it (a hand just touching
+ * the thigh reads as one sunk into it, in lines you can see through).
+ */
+export function armClearance(rig: Rig, gap = 1): number {
+  const INF = rig.INF;
+  const arm: number[][] = [[], []], body: number[][] = [[], []];
+  for (let i = 0; i < rig.bodyVertices; i++) {
+    let most = 0, bone = 0;
+    for (let j = 0; j < INF; j++) {
+      if (rig.skinWeight[INF * i + j] > most) {
+        most = rig.skinWeight[INF * i + j];
+        bone = rig.skinIndex[INF * i + j];
+      }
+    }
+    const name = rig.bones[bone].name, side = name.endsWith(".L") ? 1 : 0;
+    if (/^(forearm|forearm2|hand)\./.test(name)) arm[side].push(i);
+    else if (/^(hips|spine|chest|upperchest)/.test(name)) body[0].push(i), body[1].push(i);
+    else if (/^(pelvis|thigh|thigh2|hipHelper|hipFront)\./.test(name)) body[side].push(i);
+  }
+  const P = new Float32Array(3 * rig.n), N = new Float32Array(3 * rig.n);
+  /** how far the nearest forearm or hand vertex is in front of the body's skin (negative: behind it), arms out by `deg` */
+  const clear = (deg: number): number => {
+    rig.pose(poseOf({ bothArms: { raise: deg } }));
+    rig.skin(P);
+    vertexNormals(rig, P, N);
+    let least = Infinity;
+    for (const side of [0, 1]) {
+      for (const i of arm[side]) {
+        let best = 36, at = -1;
+        for (const q of body[side]) {
+          const d = (P[3 * i] - P[3 * q]) ** 2 + (P[3 * i + 1] - P[3 * q + 1]) ** 2 + (P[3 * i + 2] - P[3 * q + 2]) ** 2;
+          if (d < best) {
+            best = d;
+            at = q;
+          }
+        }
+        if (at < 0) continue;
+        least = Math.min(least, (P[3 * i] - P[3 * at]) * N[3 * at] + (P[3 * i + 1] - P[3 * at + 1]) * N[3 * at + 1] + (P[3 * i + 2] - P[3 * at + 2]) * N[3 * at + 2]);
+      }
+    }
+    return least;
+  };
+  if (clear(0) >= gap) return 0;
+  let lo = 0, hi = 40;
+  for (let k = 0; k < 7; k++) {
+    const mid = (lo + hi) / 2;
+    if (clear(mid) >= gap) hi = mid;
+    else lo = mid;
+  }
+  clear(hi);
+  return hi;
 }
 
 /**
