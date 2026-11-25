@@ -23,7 +23,7 @@ mod editor;
 pub mod http;
 pub mod speech;
 
-use self::core::{BREATH_MAX, Core, Event, MIN_SAMPLE_RATE, Prepared, Settings, Shared, Transport, VoiceParams};
+use self::core::{BREATH_MAX, Core, Event, MAX_VOICES, MIN_SAMPLE_RATE, Prepared, Settings, Shared, Transport, VoiceParams};
 
 /// The pronouncing dictionary, parsed once (off the audio thread).
 pub fn g2p() -> &'static EnglishG2P {
@@ -91,6 +91,9 @@ pub struct ChimeraParams {
     /// MIDI channels 1–15 are MPE note channels (lower zone)
     #[id = "mpe"]
     pub mpe: BoolParam,
+    /// how many voices play at once: a chord needs one for each of its notes
+    #[id = "voices"]
+    pub voices: IntParam,
     #[persist = "settings"]
     pub settings: RwLock<Settings>,
     /// the editor window's size (points)
@@ -119,6 +122,7 @@ impl Default for ChimeraParams {
             ring: percent("Ring", 0.0),
             restart: BoolParam::new("Restart Lyrics On Play", true),
             mpe: BoolParam::new("MPE", true),
+            voices: IntParam::new("Voices", 1, IntRange::Linear { min: 1, max: MAX_VOICES as i32 }),
             settings: RwLock::new(Settings::default()),
             window: RwLock::new(bridge::WINDOW_DEFAULT),
         }
@@ -140,6 +144,7 @@ impl ChimeraParams {
             ring: self.ring.value(),
             restart: self.restart.value(),
             mpe: self.mpe.value(),
+            voices: self.voices.value() as usize,
         }
     }
 }

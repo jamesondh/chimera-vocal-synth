@@ -13,7 +13,7 @@ use std::sync::atomic::Ordering;
 const FS: f64 = 44100.0;
 
 fn params() -> VoiceParams {
-    VoiceParams { vibrato: 35.0, vibrato_rate: 6.0, breath: 8.0, pressed: 0.5, bright: 0.25, breathy: 0.15, rough: 0.1, fry: 0.0, glide: 0.06, ring: 0.0, restart: true, mpe: true }
+    VoiceParams { vibrato: 35.0, vibrato_rate: 6.0, breath: 8.0, pressed: 0.5, bright: 0.25, breathy: 0.15, rough: 0.1, fry: 0.0, glide: 0.06, ring: 0.0, restart: true, mpe: true, voices: 1 }
 }
 
 fn syllables(text: &str) -> Vec<Syllable> {

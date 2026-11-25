@@ -1,8 +1,8 @@
 # Polyphony: what a voice costs
 
-A chord is one whole voice for each note, and a plugin runs all of its voices on one audio thread,
-so the cost of one voice decides how many fit. This is the log of making a voice cheaper without
-moving one sample of its sound.
+The plugin plays chords with one whole voice for each note (`docs/plugin.md`, "Voices"). All the
+voices of a plugin run on one audio thread, so the cost of one voice decides how many fit. This is
+the log of making a voice cheaper without moving one sample of its sound.
 
 ## The rules
 
@@ -10,8 +10,9 @@ moving one sample of its sound.
   48 kHz (2× oversampled), each saying the golden test's sentence 0.21 s after the one before, so
   every voice is moving all the time. It prints the best of five runs, as a percentage of one core
   in real time. Runs differ by about 0.3 points on a quiet machine. It measures the engines alone,
-  at this rate. At 48 kHz the airway already steps at 96 kHz (2× oversampled), and a host at 96 kHz
-  steps it at the same rate (1×); a host at 192 kHz steps it twice as often.
+  at this rate: the plugin adds its expression glides and the limiter on the sum (not measured).
+  At 48 kHz the airway already steps at 96 kHz (2× oversampled), and a host at 96 kHz steps it at
+  the same rate (1×); a host at 192 kHz steps it twice as often.
 - **The guard** is the golden tests, with no re-bless, and the hash on the bench's line (the sum of
   the six voices), which must stay `0x4178d7c63e6cf860`. A change that moves one sample is a change
   to the sound: it goes through `docs/hill-climb/README.md`, not here.
@@ -74,3 +75,7 @@ Each of these is a proposal, not work in progress. None was measured.
   register for one voice, so two voices in the same register give nothing more on this machine.
 - **Memory layout.** One voice's airway state is about 76 nodes of a dozen `f64` arrays, near 10 kB:
   it fits the L1 cache. No miss showed in the profile, so no gain is expected.
+- **A voice with no note is rendered like one that sings.** With Voices at 6 and one finger down,
+  the plugin pays for 6 voices. To stop a voice when its sound is below a threshold cuts its tail,
+  so it changes samples (only with more than one voice). It is the largest gain in real use and it
+  is a change to the sound: it was left out by the rules above.

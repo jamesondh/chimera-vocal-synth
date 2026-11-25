@@ -216,10 +216,55 @@ the next note's start. Note timing isn't affected.
 Not handled: the same pitch held on two channels is one key (the first note-off ends it), RPN 0 and
 6 (the note bend range is fixed at 48), the upper zone, CLAP note expressions.
 
+## Voices
+
+One voice is one simulated body, so a chord needs a body for each note. The host parameter Voices
+(1 to 8, default 1) says how many play. With 1 the plugin is what it was, sample for sample: a test
+holds the hash of each mode's output from before the parameter existed.
+
+`Core` builds all 8 voices when the host activates it (under 1 ms each), because the audio thread
+can't build one. Each is an `Engine` with its own `Singer`, and each keeps the one-voice logic:
+legato, the glide back to a held key, the coda. Polyphony is which voice a note goes to:
+
+1. the voice that has this key already (a repeat);
+2. or, with MPE on, the free voice whose release still follows the note's channel. One finger's
+   notes stay on one voice, and a new finger on a reused channel can't bend another voice's release;
+3. or the voice free for the longest;
+4. or, with every voice busy, the voice whose note started longest ago. It takes the note as one
+   voice takes a second key: legato, and back to the older key if that is still down when the new
+   one lifts.
+
+What the voices share, and what is each one's own:
+
+- **Shared:** the body, the posture, the lyrics, every dial, the wheel (channel 1's bend).
+- **Each voice's own:** its note, and that note's channel: bend (±48), pressure (breath), slide
+  (brightness), and its key's poly pressure. With MPE off every note is on the same footing, so
+  channel pressure moves all the voices.
+- **Sing.** A chord sings one syllable: a note that starts within 50 ms of the note before, on a
+  voice of its own, sings that note's syllable. Any other note sings the next one, so a melody over
+  a held note moves through the words. A note that had to take a busy voice (rule 4) also sings the
+  next syllable, as a second key does on one voice. Each voice sings its own coda when its key lifts.
+- **Play.** A voice that starts from silence starts on its pitch; it doesn't glide in from the last
+  note it sang (with one voice it still does, as before). Hold keeps the first voice breathing.
+- **Speak and Beatbox** use the first voice only.
+- **The level.** Each voice ends in its own limiter, at 0.75, so the plain sum of a loud chord goes
+  far over full scale (four voices at full pressure: 2.4). With more than one voice the sum goes
+  through one more limiter with the same law (`ChordLimiter`): a loud chord is turned down as a
+  whole. One voice sounding stays below its ceiling and passes unchanged.
+- **The editor** shows one voice: the one with the newest note still sounding, and after that its
+  release.
+
+Lowering Voices stops the notes of the voices taken away. They are rendered for one more second, so
+their release is heard, and then they cost nothing.
+
+Known limits. Every voice the parameter asks for is rendered all the time, sounding or not (the cost
+is in `docs/polyphony.md`). The page has no dial for Voices: it is set in the host. The page's
+keyboard lights only the newest note.
+
 ## State
 
 Host parameters (automatable): output gain, vibrato depth and rate, breath, pressed, bright,
-breathy, rough, fry, glide, ring, restart lyrics, MPE. IDs are permanent once released.
+breathy, rough, fry, glide, ring, restart lyrics, MPE, voices. IDs are permanent once released.
 
 Everything else is one `#[persist]` JSON field, `Settings`: lyrics, body, mode, posture (the
 articulators changed from neutral, and `tip_free`), voiced, the Play-mode pitch, the start syllable,
