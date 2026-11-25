@@ -62,6 +62,9 @@ fn breath_for(velocity: f64) -> f64 {
 pub struct Singer {
     syllables: Vec<LiveSyllable>,
     cursor: usize,
+    /// the last syllable the cursor passed that isn't a melisma, while it has moved in order since
+    /// (the parent of a melisma at the cursor, without looking for it)
+    plain: Option<usize>,
     sung: Option<usize>,
     /// keys down, oldest first
     keys: Vec<u8>,
@@ -89,6 +92,7 @@ impl Singer {
         Singer {
             syllables: vec![LiveSyllable::ah()],
             cursor: 0,
+            plain: None,
             sung: None,
             keys: Vec::with_capacity(MAX_KEYS),
             sounding: None,
@@ -129,6 +133,7 @@ impl Singer {
             return syllables;
         }
         self.cursor = 0;
+        self.plain = None;
         self.sung = None;
         core::mem::replace(&mut self.syllables, syllables)
     }
@@ -136,17 +141,19 @@ impl Singer {
     /// Point the cursor at a syllable (clamped to the lyrics).
     pub fn set_cursor(&mut self, i: usize) {
         self.cursor = i.min(self.syllables.len() - 1);
+        self.plain = None;
+    }
+
+    /// The lyrics it sang from are gone (another singer holds them): its syllable's index means
+    /// nothing now. The note itself carries on.
+    pub fn forget_sung(&mut self) {
+        self.sung = None;
     }
 
     fn take_tag(&mut self) -> f64 {
         let t = self.next_tag;
         self.next_tag += 2.0;
         t
-    }
-
-    /// The syllable a melisma at index i continues.
-    fn parent_of(&self, i: usize) -> LiveSyllable {
-        self.syllables[..=i].iter().rev().find(|s| !s.melisma).copied().unwrap_or_else(LiveSyllable::ah)
     }
 
     fn start_note(&mut self, e: &mut Engine, syl: LiveSyllable, midi: u8, velocity: f64) {
@@ -192,7 +199,17 @@ impl Singer {
         let index = self.cursor % self.syllables.len();
         let syllable = self.syllables[index];
         self.cursor = (index + 1) % self.syllables.len();
-        Lyric { index, syllable, parent: if syllable.melisma { self.parent_of(index) } else { syllable } }
+        let parent = if syllable.melisma {
+            // the syllable this melisma continues: remembered while the cursor moves in order, so a
+            // long run of melismas is looked through once, not once a note
+            let at = self.plain.filter(|at| *at < index).or_else(|| self.syllables[..index].iter().rposition(|s| !s.melisma));
+            self.plain = at;
+            at.map_or_else(LiveSyllable::ah, |at| self.syllables[at])
+        } else {
+            self.plain = Some(index);
+            syllable
+        };
+        Lyric { index, syllable, parent }
     }
 
     /// Whether the next note continues the vowel now sung (a melisma).
