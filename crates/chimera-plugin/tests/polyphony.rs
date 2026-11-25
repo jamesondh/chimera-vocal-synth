@@ -329,6 +329,27 @@ fn the_editor_shows_the_voice_with_the_newest_note() {
     assert_eq!((c.shown(), note(&shared)), (0, -1), "its release stays on the screen");
 }
 
+/// Hold breathes on the first voice. With no key down the editor shows that one: it once stayed
+/// on the voice of the last chord's newest note, silent, with the lungs at zero.
+#[test]
+fn the_editor_shows_the_first_voice_when_hold_breathes_alone() {
+    let shared = Shared::default();
+    let p = voices(2);
+    let mut c = playing(2, &shared);
+    run(&mut c, &shared, &p, &[(0, on(57, 1)), (2000, on(61, 2))], GLIDED, 256);
+    assert_eq!(c.shown(), 1);
+    run(&mut c, &shared, &p, &[(0, off(57)), (0, off(61))], GLIDED, 256);
+    assert_eq!(c.shown(), 1, "its release stays on the screen");
+    shared.edit(|p| p.hold = Some(true));
+    run(&mut c, &shared, &p, &[], GLIDED, 256);
+    assert_eq!((c.shown(), chord(&c)[0] > 0.0, chord(&c)[1]), (0, true, 0.0));
+    // and after a key played over the held breath lifts
+    run(&mut c, &shared, &p, &[(0, on(64, 2))], GLIDED, 256);
+    assert_eq!(c.shown(), 1);
+    run(&mut c, &shared, &p, &[(0, off(64))], GLIDED, 256);
+    assert_eq!(c.shown(), 0);
+}
+
 #[test]
 fn the_editor_hears_each_voices_note_and_its_presses() {
     use std::sync::atomic::Ordering::Relaxed;

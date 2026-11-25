@@ -1087,6 +1087,11 @@ impl Core {
             let on = self.mode == Mode::Play && ((self.hold && v == 0) || !voice.play_keys.is_empty());
             voice.engine.set_gate(if on { 1.0 } else { 0.0 });
         }
+        // Hold breathes on the first voice: with no key down that is the voice to show, not the
+        // silent one that had the last chord's newest note
+        if self.mode == Mode::Play && self.hold && self.voices.iter().all(|voice| voice.play_keys.is_empty()) {
+            self.shown = 0;
+        }
     }
 
     /// Whether a voice has a key down (Sing, Play).
