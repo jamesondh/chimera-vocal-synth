@@ -18,6 +18,7 @@ import type { Gesture } from "../wasm/types.ts";
 import { nearestBody, type BodyMix } from "./body.ts";
 import { TUNES } from "../song/tunes.ts";
 import { fitSong, la } from "../song/fit.ts";
+import { pluginVoices, type PluginVoice } from "./voices.ts";
 
 /** A note on the piano roll, on the voice clock (s); t1 is null while it is held. */
 export interface RollNote {
@@ -281,16 +282,8 @@ function glide(midi: number, text: string): void {
   s.note = addNote(midi, t, text);
 }
 
-/** What the plugin says of one of its voices: the note it sounds (−1: none), the syllable it
- *  sings (−1: none) and the presses it has taken. */
-export interface PluginVoice {
-  note: number;
-  sung: number;
-  serial: number;
-}
-
 /** each voice of the plugin as last seen, and what it sings on the roll */
-let pluginVoices: { note: number; serial: number; sounding: Sounding | null }[] = [];
+let seenVoices: { note: number; serial: number; sounding: Sounding | null }[] = [];
 
 /**
  * In the plugin Rust plays the notes, so the piano roll and the words at the mouth follow what it
@@ -299,9 +292,10 @@ let pluginVoices: { note: number; serial: number; sounding: Sounding | null }[] 
  * pitch with no press is the glide back to a key still down.
  */
 export function followPluginVoices(shown: number, voices: PluginVoice[], clock: number): void {
+  Object.assign(pluginVoices, { voices, shown, clock, polls: pluginVoices.polls + 1 });
   const syls = useSing.getState().syllables;
   voices.forEach(({ note, sung, serial }, v) => {
-    const was = (pluginVoices[v] ??= { note: -1, serial: -1, sounding: null });
+    const was = (seenVoices[v] ??= { note: -1, serial: -1, sounding: null });
     const pressed = serial !== was.serial;
     if (!pressed && note === was.note) return;
     was.serial = serial;
@@ -320,14 +314,14 @@ export function followPluginVoices(shown: number, voices: PluginVoice[], clock: 
       was.sounding = { midi: note, syl: syl.melisma ? parentOf(syls, sung) : syl, tag: 0, note: addNote(note, clock, syl.text) };
     }
   });
-  sounding = pluginVoices[shown]?.sounding ?? null;
+  sounding = seenVoices[shown]?.sounding ?? null;
 }
 
 /** The voice clock started again (a new voice or a restore): the roll's times no longer mean anything. */
 export function clearPluginNotes(): void {
   roll.notes = [];
   sounding = null;
-  pluginVoices = [];
+  seenVoices = [];
 }
 
 export function singNoteOn(midi: number, velocity: number, body: BodyMix): void {

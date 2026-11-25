@@ -279,6 +279,13 @@ fn the_editor_hears_each_voices_note_and_its_presses() {
     run(&mut c, &shared, &p, &[(0, on(57, 1)), (0, on(61, 2)), (0, on(64, 3))], GLIDED, 256);
     assert_eq!(notes(&shared)[..4], [57, 61, 64, -1]);
     assert_eq!(shared.shown_voice.load(Relaxed), c.shown() as i32);
+    // each voice's pitch, for its own pitch line: within vibrato of its key, and voiced
+    let bits = |a: &std::sync::atomic::AtomicU64| f64::from_bits(a.load(Relaxed));
+    for (v, midi) in [57u8, 61, 64].into_iter().enumerate() {
+        let (f0, voicing) = (bits(&shared.voice_f0[v]), bits(&shared.voice_voicing[v]));
+        assert!((f0 / hz(midi) - 1.0).abs() < 0.05 && voicing > 0.3, "voice {v}: {f0} Hz, voicing {voicing}, for {} Hz", hz(midi));
+    }
+    assert_eq!((bits(&shared.voice_f0[3]), bits(&shared.voice_voicing[3])), (0.0, 0.0), "a voice not rendered");
     let before = serials(&shared);
     // the same key again on its voice: the same note, one press more, so the roll starts a new note
     run(&mut c, &shared, &p, &[(0, off(61)), (100, on(61, 2))], GLIDED, 256);

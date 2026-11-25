@@ -15,6 +15,7 @@ import { Chip, Screen } from "./Screen.tsx";
 import { LangPick } from "./LangPick.tsx";
 import { EncoderPages } from "./Encoder.tsx";
 import { noteName } from "./VoiceControls.tsx";
+import { voicedPitches } from "../voices.ts";
 import type { InfoFn } from "./AnatomyView.tsx";
 
 /** epilarynx narrowing for the singer's ring (measured: +3 to +12 dB at 2.4–3.6 kHz, adult male) */
@@ -33,7 +34,10 @@ export const singWords = mouthWords(sungNow, V.green);
 /** Sing mode's lines over the face: the note, the syllable, the ring */
 export const singInfo: InfoFn = (_m, _f, tele) => {
   const out: string[] = [];
-  if (tele && tele.t.voicing > 0.3) out.push(`Note ${noteName(tele.t.f0)} ${tele.t.f0.toFixed(0)} Hz`);
+  // a chord in the plugin: each voice's note
+  const chord = voicedPitches();
+  if (chord && chord.length > 1) out.push(`Notes ${chord.map(noteName).join(" ")}`);
+  else if (tele && tele.t.voicing > 0.3) out.push(`Note ${noteName(tele.t.f0)} ${tele.t.f0.toFixed(0)} Hz`);
   const syl = syllableNow();
   if (syl) out.push(`Syllable ${syl}`);
   out.push(useStore.getState().artic.epilarynx >= RING - 0.05 ? "Ring on" : "Ring off");

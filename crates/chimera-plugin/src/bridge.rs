@@ -31,11 +31,11 @@ const NOT_BUILT: &str = "<!doctype html><body style='background:#000;color:#fff;
 /// telemetry's female, child, spokenSerial, spokenLine, spokenGeneration, spokenT0, linesGeneration,
 /// speechCursor, beatStep, beatRunning, beatFollowing, hostBpm, the number of output samples, and the
 /// number of telemetry values. Then `VOICES_HEADER` more: the voice the head shows, and each voice's
-/// note, syllable and press count. The telemetry values follow (see
+/// note, syllable, press count, pitch (Hz) and voicing. The telemetry values follow (see
 /// `TELE_HEADER`), then the `TELE_LABELS` bytes of active labels if there was telemetry, then the
 /// samples as f32. Keep in step with `src/ui/pluginState.ts`.
 pub const POLL_HEADER: usize = 25;
-pub const VOICES_HEADER: usize = 1 + 3 * MAX_VOICES;
+pub const VOICES_HEADER: usize = 1 + 5 * MAX_VOICES;
 
 /// The editor window's first size, and the limits of its grip (points).
 pub const WINDOW_DEFAULT: (u32, u32) = (1280, 800);
@@ -300,10 +300,11 @@ impl Bridge {
         for x in header {
             out.extend_from_slice(&x.to_le_bytes());
         }
-        // each voice: its note, its syllable and its presses (the keys and the roll show them all)
+        // each voice: its note, its syllable, its presses, its pitch and voicing (the page shows them all)
         out.extend_from_slice(&(s.shown_voice.load(Ordering::Relaxed) as f64).to_le_bytes());
         for v in 0..MAX_VOICES {
-            for x in [s.voice_note[v].load(Ordering::Relaxed) as f64, s.voice_sung[v].load(Ordering::Relaxed) as f64, s.voice_serial[v].load(Ordering::Relaxed) as f64] {
+            let bits = |a: &std::sync::atomic::AtomicU64| f64::from_bits(a.load(Ordering::Relaxed));
+            for x in [s.voice_note[v].load(Ordering::Relaxed) as f64, s.voice_sung[v].load(Ordering::Relaxed) as f64, s.voice_serial[v].load(Ordering::Relaxed) as f64, bits(&s.voice_f0[v]), bits(&s.voice_voicing[v])] {
                 out.extend_from_slice(&x.to_le_bytes());
             }
         }

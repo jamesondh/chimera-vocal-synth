@@ -355,6 +355,11 @@ impl HumanVoice {
         self.apply_source();
     }
 
+    /// The pitch the folds make now (Hz) and how voiced they are (0 to 1), as in the telemetry.
+    pub fn pitch(&self) -> (f64, f64) {
+        (self.glottis.f0_now, self.glottis.voicing)
+    }
+
     /// Add gestures (times on the voice clock).
     pub fn schedule(&mut self, gestures: &[Gesture]) {
         self.score.add_all(gestures);

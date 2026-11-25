@@ -158,9 +158,13 @@ try {
   await until("each voice of a chord has its note on the roll", async () => (await held()).join() === "60,64,67");
   check("all three sing the same syllable", new Set((await rollNotes()).slice(chordFrom).map((n) => n.text)).size === 1, (await rollNotes()).slice(chordFrom));
   await until("the keys light every note of the chord", async () => (await page.locator(".key.down").count()) === 3);
+  // each voice's pitch, for its own line on the roll: C4, E4, G4 within vibrato
+  const pitches = () => page.evaluate(() => (window as never as { __chimeraVoices: { voices: { f0: number; voicing: number }[] } }).__chimeraVoices.voices.filter((v) => v.voicing > 0.3).map((v) => Math.round(12 * Math.log2(v.f0 / 440) + 69)).sort());
+  await until("the page has each voice's pitch", async () => (await pitches()).join() === "60,64,67");
   for (const m of [60, 64, 67]) await host("off", m);
   await until("the chord's notes end on the roll", async () => (await held()).length === 0);
   await until("and its keys go dark", async () => (await page.locator(".key.down").count()) === 0);
+  await until("and no voice is voiced", async () => (await pitches()).length === 0);
   await host("param", "voices=1");
   await page.locator(".lyrics textarea").fill("one two three");
   await until("back to three syllables", async () => (await page.locator(".syl").count()) === 3);

@@ -245,6 +245,11 @@ impl Engine {
         self.voice.clock
     }
 
+    /// The pitch the folds make now (Hz) and how voiced they are (0 to 1), as in the telemetry.
+    pub fn pitch(&self) -> (f64, f64) {
+        self.voice.pitch()
+    }
+
     /// Move the voice clock to `clock` (s), as a voice that rested while another sang takes that
     /// one's time. The beat keeps its phase; gestures already scheduled keep their times.
     pub fn set_clock(&mut self, clock: f64) {

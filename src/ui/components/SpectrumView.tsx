@@ -5,6 +5,7 @@ import { sameBody } from "../body.ts";
 import { useStore } from "../store.ts";
 import { useModel } from "../useModel.ts";
 import { VoiceModel } from "../analysis.ts";
+import { voicedPitches } from "../voices.ts";
 import { TEXT, V } from "../colors.ts";
 import { beam, beamPts, label, LABEL_MIN, labelWidth, type Pt, seg } from "../render/vector.ts";
 
@@ -29,14 +30,19 @@ export function SpectrumView(props: { ring?: boolean }) {
     const fx = (f: number) => left + ((Math.log(f) - Math.log(FMIN)) / (Math.log(FMAX) - Math.log(FMIN))) * (right - left);
     const dbY = (db: number) => top + (Math.min(0, Math.max(-RANGE, db)) / -RANGE) * (bot - top);
     const tele = engine.latest && sameBody(engine.latest.body, st.body) ? engine.latest : null;
-    const f0 = tele && tele.t.voicing > 0.3 ? tele.t.f0 : 0;
+    // a chord in the plugin: a marker at each voice's pitch, and the whole curve (one voice's
+    // harmonics would leave the others out)
+    const chord = voicedPitches();
+    const f0s = chord && chord.length > 1 ? chord : tele && tele.t.voicing > 0.3 ? [tele.t.f0] : [];
+    const f0 = f0s.length === 1 ? f0s[0] : 0;
 
-    // the F0 label is written to the left of its marker: a frequency label under it gives way
-    const f0Text = `F0 ${Math.round(f0)}`;
-    const f0Left = f0 ? fx(f0) - 9 - labelWidth(ctx, f0Text, { size: LABEL_MIN, ls: 0.12 }) : 0;
+    // the F0 label is written to the left of the lowest marker: a frequency label under the markers gives way
+    const f0Text = f0s.length > 1 ? "F0" : `F0 ${Math.round(f0)}`;
+    const f0Left = f0s.length ? fx(f0s[0]) - 9 - labelWidth(ctx, f0Text, { size: LABEL_MIN, ls: 0.12 }) : 0;
+    const f0Right = f0s.length ? fx(f0s[f0s.length - 1]) + 6 : 0;
     for (const f of [100, 200, 500, 1000, 2000, 5000]) {
       seg(ctx, fx(f), top, fx(f), bot, V.frame, 1);
-      if (!(f0 && fx(f) + 12 > f0Left && fx(f) - 12 < fx(f0) + 6)) label(ctx, f >= 1000 ? `${f / 1000}K` : String(f), fx(f), h - 6, { size: LABEL_MIN, color: TEXT.secondary, align: "center", ls: 0.1 });
+      if (!(f0s.length && fx(f) + 12 > f0Left && fx(f) - 12 < f0Right)) label(ctx, f >= 1000 ? `${f / 1000}K` : String(f), fx(f), h - 6, { size: LABEL_MIN, color: TEXT.secondary, align: "center", ls: 0.1 });
     }
     for (const db of [-20, -40]) {
       seg(ctx, left, dbY(db), right, dbY(db), V.frame, 1, { dash: [2, 4] });
@@ -106,15 +112,17 @@ export function SpectrumView(props: { ring?: boolean }) {
       beam(ctx, tri, V.amber, 1.2);
       label(ctx, `F${i + 1}`, x, y - 12, { size: LABEL_MIN, color: V.amber, align: "center", ls: 0.1 });
     });
-    if (f0 > 0) {
-      const x = fx(f0);
+    if (f0s.length) {
       const tri = new Path2D();
-      tri.moveTo(x - 5, bot + 9);
-      tri.lineTo(x + 5, bot + 9);
-      tri.lineTo(x, bot + 1);
-      tri.closePath();
+      for (const f of f0s) {
+        const x = fx(f);
+        tri.moveTo(x - 5, bot + 9);
+        tri.lineTo(x + 5, bot + 9);
+        tri.lineTo(x, bot + 1);
+        tri.closePath();
+      }
       beam(ctx, tri, V.green, 1.2);
-      label(ctx, f0Text, x - 9, bot + 13, { size: LABEL_MIN, color: V.green, align: "right", ls: 0.12 });
+      label(ctx, f0Text, fx(f0s[0]) - 9, bot + 13, { size: LABEL_MIN, color: V.green, align: "right", ls: 0.12 });
     }
   });
   return <canvas ref={ref} className="instrument-canvas" aria-label="Output spectrum: harmonics, the vocal tract's resonances and its formants" role="img" />;

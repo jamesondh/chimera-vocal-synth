@@ -251,11 +251,14 @@ What the voices share, and what is each one's own:
   far over full scale (four voices at full pressure: 2.4). With more than one voice the sum goes
   through one more limiter with the same law (`ChordLimiter`): a loud chord is turned down as a
   whole. One voice sounding stays below its ceiling and passes unchanged.
-- **The editor.** The keys light every note a voice sounds, and the roll (Sing) has a note for each
-  voice, each with its syllable. The head, the tube, the folds and the roll's pitch trace show one
+- **The editor.** Each voice's pitch is shown: the keys light every note a voice sounds; the roll
+  (Sing) has a note and an amber pitch line for each voice; the Keys header (Play) names the chord;
+  the lines by the head list each voice's F0 or note; the spectrum marks each F0 and, for a chord,
+  draws the whole curve instead of one voice's harmonics. The head, the tube and the folds show one
   voice: the one with the newest note still sounding, and after that its release. All voices have
-  one mouth, so the head is right for each; only pitch and breath differ. The poll sends each
-  voice's note, syllable and press count after its header (`VOICES_HEADER`).
+  one mouth, so the head is right for each; only pitch and breath differ. The Pitch dial is a
+  control, so it shows the newest note. The poll sends each voice's note, syllable, press count,
+  pitch and voicing after its header (`VOICES_HEADER`); `src/ui/voices.ts` holds them for the page.
 
 Lowering Voices stops the notes of the voices taken away. They are rendered for one more second, so
 their release is heard, and then they cost nothing. Raising it sets each voice that joins to the

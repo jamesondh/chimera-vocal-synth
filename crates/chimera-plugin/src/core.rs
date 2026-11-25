@@ -383,6 +383,10 @@ pub struct Shared {
     pub voice_note: [AtomicI32; MAX_VOICES],
     pub voice_sung: [AtomicI32; MAX_VOICES],
     pub voice_serial: [AtomicU32; MAX_VOICES],
+    /// each voice's pitch (Hz) and voicing (0 to 1) now, as f64 bits, for the pitch lines (a voice
+    /// that isn't rendered: 0, 0)
+    pub voice_f0: [AtomicU64; MAX_VOICES],
+    pub voice_voicing: [AtomicU64; MAX_VOICES],
     pub speech: Mutex<SpeechDoc>,
     generations: AtomicU32,
     /// the line a note says next
@@ -1665,6 +1669,9 @@ impl Core {
             shared.voice_note[v].store(note, Ordering::Relaxed);
             shared.voice_sung[v].store(sung, Ordering::Relaxed);
             shared.voice_serial[v].store(voice.presses, Ordering::Relaxed);
+            let (f0, voicing) = if v < self.rendered { voice.engine.pitch() } else { (0.0, 0.0) };
+            shared.voice_f0[v].store(f0.to_bits(), Ordering::Relaxed);
+            shared.voice_voicing[v].store(voicing.to_bits(), Ordering::Relaxed);
         }
         shared.speech_cursor.store(self.speech_cursor as i32, Ordering::Relaxed);
         shared.spoken_line.store(self.spoken_line, Ordering::Relaxed);
