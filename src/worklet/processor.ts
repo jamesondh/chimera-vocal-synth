@@ -58,9 +58,8 @@ class ChimeraProcessor extends AudioWorkletProcessor {
   private tailLeft = 0;
   /** the voice the telemetry is of */
   private shown = 0;
-  /** the chord limiter (made with the second voice) and the sum of the voices */
+  /** the chord limiter, whose buffer takes the sum of the voices (made with the second voice) */
   private mix = 0;
-  private sum = new Float32Array(128);
   /** what every voice plays from, for a voice made later: the body, the pose and the dials */
   private shared: { body: BodyMix | null; artic: Record<string, number>; tipFree: boolean | undefined; source: Record<string, number> } = { body: null, artic: {}, tipFree: undefined, source: {} };
   private failed = false;
@@ -167,8 +166,10 @@ class ChimeraProcessor extends AudioWorkletProcessor {
       this.engines.push(h);
     }
     if (n > 1 && !this.mix) this.mix = x.mix_new(sampleRate);
+    // (from the count, not from the voices rendered: one still ringing after it was taken away
+    // has run on while voice 0's clock stood still under a creature)
     const clock = x.engine_clock(this.h);
-    for (let v = this.rendered; v < n; v++) x.engine_set_clock(this.engines[v], clock);
+    for (let v = this.count; v < n; v++) x.engine_set_clock(this.engines[v], clock);
     if (n < this.count) this.tailLeft = Math.round(VOICE_TAIL * sampleRate);
     // a voice still ringing from before keeps ringing until its tail ends
     this.rendered = Math.max(n, this.rendered);
@@ -301,17 +302,15 @@ class ChimeraProcessor extends AudioWorkletProcessor {
   /** Several voices: their sum, through the chord limiter; voices taken away stop after their tail. */
   private renderChord(out: Float32Array): void {
     const x = this.x, n = out.length;
-    if (this.sum.length < n) this.sum = new Float32Array(n);
-    const sum = this.sum.subarray(0, n);
+    // (rendering allocates nothing, so the memory doesn't grow under these views)
+    const sum = new Float32Array(this.mem, x.mix_buffer(this.mix), n);
     sum.fill(0);
     for (let v = 0; v < this.rendered; v++) {
       const part = new Float32Array(this.mem, x.engine_render(this.engines[v], n), n);
       for (let i = 0; i < n; i++) sum[i] += part[i];
     }
-    const buf = new Float32Array(this.mem, x.mix_buffer(this.mix), n);
-    buf.set(sum);
     x.mix_limit(this.mix, n);
-    out.set(new Float32Array(this.mem, x.mix_buffer(this.mix), n));
+    out.set(sum);
     if (this.rendered > this.count && (this.tailLeft -= n) <= 0) {
       this.rendered = this.count;
       if (this.count === 1) x.mix_reset(this.mix);
