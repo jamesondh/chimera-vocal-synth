@@ -114,7 +114,6 @@ export function Keys() {
   );
 }
 
-/** Connect a MIDI keyboard (a chip in the keys screen's header); says what is connected. */
 /**
  * How many voices the keys play: a chord's notes, one voice each (docs/plugin.md, "Voices"). In the
  * plugin it is the host's Voices parameter. Each press goes on to the next count, and back to 1.
@@ -131,6 +130,7 @@ export function VoicesButton() {
   );
 }
 
+/** Connect a MIDI keyboard (a chip in the keys screen's header); says what is connected. */
 export function MidiButton() {
   const midi = useStore((s) => s.midi);
   const setMidi = useStore((s) => s.setMidi);

@@ -22,6 +22,9 @@ const voiceAt = (v: number) => (v ? others[v - 1] : voice);
 /** what the store sends a chord's voices in Play: [voice, f0, snap] and [voice, gate] */
 const voiceSources: [number, number, boolean][] = [];
 const gates: [number, number][] = [];
+/** the voice the head was told to show, and the counts of voices sent, in order */
+const shows: number[] = [];
+const counts: number[] = [];
 /** what the worklet answers when a scheduled plan starts (singing.ts registers one at import) */
 let planned: (m: { type: "planned"; id: number; t0: number; end: number }) => void = () => {};
 const fakeEngine = {
@@ -35,6 +38,8 @@ const fakeEngine = {
     if (values.f0 !== undefined) voiceSources.push([v, values.f0, snap]);
   },
   gate: (level: number, v = 0) => void gates.push([v, level]),
+  showVoice: (v: number) => void shows.push(v),
+  setVoices: (n: number) => void counts.push(n),
   schedule: (plan: { gestures: Gesture[] }) => {
     voice.schedule(plan.gestures, 0.03, true);
     return 1;
@@ -56,7 +61,7 @@ const engineStub = new Proxy(
   { get: (t, k) => (k in t ? t[k as string] : () => {}), set: (t, k, v) => ((t[k as string] = v), true) },
 );
 mock.module("../src/audio/AudioEngine.ts", () => ({ engine: engineStub }));
-const { useSing, singNoteOn, singNoteOff, playTune, stopSinging, tickSinging, setVoiceCount, roll } = await import("../src/ui/singing.ts");
+const { useSing, singNoteOn, singNoteOff, playTune, stopSinging, tickSinging, setVoiceCount, roll, alloc } = await import("../src/ui/singing.ts");
 const gesturesOf = () => voice.score();
 /** breath the score is giving now (strength-weighted activation of breath gestures) */
 const breathNow = () => {
@@ -485,6 +490,49 @@ describe("Sing mode, a chord of voices", () => {
     expect(a.voiced[2]).toBeLessThan(0.2);
   });
 
+  test("a chord forgets its syllable when the cursor moves or the words change: the next key, though at once, sings from there", () => {
+    chordOf(4);
+    useSing.getState().setLyrics("la lo li");
+    const sounding = () => roll.notes.filter((n) => n.t1 === null).map((n) => n.text);
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    useSing.getState().setCursor(2);
+    singNoteOn(52, 96, MALE);
+    expect(sounding()).toEqual(["la", "li"]);
+    useSing.getState().setLyrics("mi fa");
+    singNoteOn(55, 96, MALE);
+    // (and this one is its chord)
+    singNoteOn(57, 96, MALE);
+    expect(sounding()).toEqual(["la", "li", "mi", "mi"]);
+  });
+
+  test("a melisma whose voice was taken away goes on the first voice", () => {
+    chordOf(3);
+    useSing.getState().setLyrics("la lo li -");
+    runAll(0.05);
+    for (const m of [48, 52, 55]) {
+      singNoteOn(m, 96, MALE);
+      runAll(0.1);
+    }
+    // "li" was voice 2's. Voice 1 is free the longest: without the rule the melisma is its own
+    for (const m of [52, 48, 55]) singNoteOff(m, MALE);
+    setVoiceCount(2);
+    singNoteOn(60, 96, MALE);
+    expect(alloc.voiceOf(60)).toBe(0);
+  });
+
+  test("the head goes back to the first voice when the singing stops: a tune is that voice's", () => {
+    chordOf(2);
+    useSing.getState().setLyrics("la lo");
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    runAll(0.1);
+    singNoteOn(52, 96, MALE);
+    expect(shows.at(-1)).toBe(1);
+    stopSinging();
+    expect(shows.at(-1)).toBe(0);
+  });
+
   test("a melisma's key still down on another voice leaves that voice, as in the plugin", () => {
     // (the computer's key held and the same key clicked, or a second keyboard) It once stayed on
     // its own voice, which "glided" to the pitch it was on: the wrong vowel, and no melisma heard
@@ -568,7 +616,7 @@ describe("Play mode, a chord of voices", () => {
     st().noteOn(48);
     st().noteOn(52);
     // (the stub records what the real engine drops until it has started)
-    voiceSources.length = gates.length = 0;
+    voiceSources.length = gates.length = shows.length = 0;
     startAudio();
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
@@ -581,10 +629,57 @@ describe("Play mode, a chord of voices", () => {
     ]);
     const [low, high] = sent.map(([v]) => v);
     expect(low).not.toBe(high);
+    // and the head's voice, which it was told of before it existed
+    expect(shows.at(-1)).toBe(high);
     const gateOf = (v: number) => gates.filter(([w]) => w === v).at(-1)?.[1];
     expect([0, 1, 2].map(gateOf)).toEqual([0, 1, 2].map((v) => (v === low || v === high ? 1 : 0)));
     st().noteOff(48);
     st().noteOff(52);
+    st().setVoices(1);
+  });
+
+  test("the head shows the newest note's voice, and the first voice when Hold breathes alone; the dial shows the newest note still down", async () => {
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+    const st = useStore.getState;
+    st().setVoices(2);
+    alloc.clear();
+    st().noteOn(48);
+    st().noteOn(52);
+    expect(shows.at(-1)).toBe(1);
+    // the Keys header and the dial once kept the lifted key's pitch over the one still down
+    st().noteOff(52);
+    expect(st().source.f0).toBeCloseTo(hz(48), 6);
+    st().noteOn(52);
+    st().noteOff(48);
+    st().noteOff(52);
+    // voice 1's release is on the screen; Hold's breath is voice 0's (the lungs once read zero)
+    expect(shows.at(-1)).toBe(1);
+    st().setHold(true);
+    expect(shows.at(-1)).toBe(0);
+    // and a voice that Hold keeps breathing glides to a key: it doesn't start from silence
+    voiceSources.length = 0;
+    st().noteOn(50);
+    expect(voiceSources).toEqual([[0, hz(50), false]]);
+    st().noteOff(50);
+    st().setHold(false);
+    st().setVoices(1);
+  });
+
+  test("a new count of voices ends the notes held; the other tabs have one voice, and the count comes back", async () => {
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+    const st = useStore.getState;
+    const gateOf = (v: number) => gates.filter(([w]) => w === v).at(-1)?.[1];
+    st().setVoices(2);
+    st().noteOn(48);
+    st().noteOn(52);
+    st().setVoices(3);
+    expect([st().heldNotes, st().voiceNotes, gateOf(0), gateOf(1)]).toEqual([[], [], 0, 0]);
+    st().setMode("speak");
+    expect(counts.at(-1)).toBe(1);
+    st().setMode("play");
+    expect(counts.at(-1)).toBe(3);
     st().setVoices(1);
   });
 

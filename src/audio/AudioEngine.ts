@@ -138,6 +138,7 @@ export class AudioEngine {
     this.node = node;
     this.tap = null;
     this.latest = null;
+    if (!inPlugin) followWorkletVoices(undefined, 0, 0);
     this.latestCreature = null;
     this.lastPlan = null;
     this.builtAt = this.loadAt = performance.now();
@@ -282,6 +283,7 @@ export class AudioEngine {
     } else if (m.type === "ctelemetry") {
       this.latestCreature = m;
       this.latest = null;
+      if (!inPlugin) followWorkletVoices(undefined, 0, 0);
       this.noteLoad(m.load);
     } else if (m.type === "planned") {
       this.lastPlan = m;

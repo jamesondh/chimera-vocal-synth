@@ -44,10 +44,8 @@ export class VoiceAlloc {
     return free >= 0 ? free : oldest;
   }
 
-  /** Voice v takes the key. */
+  /** Voice v takes the key (one down on another voice is lifted from that one first, by the caller). */
   press(midi: number, v: number): void {
-    const was = this.keyVoice.get(midi);
-    if (was !== undefined && was !== v) this.keys[was] = this.keys[was].filter((k) => k !== midi);
     this.keyVoice.set(midi, v);
     this.keys[v] = this.keys[v].filter((k) => k !== midi).concat(midi);
     this.order[v] = ++this.serial;

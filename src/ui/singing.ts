@@ -332,12 +332,24 @@ export function showNewestVoice(): void {
   }
 }
 
+/**
+ * The head shows voice 0: what plays next is its own (a tune, Hold's breath, speech, a beat), and
+ * the voice of the last chord's newest note is silent.
+ */
+export function showFirstVoice(): void {
+  if (shown === 0) return;
+  shown = 0;
+  engine.showVoice(0);
+}
+
 /** How many voices play in the web app (their notes were released first): Sing's and Play's. */
 export function setVoiceCount(n: number): void {
   alloc.count = n;
   if (shown >= n) shown = 0;
   if (lyricVoice >= n) lyricVoice = 0;
   engine.setVoices(n);
+  // also to an engine that knows nothing yet (the start, a rebuild): it shows voice 0 till told
+  engine.showVoice(shown);
 }
 
 /** each voice of the plugin as last seen, and what it sings on the roll */
@@ -608,6 +620,7 @@ export function stopSinging(): void {
   chord = null;
   lyricVoice = 0;
   liveVoices.notes = [];
+  showFirstVoice();
 }
 
 export { TUNES };

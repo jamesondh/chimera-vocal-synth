@@ -19,7 +19,8 @@ const MAX_VOICES = 8;
  *  voicing (VOICES_HEADER). */
 const VOICES_HEADER = 1 + 5 * MAX_VOICES;
 /** Telemetry's clock going back by more than this (s) is a new timeline. A voice that joins takes the
- *  first voice's clock, but not its control step: their clocks differ by up to a step (under 1 ms). */
+ *  first voice's clock, but not its control step: their clocks differ by up to a step (64 samples:
+ *  1.5 ms at 44.1 kHz, 2 ms at 32 kHz). */
 const CLOCK_SLACK = 0.05;
 /** Parameters are read every this many frames: about 20 times a second. */
 const PARAMS_EVERY = 3;

@@ -7,7 +7,7 @@ import { defaultF0, PRESETS, sameBody, type BodyMix } from "./body.ts";
 import { creatureById } from "../wasm/engine.ts";
 import type { ParamDef } from "../wasm/types.ts";
 import { BEAT_PRESETS, BASS_NOTE, beatReady, parseBeat, type BeatStep } from "../wasm/engine.ts";
-import { alloc, setVoiceCount, showNewestVoice, singNoteOn, singNoteOff, stopSinging } from "./singing.ts";
+import { alloc, setVoiceCount, showFirstVoice, showNewestVoice, singNoteOn, singNoteOff, stopSinging } from "./singing.ts";
 import { MAX_VOICES } from "./voiceAlloc.ts";
 import { liveVoices } from "./voices.ts";
 import { stopSpeaking } from "./speech.ts";
@@ -143,6 +143,7 @@ function releasePlayVoices(set: (p: Partial<State>) => void): void {
   for (let v = 1; v < alloc.count; v++) engine.gate(0, v);
   alloc.clear();
   dialF0.length = 0;
+  showFirstVoice();
   liveVoices.notes = [];
   set({ voiceNotes: [] });
 }
@@ -154,8 +155,10 @@ function updateGate(s: { hold: boolean; heldNotes: number[]; mode: Mode; keyCall
     return;
   }
   if (alloc.count > 1 && s.mode === "play") {
-    // each voice of a chord breathes while its key is down; Hold keeps the first one breathing
+    // each voice of a chord breathes while its key is down; Hold keeps the first one breathing,
+    // and with no key down that is the voice the head shows
     for (let v = 0; v < alloc.count; v++) engine.gate((v === 0 && s.hold) || alloc.busy(v) ? 1 : 0, v);
+    if (s.hold && alloc.newest() === null) showFirstVoice();
     return;
   }
   // keys that trigger calls leave the breath to the call; sung notes breathe by themselves
@@ -521,6 +524,10 @@ export const useStore = create<State>((set, get) => ({
         engine.voiceSource(lifted.voice, { f0: dialF0[lifted.voice] });
         dialF0[lifted.voice] = undefined;
       }
+      // the Pitch dial and the Keys header show the newest note still down (the dial, turned
+      // since, shows what it was turned to)
+      const newest = alloc.newest();
+      if (newest !== null && !dialF0.some((f) => f !== undefined)) set((st) => ({ source: { ...st.source, f0: midiToHz(alloc.keys[newest].at(-1)!) } }));
       followPlayVoices(set);
       updateGate(get());
       return;

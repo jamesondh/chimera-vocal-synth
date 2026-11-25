@@ -1,6 +1,7 @@
 /**
  * The voices of a chord, one for each finger (docs/plugin.md, "Voices"): in the plugin as its last
- * poll found them, in the web app as the worklet's last telemetry did. Empty while one voice plays.
+ * poll found them (all 8, with one voice too), in the web app as the worklet's last telemetry did
+ * (empty while one voice plays).
  * The pitch lines and readouts read it each frame (mutated in place: no re-render per message).
  */
 
