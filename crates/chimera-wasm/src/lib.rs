@@ -38,6 +38,7 @@ use chimera::anatomy::human::{ArticPatch, BodyMix, N_ARTIC};
 use chimera::control::score::{Gesture, Label, N_CONTROL, Targets};
 use chimera::engine::{Engine, MAX_SCHEDULE};
 use chimera::phonetics::beatbox::{BeatStep, MAX_BEAT_STEPS};
+use chimera::voice::chord_limiter::ChordLimiter;
 use chimera::voice::human_voice::{SourcePatch, TELE_LABELS, VoiceTelemetry};
 
 pub const GESTURE_RECORD: usize = 272;
@@ -298,6 +299,77 @@ pub unsafe extern "C" fn engine_release(h: *mut Handle, tag: f64) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn engine_clock(h: *mut Handle) -> f64 {
     handle!(h).engine.clock()
+}
+
+/// Put a voice with nothing to play on another voice's clock (a chord's voice that joins).
+///
+/// # Safety
+/// `h` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_set_clock(h: *mut Handle, clock: f64) {
+    handle!(h).engine.set_clock(clock);
+}
+
+/// Put the pitch on its target now, with no glide (a chord's voice that starts from silence).
+///
+/// # Safety
+/// `h` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_snap_pitch(h: *mut Handle) {
+    handle!(h).engine.snap_pitch();
+}
+
+/// The pitch the folds make now (Hz) and how voiced they are (0 to 1), in the value area's first
+/// two places: a chord's pitch lines, without a whole telemetry block for each voice.
+///
+/// # Safety
+/// `h` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_pitch(h: *mut Handle) -> *const f64 {
+    let h = handle!(h);
+    let (f0, voicing) = h.engine.pitch();
+    h.values[0] = f0;
+    h.values[1] = voicing;
+    h.values.as_ptr()
+}
+
+/// The limiter on a chord's sum, with a buffer of MAX_RENDER samples that JavaScript adds the
+/// voices into (`chimera::voice::chord_limiter`).
+pub struct Mix {
+    limiter: ChordLimiter,
+    buf: Vec<f32>,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn mix_new(sample_rate: f64) -> *mut Mix {
+    Box::into_raw(Box::new(Mix { limiter: ChordLimiter::new(sample_rate), buf: vec![0.0; MAX_RENDER] }))
+}
+
+/// # Safety
+/// `m` must come from `mix_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mix_buffer(m: *mut Mix) -> *mut f32 {
+    unsafe { &mut *m }.buf.as_mut_ptr()
+}
+
+/// Limit the buffer's first `n` (≤ MAX_RENDER) samples in place.
+///
+/// # Safety
+/// `m` must come from `mix_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mix_limit(m: *mut Mix, n: usize) {
+    let m = unsafe { &mut *m };
+    let n = n.min(MAX_RENDER);
+    m.limiter.process(&mut m.buf[..n]);
+}
+
+/// Forget the level of the chords before (one voice again).
+///
+/// # Safety
+/// `m` must come from `mix_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mix_reset(m: *mut Mix) {
+    unsafe { &mut *m }.limiter.reset();
 }
 
 /// # Safety
