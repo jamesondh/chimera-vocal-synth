@@ -1120,6 +1120,17 @@ impl Core {
     /// A voice gets a key. Returns whether the voice was free.
     fn claim_voice(&mut self, v: usize, midi: u8) -> bool {
         let free = !self.busy(v);
+        // this finger's channel may still move another voice's release (a melisma goes to the
+        // voice of its syllable, not to the one `pick_voice` keeps a channel on): that release
+        // follows the zone's own channel from here, and no finger
+        let channel = self.note_channel[midi as usize];
+        if self.params.mpe && channel != 0 {
+            for w in 0..self.count {
+                if w != v && !self.busy(w) && self.voices[w].expr_channel == channel {
+                    self.voices[w].expr_channel = 0;
+                }
+            }
+        }
         self.key_voice[midi as usize] = v as u8;
         self.order += 1;
         self.key_order[midi as usize] = self.order;

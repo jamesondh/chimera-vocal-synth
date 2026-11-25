@@ -523,6 +523,24 @@ fn a_melisma_moves_the_vowel_of_the_note_before_it() {
     assert_eq!(c.voice(1).1.sounding_note(), Some(61), "and back to its own key");
 }
 
+/// A melisma goes to its syllable's voice, whatever its channel. That channel may be the one a
+/// released voice still follows (the finger that sang "one" comes back for the melisma on "two"):
+/// the release once heard the new finger's pressure too.
+#[test]
+fn a_release_does_not_hear_the_finger_that_went_to_another_voice() {
+    let ms = |t: usize| t * FS as usize / 1000;
+    let settings = Settings { lyrics: "one two - three".into(), ..Default::default() };
+    let shared = Shared::default();
+    let p = voices(2);
+    let mut c = core_with(&settings, &shared, &p);
+    run(&mut c, &shared, &p, &[(0, on(57, 2)), (ms(200), on(61, 3)), (ms(300), off(57)), (ms(400), on(64, 2))], ms(450), 256);
+    assert_eq!((c.voice(0).1.sounding_note(), c.voice(1).1.sounding_note()), (None, Some(64)), "the melisma is on the voice singing two");
+    run(&mut c, &shared, &p, &[(0, Event::Pressure { channel: 2, value: 1.0 })], GLIDED, 256);
+    let breath = |v: usize| body(&c, v).source.pressure;
+    assert!(close(breath(1), 8.0 * 1.75), "the finger's own voice: {}", breath(1));
+    assert!(close(breath(0), 8.0), "the release of one: {}", breath(0));
+}
+
 /// A melisma next in the lyrics holds back the coda of the voice it will continue, and of no
 /// other: "hat" under a held "see" ends with its t, as it does with no melisma to come.
 #[test]
