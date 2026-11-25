@@ -132,10 +132,17 @@ function followPlayVoices(set: (p: Partial<State>) => void): void {
   showNewestVoice();
 }
 
-/** Play's keys let go, on every voice of a chord (a tab switch, a new count of voices). */
+/**
+ * The Pitch dial moved while a key had this voice of a Play chord: the voice takes the dial's
+ * pitch when its last key lifts, as in the plugin (Hold then breathes there).
+ */
+const dialF0: (number | undefined)[] = [];
+
+/** Play's keys let go, on every voice of a chord (a tab switch, a new count of voices, a new body, a rebuilt engine). */
 function releasePlayVoices(set: (p: Partial<State>) => void): void {
   for (let v = 1; v < alloc.count; v++) engine.gate(0, v);
   alloc.clear();
+  dialF0.length = 0;
   liveVoices.notes = [];
   set({ voiceNotes: [] });
 }
@@ -227,8 +234,10 @@ export const useStore = create<State>((set, get) => ({
     }
     const s = get();
     if (n === s.voices) return;
-    // notes held now end: the keys are dealt to the voices again from the next press
+    // notes held now end: the keys are dealt to the voices again from the next press (and a
+    // press still waiting for the audio to start is not sent when it does)
     if (s.heldNotes.length) {
+      pressOf.clear();
       if (s.mode === "sing") stopSinging();
       if (s.mode === "play") releasePlayVoices(set);
       if (s.mode === "sing" || s.mode === "play") set({ heldNotes: [] });
@@ -397,8 +406,16 @@ export const useStore = create<State>((set, get) => ({
     const f0 = defaultF0(b);
     // nor does speech carry over (and the new voice's clock starts again from zero)
     if (get().mode === "speak") stopSpeaking();
+    // a Play chord ends, as Sing's notes do and as in the plugin: the new body starts every voice
+    // at its own pitch, which would leave the chord's keys lit over a unison
+    const chord = get().mode === "play" && alloc.count > 1;
+    if (chord) {
+      releasePlayVoices(set);
+      set({ heldNotes: [] });
+    }
     set((s) => ({ body: b, source: { ...s.source, f0 } }));
     engine.setBody(b);
+    if (chord) updateGate(get());
   },
   previewBody: (b) => set({ body: b }),
   setSource: (v) => {
@@ -407,7 +424,10 @@ export const useStore = create<State>((set, get) => ({
       // a chord's keys keep their pitches: the Pitch dial moves only the voices with no key down
       const { f0, ...rest } = v;
       if (Object.keys(rest).length) engine.setSource(rest);
-      for (let k = 0; k < alloc.count; k++) if (!alloc.busy(k)) engine.voiceSource(k, { f0 });
+      for (let k = 0; k < alloc.count; k++) {
+        if (alloc.busy(k)) dialF0[k] = f0;
+        else engine.voiceSource(k, { f0 });
+      }
       return;
     }
     engine.setSource(v);
@@ -471,6 +491,7 @@ export const useStore = create<State>((set, get) => ({
       const v = alloc.pick(midi);
       const fromSilence = !alloc.busy(v) && !(v === 0 && s.hold);
       alloc.press(midi, v);
+      dialF0[v] = undefined;
       engine.voiceSource(v, { f0: midiToHz(midi) }, fromSilence);
       // the Pitch dial shows the newest note
       set((st) => ({ source: { ...st.source, f0: midiToHz(midi) } }));
@@ -496,6 +517,10 @@ export const useStore = create<State>((set, get) => ({
       // a chord: the key's voice goes back to its older key still down, or falls silent
       const lifted = alloc.lift(midi);
       if (lifted && lifted.back !== null) engine.voiceSource(lifted.voice, { f0: midiToHz(lifted.back) });
+      else if (lifted && dialF0[lifted.voice] !== undefined) {
+        engine.voiceSource(lifted.voice, { f0: dialF0[lifted.voice] });
+        dialF0[lifted.voice] = undefined;
+      }
       followPlayVoices(set);
       updateGate(get());
       return;
@@ -543,6 +568,8 @@ engine.onRebuilt(() => {
   session++;
   stopSinging();
   stopSpeaking();
+  // (a Play chord's keys too: they would stay lit, and named in the Keys header, over silence)
+  releasePlayVoices((p) => useStore.setState(p));
   useStore.setState({ heldNotes: [] });
   sendState(useStore.getState());
 });

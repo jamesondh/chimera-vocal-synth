@@ -406,7 +406,12 @@ export function singNoteOn(midi: number, velocity: number, body: BodyMix): void 
   const i = st.cursor % syls.length;
   const syl = syls[i];
   // a melisma moves the vowel of the note before it, on that note's voice
-  if (syl.melisma && lyricVoice < alloc.count && alloc.voiceOf(midi) === undefined) v = lyricVoice;
+  if (syl.melisma && lyricVoice < alloc.count) {
+    // a key pressed again while it is still down on another voice leaves that voice, as in the plugin
+    const held = alloc.voiceOf(midi);
+    if (held !== undefined && held !== lyricVoice) singNoteOff(midi, body);
+    v = lyricVoice;
+  }
   alloc.press(midi, v);
   // a melisma with nothing held: sing its vowel again, without the onset
   const vowel = syl.melisma ? { ...parentOf(syls, i), onset: [] } : syl;

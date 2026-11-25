@@ -44,10 +44,13 @@ const fakeEngine = {
   stopSpeech: () => [voice, ...others].forEach((w) => w.stop()),
 };
 let startAudio: () => void = () => {};
+/** what the store does after the audio was rebuilt at the lighter rate (it registers at import) */
+let rebuilt: () => void = () => {};
 const engineStub = new Proxy(
   {
     ...fakeEngine,
     start: () => new Promise<void>((r) => (startAudio = r)),
+    onRebuilt: (f: () => void) => ((rebuilt = f), () => {}),
   } as Record<string, unknown>,
   // every other engine call the store makes (volume, body, gate…) does nothing here
   { get: (t, k) => (k in t ? t[k as string] : () => {}), set: (t, k, v) => ((t[k as string] = v), true) },
@@ -463,6 +466,28 @@ describe("Sing mode, a chord of voices", () => {
     expect(a.voiced[1]).toBeLessThan(0.2);
     expect(a.voiced[2]).toBeLessThan(0.2);
   });
+
+  test("a melisma's key still down on another voice leaves that voice, as in the plugin", () => {
+    // (the computer's key held and the same key clicked, or a second keyboard) It once stayed on
+    // its own voice, which "glided" to the pitch it was on: the wrong vowel, and no melisma heard
+    chordOf(2);
+    useSing.getState().setLyrics("cat dog -");
+    runAll(0.05);
+    singNoteOn(48, 96, MALE); // "cat" on voice 0
+    runAll(0.3);
+    singNoteOn(52, 96, MALE); // "dog" on voice 1
+    runAll(0.3);
+    singNoteOn(48, 96, MALE); // the melisma: "dog" moves down to it
+    const a = runAll(0.6);
+    expect(Math.abs(cents(a.f0[1], 48))).toBeLessThan(30);
+    expect(a.voiced[1]).toBeGreaterThan(0.5);
+    expect(a.voiced[0]).toBeLessThan(0.2);
+    expect(roll.notes.filter((n) => n.t1 === null).map((n) => n.midi)).toEqual([48]);
+    // lifted: back to the key of "dog", still down
+    singNoteOff(48, MALE);
+    const b = runAll(0.4);
+    expect(Math.abs(cents(b.f0[1], 52))).toBeLessThan(30);
+  });
 });
 
 describe("Play mode, a chord of voices", () => {
@@ -545,6 +570,52 @@ describe("Play mode, a chord of voices", () => {
     st().setVoices(1);
   });
 
+  test("the Pitch dial, moved under a held key, is that voice's pitch once the key lifts", async () => {
+    // as in the plugin. It was dropped: with Hold on, the voice went on at the key's pitch while
+    // the dial read another
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+    useStore.getState().setVoices(2);
+    const st = useStore.getState;
+    voiceSources.length = 0;
+    st().noteOn(48);
+    const keyed = voiceSources[0][0];
+    voiceSources.length = 0;
+    st().setSource({ f0: 300 });
+    expect(voiceSources).toEqual([[1 - keyed, 300, false]]);
+    st().noteOff(48);
+    expect(voiceSources.at(-1)).toEqual([keyed, 300, false]);
+    // a key pressed since takes the voice for itself: nothing waits for its lift
+    st().noteOn(50);
+    st().setSource({ f0: 310 });
+    st().noteOn(50);
+    voiceSources.length = 0;
+    st().noteOff(50);
+    expect(voiceSources).toEqual([]);
+    st().setVoices(1);
+  });
+
+  test("a new body, and an engine rebuilt, end a chord: no key stays lit over a voice that left its pitch", async () => {
+    const { useStore } = await import("../src/ui/store.ts");
+    const gateOf = (v: number) => gates.filter(([w]) => w === v).at(-1)?.[1];
+    const st = useStore.getState;
+    for (const end of [() => st().setBody({ female: 1, child: 0 }), () => rebuilt()]) {
+      useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+      st().setVoices(2);
+      st().noteOn(48);
+      st().noteOn(52);
+      expect([...st().voiceNotes].sort()).toEqual([48, 52]);
+      voiceSources.length = gates.length = 0;
+      end();
+      expect([st().heldNotes, st().voiceNotes]).toEqual([[], []]);
+      expect([gateOf(0), gateOf(1)]).toEqual([0, 0]);
+      // and no voice is sent a key's pitch again
+      expect(voiceSources).toEqual([]);
+      st().setVoices(1);
+    }
+    st().setBody(MALE);
+  });
+
   test("one voice plays as before: a second key moves the one voice's pitch", async () => {
     const { useStore } = await import("../src/ui/store.ts");
     useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
@@ -595,6 +666,20 @@ describe("keys pressed before the audio has started", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(scheduled).toBe(0);
     expect(useSing.getState().cursor).toBe(before);
+
+    // nor does one outlive a new count of voices, which ends the notes held (it once sang, and
+    // moved the words on, with no key lit)
+    useStore.setState({ started: false, heldNotes: [] });
+    useStore.getState().noteOn(52);
+    useStore.getState().noteOn(55);
+    useStore.getState().setVoices(2);
+    startAudio();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useStore.getState().started).toBe(true);
+    expect(scheduled).toBe(0);
+    expect(useSing.getState().cursor).toBe(before);
+    useStore.getState().setVoices(1);
     engineStub.scheduleGestures = sg;
   });
 });
