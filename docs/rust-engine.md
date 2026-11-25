@@ -137,8 +137,10 @@ consumption or sums (noise sources, gestures). It retunes nothing. The checks:
 - **Startup ordering.** The wasm module must be ready before any UI module that calls into it
   runs, because `ui/singing.ts` builds syllables when it loads. `main.tsx` awaits the module,
   then imports the app. A failure shows a retryable error screen.
-- **Audio thread (worklet).** The exports are C ABI with numbers and pointers only, over one
-  engine handle.
+- **Audio thread (worklet).** The exports are C ABI with numbers and pointers only, over engine
+  handles: one, or one for each voice of a chord (`engine_set_clock` puts a voice that joins on the
+  first one's clock, `engine_pitch` gives each voice's pitch, and `mix_new`/`mix_limit` are the chord
+  limiter on their sum; `docs/plugin.md`, "The web app's chords").
   - Engine-owned buffers have a stable address for the engine's lifetime: an output buffer of
     up to 4 096 frames, a command scratch area, and the telemetry block. JS re-creates its
     typed-array views whenever `memory.buffer` has changed, and copies telemetry before the

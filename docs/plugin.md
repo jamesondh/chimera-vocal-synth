@@ -284,12 +284,41 @@ The host's choke of one note lifts that note in Sing and Play. With one voice, i
 Beatbox, and for a choke that names no key, it stops everything, as it did.
 
 Known limits. Every voice the parameter asks for is rendered all the time, sounding or not (the cost
-is in `docs/polyphony.md`). The page has no dial for Voices: it is set in the host. The same pitch
+is in `docs/polyphony.md`). The same pitch
 on two channels is one key: the second press takes the first one's voice and channel, and the note
 ends when either finger lifts (a note-off carries no channel here; on a Push each pitch is on more
 than one pad). A choke lifts its note with its release; it doesn't cut it dead. A voice not being
 rendered takes a new pressure, brightness or dial value at once, with no glide: nothing of it is
 heard, and with one voice the glide's timing is exactly the single voice's.
+
+The page's Keys screens (Sing and Play) have a Voices chip. It shows the host's value, and each press
+moves the parameter on to the next of 1, 2, 3, 4, 6 and 8, then back to 1.
+
+### The web app's chords
+
+The web app plays chords too, with the same chip on its Keys screens (1 to 4 voices, default 1) and
+the same rules for which voice takes a key, less the MPE rule: the web app reads no MPE. The rules
+are a second copy, in TypeScript (`src/ui/voiceAlloc.ts`), because the web app plans its notes on the
+main thread and the plugin plans them in Rust; `tests/voice-alloc.test.ts` holds the same cases as
+the plugin's tests. Sing's chord window (50 ms of voice time), the melisma rule and each voice's
+coda are the plugin's; Play gives each key its own voice's pitch and breath, a voice that starts
+from silence starts on its pitch, and the Pitch dial moves only the voices with no key down. Speak,
+Beatbox and the creatures use the first voice only.
+
+The worklet runs one engine for each voice in its one wasm instance (`src/worklet/processor.ts`).
+The body, the pose and the dials go to every voice, and a voice made later gets them all; a note's
+gestures, pitch and breath go to its own voice; a release goes to every voice, because a tag is
+one note's. With more than one voice the sum goes through the plugin's limiter
+(`chimera::voice::chord_limiter`, through `mix_limit`); with one, the output is the first voice's
+as before. A voice that joins takes the first voice's clock, so the telemetry of any voice is on one
+timeline; the head shows the voice with the newest note, and each voice's pitch comes with the
+telemetry for the pitch lines.
+
+Different from the plugin: at most 4 voices, because a voice costs about 15.5% of one core in wasm
+on an Apple M-series laptop (9.9% native), and every voice the chip asks for is rendered all the time;
+the web app also rebuilds itself at 32 kHz when a device can't keep up, which ends the notes. A
+change of Voices while keys are down ends those notes; the next press is dealt again. Not measured:
+a phone, Chrome's or Firefox's wasm speed.
 
 ## State
 

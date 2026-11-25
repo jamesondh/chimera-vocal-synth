@@ -1432,6 +1432,12 @@ button.primary.large {
   background-position: right 7px center;
 }
 
+/* the Voices chip sits on the Keys header's line without making it taller: the plugin's Play page
+   has no height to spare at its smaller windows */
+.screen-tools .voices-chip {
+  margin-block: -5px;
+}
+
 .midi-chip {
   max-width: 220px;
   overflow: hidden;

@@ -3,7 +3,7 @@ import { usePhosphor } from "../usePhosphor.ts";
 import { engine } from "../../audio/AudioEngine.ts";
 import { useStore } from "../store.ts";
 import { roll, tickSinging } from "../singing.ts";
-import { pluginVoices } from "../voices.ts";
+import { liveVoices } from "../voices.ts";
 import { TEXT, V } from "../colors.ts";
 import { beam, beamPts, label, LABEL_MIN, labelWidth, type Pt, seg } from "../render/vector.ts";
 import { nearestBody } from "../body.ts";
@@ -27,7 +27,7 @@ type TracePoint = { t: number; m: number; v: number };
 /**
  * Scrolling piano roll for Sing mode: the notes asked for (green frames, with their syllables)
  * and the pitch the vocal folds actually produced (an amber trace with the onsets, glides and
- * vibrato), on the vector display. In the plugin each of its voices has its own trace.
+ * vibrato), on the vector display. Each voice of a chord has its own trace.
  */
 export function PianoRoll() {
   const st = useRef({ centre: NaN, traces: [] as TracePoint[][], lastClock: -1, polls: -1 });
@@ -37,19 +37,19 @@ export function PianoRoll() {
     const body = useStore.getState().body;
     const tele = engine.latest?.t;
     const clock = engine.voiceClock() ?? 0;
-    // sung pitch, sampled as telemetry arrives (in the plugin, each voice's as each poll does); a new
-    // voice's clock starts again, on a new timeline. The plugin's telemetry is of one voice at a time,
-    // and their clocks differ by under a millisecond
-    const plugin = pluginVoices.voices.length > 0;
-    const at = plugin ? (pluginVoices.polls !== s.polls ? pluginVoices.clock : null) : tele ? tele.clock : null;
-    s.polls = pluginVoices.polls;
+    // sung pitch, sampled as telemetry arrives (for a chord, each voice's as each poll or worklet
+    // message does); a new voice's clock starts again, on a new timeline. The telemetry is of one
+    // voice at a time, and the voices' clocks differ by under 1.5 ms
+    const chord = liveVoices.voices.length > 0;
+    const at = chord ? (liveVoices.polls !== s.polls ? liveVoices.clock : null) : tele ? tele.clock : null;
+    s.polls = liveVoices.polls;
     if (at !== null && at < s.lastClock - CLOCK_SLACK) {
       s.traces = [];
       s.lastClock = -Infinity;
     }
     if (at !== null && at > s.lastClock) {
       s.lastClock = at;
-      const pitches = plugin ? pluginVoices.voices : tele ? [tele] : [];
+      const pitches = chord ? liveVoices.voices : tele ? [tele] : [];
       pitches.forEach((p, i) => (s.traces[i] ??= []).push({ t: at, m: p.f0 > 20 ? hzToMidi(p.f0) : NaN, v: p.voicing }));
       const cut = at - (w * NOW_AT) / SPEED - 1;
       for (const trace of s.traces) while (trace.length && trace[0].t < cut) trace.shift();

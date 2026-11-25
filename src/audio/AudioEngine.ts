@@ -11,6 +11,7 @@ import type { ToWorklet, FromWorklet, TelemetryMessage, PlannedMessage, Creature
 import type { BodyMix } from "../wasm/types.ts";
 import type { HumanArtic } from "../wasm/types.ts";
 import type { VoiceSource } from "../wasm/types.ts";
+import { followWorkletVoices } from "../ui/voices.ts";
 
 type Listener = (t: TelemetryMessage) => void;
 
@@ -275,6 +276,8 @@ export class AudioEngine {
       this.latestAt = performance.now();
       this.latestCreature = null;
       this.noteLoad(m.load);
+      // the plugin's poll fills the voices itself (src/ui/pluginState.ts)
+      if (!inPlugin) followWorkletVoices(m.voices, m.shown ?? 0, m.t.clock);
       for (const l of this.listeners) l(m);
     } else if (m.type === "ctelemetry") {
       this.latestCreature = m;
@@ -434,9 +437,24 @@ export class AudioEngine {
     this.send({ type: "release", tag });
   }
 
-  /** Gestures planned on the main thread, times relative to arrival + lead (live playing). */
-  scheduleGestures(gestures: import("../wasm/types.ts").Gesture[], lead = 0.006): void {
-    this.send({ type: "schedule", gestures, segments: [], end: 0, id: ++this.speakId, replace: false, lead });
+  /** Gestures planned on the main thread, times relative to arrival + lead (live playing), for voice 0 or another voice of a chord. */
+  scheduleGestures(gestures: import("../wasm/types.ts").Gesture[], lead = 0.006, voice = 0): void {
+    this.send({ type: "schedule", gestures, segments: [], end: 0, id: ++this.speakId, replace: false, lead, ...(voice ? { voice } : {}) });
+  }
+
+  /** How many voices the web app's chords have (1 to 8): their notes, one voice each. */
+  setVoices(count: number): void {
+    this.send({ type: "voices", count });
+  }
+
+  /** The voice of a chord the head shows. */
+  showVoice(voice: number): void {
+    this.send({ type: "show", voice });
+  }
+
+  /** One voice of a chord's own source (its note's pitch), at once; `snap`: no glide to it. */
+  voiceSource(voice: number, values: Partial<VoiceSource>, snap = false): void {
+    this.send({ type: "source", values, voice, ...(snap ? { snap } : {}) });
   }
 
   beatHit(id: string, note?: number, accent?: number): void {
@@ -452,8 +470,9 @@ export class AudioEngine {
     this.send({ type: "body", body });
   }
 
-  gate(level: number): void {
-    this.send({ type: "gate", level });
+  /** Voice 0's breath, or another voice's of a chord. */
+  gate(level: number, voice?: number): void {
+    this.send({ type: "gate", level, ...(voice ? { voice } : {}) });
   }
 
   /** Coalesced: many calls within a frame become one message. (In the plugin Rust merges them.) */

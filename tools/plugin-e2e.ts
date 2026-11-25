@@ -152,6 +152,8 @@ try {
   await host("off", 60);
   // ---- a chord on several voices: a note on the roll and a lit key for each
   await host("param", "voices=3");
+  const voicesChip = page.locator(".s-keys .voices-chip");
+  await until("the Voices chip follows the host", async () => (await voicesChip.textContent())?.trim() === "Voices 3");
   const chordFrom = (await rollNotes()).length;
   for (const m of [60, 64, 67]) await host("note", m);
   const held = async () => (await rollNotes()).slice(chordFrom).filter((n) => n.t1 === null).map((n) => n.midi).sort();
@@ -165,7 +167,11 @@ try {
   await until("the chord's notes end on the roll", async () => (await held()).length === 0);
   await until("and its keys go dark", async () => (await page.locator(".key.down").count()) === 0);
   await until("and no voice is voiced", async () => (await pitches()).length === 0);
+  // the chip moves the host's parameter: 3 goes on to 4
+  await voicesChip.click();
+  await until("the Voices chip moves the host parameter", async () => (await params()).voices === 4);
   await host("param", "voices=1");
+  await until("and shows the host's value again", async () => (await voicesChip.textContent())?.trim() === "Voices 1");
   await page.locator(".lyrics textarea").fill("one two three");
   await until("back to three syllables", async () => (await page.locator(".syl").count()) === 3);
 

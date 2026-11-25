@@ -18,7 +18,8 @@ import type { Gesture } from "../wasm/types.ts";
 import { nearestBody, type BodyMix } from "./body.ts";
 import { TUNES } from "../song/tunes.ts";
 import { fitSong, la } from "../song/fit.ts";
-import { pluginVoices, type PluginVoice } from "./voices.ts";
+import { liveVoices, type LiveVoice } from "./voices.ts";
+import { VoiceAlloc, MAX_VOICES } from "./voiceAlloc.ts";
 
 /** A note on the piano roll, on the voice clock (s); t1 is null while it is held. */
 export interface RollNote {
@@ -115,6 +116,7 @@ export const useSing = create<SingState>((set, get) => ({
       return;
     }
     stopDemo();
+    forgetChord();
     set({ lyrics: text, syllables: lyricsToSyllables(text, get().lang), cursor: 0 });
     if (hasHan(text) && !zh.loaded) ensureDictionary();
   },
@@ -122,6 +124,7 @@ export const useSing = create<SingState>((set, get) => ({
     const s = get();
     if (lang === s.lang) return;
     stopDemo();
+    forgetChord();
     // the other language's opening words give way to this one's
     const lyrics = s.lyrics === DEFAULT_LYRICS_OF[s.lang] ? DEFAULT_LYRICS_OF[lang] : s.lyrics;
     set({ lang, lyrics, syllables: lyricsToSyllables(lyrics, lang), cursor: 0 });
@@ -129,7 +132,10 @@ export const useSing = create<SingState>((set, get) => ({
   setCursor: (i) => {
     const index = Math.max(0, Math.min(i, Math.max(0, get().syllables.length - 1)));
     if (inPlugin) engine.pluginCursor(index);
-    else set({ cursor: index });
+    else {
+      forgetChord();
+      set({ cursor: index });
+    }
   },
   setVibrato: (cents) => {
     set({ vibrato: cents });
@@ -197,7 +203,33 @@ interface Sounding {
   note: RollNote;
 }
 
+/** the note the head shows (the shown voice's): the words at the mouth follow it */
 let sounding: Sounding | null = null;
+
+/** One of the web app's voices, as Sing plays it. */
+interface SungVoice {
+  sounding: Sounding | null;
+  /** endings (glide, coda) that may still be playing: tag, and tag + 1 for the breath-out */
+  tails: number[];
+  /** endings whose breath-out has not been dropped by a following note */
+  exhalesLive: boolean;
+}
+
+const singers: SungVoice[] = Array.from({ length: MAX_VOICES }, () => ({ sounding: null, tails: [], exhalesLive: false }));
+/** which voice takes a key: Sing's and Play's (the store's) */
+export const alloc = new VoiceAlloc();
+/** the voice that sang the last syllable: a melisma continues there */
+let lyricVoice = 0;
+/** a chord sings one syllable: a note on a voice of its own this soon (s, voice time) after another sings that one's */
+const CHORD_WINDOW = 0.05;
+let chord: { syl: Syllable; text: string; at: number } | null = null;
+/** the voice the head shows: the one with the newest note still down, and after that its release */
+let shown = 0;
+
+/** The lyrics or the cursor moved: the next note sings from the cursor, not with the last one. */
+export function forgetChord(): void {
+  chord = null;
+}
 
 /** How a syllable is written at the mouth: a hyphen when its word goes on. */
 const written = (s: Syllable) => s.text + (s.wordEnd ? "" : "-");
@@ -222,14 +254,8 @@ export function sungNow(): { key: unknown; text: string } | null {
 export function soundingSyllable(): string | null {
   return sounding?.syl.text ?? null;
 }
-/** keys down, oldest first */
-let keys: number[] = [];
 /** gesture tags: a note uses tag (articulation, breath) and tag + 1 (pitch, vibrato) */
 let nextTag = 2;
-/** endings (glide, coda) that may still be playing: tag, and tag + 1 for the breath-out */
-const tails: number[] = [];
-/** endings whose breath-out has not been dropped by a following note */
-let exhalesLive = false;
 
 /** breath level for a key velocity (1 at the on-screen keys' default of 96) */
 const breathFor = (velocity: number) => 0.62 + 0.4 * Math.min(1, Math.max(0, velocity / 96)) + 0.12 * Math.max(0, (velocity - 96) / 31);
@@ -255,14 +281,15 @@ function parentOf(syls: Syllable[], i: number): Syllable {
   return AH;
 }
 
-function startNote(syl: Syllable, midi: number, velocity: number, body: BodyMix, text: string): void {
+function startNote(v: number, syl: Syllable, midi: number, velocity: number, body: BodyMix, text: string): void {
   const t = now();
   const tag = nextTag;
   nextTag += 2;
+  const voice = singers[v];
   // earlier codas may finish, but their breath-out must not open the folds on this onset
-  if (exhalesLive) for (const t of tails) engine.release(t + 1);
-  exhalesLive = false;
-  const from = sounding;
+  if (voice.exhalesLive) for (const t of voice.tails) engine.release(t + 1);
+  voice.exhalesLive = false;
+  const from = voice.sounding;
   if (from) {
     engine.release(from.tag);
     engine.release(from.tag + 1);
@@ -271,19 +298,46 @@ function startNote(syl: Syllable, midi: number, velocity: number, body: BodyMix,
   const gs: Gesture[] = planNoteOn(syl, midi, { body, vibrato: useSing.getState().vibrato, tag, legatoFrom: from ? { syl: from.syl, midi: from.midi } : undefined });
   const breath = breathFor(velocity);
   for (const g of gs) if (g.targets.breath !== undefined) g.targets = { ...g.targets, breath: g.targets.breath * breath };
-  engine.scheduleGestures(gs);
-  sounding = { midi, syl, tag, note: addNote(midi, t, text) };
+  engine.scheduleGestures(gs, undefined, v);
+  voice.sounding = { midi, syl, tag, note: addNote(midi, t, text) };
 }
 
-/** The held vowel moves to a new pitch (melisma, or back to a key still down). */
-function glide(midi: number, text: string): void {
-  const s = sounding!;
+/** The held vowel of voice v moves to a new pitch (melisma, or back to a key still down). */
+function glide(v: number, midi: number, text: string): void {
+  const s = singers[v].sounding!;
   const t = now();
   engine.release(s.tag + 1);
-  engine.scheduleGestures(planMelisma(midi, { vibrato: useSing.getState().vibrato, tag: s.tag }));
+  engine.scheduleGestures(planMelisma(midi, { vibrato: useSing.getState().vibrato, tag: s.tag }), undefined, v);
   s.note.t1 = t;
   s.midi = midi;
   s.note = addNote(midi, t, text);
+}
+
+/**
+ * After a key: the head shows the voice with the newest note still down (with one voice, voice 0),
+ * and the pitch lines and the keys know what each voice sounds.
+ */
+function follow(): void {
+  showNewestVoice();
+  sounding = singers[shown].sounding;
+  liveVoices.notes = alloc.count > 1 ? singers.slice(0, alloc.count).map((v) => v.sounding?.midi ?? -1) : [];
+}
+
+/** The head shows the voice with the newest note still down; after that, that voice's release. */
+export function showNewestVoice(): void {
+  const newest = alloc.newest();
+  if (newest !== null && newest !== shown) {
+    shown = newest;
+    engine.showVoice(shown);
+  }
+}
+
+/** How many voices play in the web app (their notes were released first): Sing's and Play's. */
+export function setVoiceCount(n: number): void {
+  alloc.count = n;
+  if (shown >= n) shown = 0;
+  if (lyricVoice >= n) lyricVoice = 0;
+  engine.setVoices(n);
 }
 
 /** each voice of the plugin as last seen, and what it sings on the roll */
@@ -295,8 +349,8 @@ let seenVoices: { note: number; serial: number; sounding: Sounding | null }[] = 
  * each voice, a new press is a new syllable, unless it's a melisma on a vowel still sounding; a new
  * pitch with no press is the glide back to a key still down.
  */
-export function followPluginVoices(shown: number, voices: PluginVoice[], clock: number): void {
-  Object.assign(pluginVoices, { voices, shown, clock, polls: pluginVoices.polls + 1 });
+export function followPluginVoices(shown: number, voices: LiveVoice[], clock: number): void {
+  Object.assign(liveVoices, { voices, shown, clock, polls: liveVoices.polls + 1 });
   const syls = useSing.getState().syllables;
   voices.forEach(({ note, sung, serial }, v) => {
     const was = (seenVoices[v] ??= { note: -1, serial: -1, sounding: null });
@@ -328,42 +382,74 @@ export function clearPluginNotes(): void {
   seenVoices = [];
 }
 
+/**
+ * A key: the next syllable at its pitch, on the voice the rules give it (`VoiceAlloc`). With more
+ * than one voice, a note on a free voice within 50 ms of the note before sings that note's
+ * syllable (a chord sings one syllable), and a melisma goes to the voice that sang the syllable
+ * before it, as in the plugin (docs/plugin.md, "Voices").
+ */
 export function singNoteOn(midi: number, velocity: number, body: BodyMix): void {
   stopDemo();
-  keys = keys.filter((k) => k !== midi).concat(midi);
+  const at = now();
+  let v = alloc.pick(midi);
+  const together = chord && alloc.count > 1 && !alloc.busy(v) && at - chord.at < CHORD_WINDOW ? chord : null;
+  if (together) {
+    alloc.press(midi, v);
+    startNote(v, together.syl, midi, velocity, body, together.text);
+    together.at = at;
+    lyricVoice = v;
+    follow();
+    return;
+  }
   const st = useSing.getState();
   const syls = st.syllables.length ? st.syllables : [AH];
   const i = st.cursor % syls.length;
   const syl = syls[i];
-  if (syl.melisma && sounding) glide(midi, syl.text);
+  // a melisma moves the vowel of the note before it, on that note's voice
+  if (syl.melisma && lyricVoice < alloc.count && alloc.voiceOf(midi) === undefined) v = lyricVoice;
+  alloc.press(midi, v);
   // a melisma with nothing held: sing its vowel again, without the onset
-  else startNote(syl.melisma ? { ...parentOf(syls, i), onset: [] } : syl, midi, velocity, body, syl.text);
+  const vowel = syl.melisma ? { ...parentOf(syls, i), onset: [] } : syl;
+  if (syl.melisma && singers[v].sounding) glide(v, midi, syl.text);
+  else startNote(v, vowel, midi, velocity, body, syl.text);
+  lyricVoice = v;
+  chord = { syl: vowel, text: syl.text, at };
   useSing.setState({ cursor: (i + 1) % syls.length });
+  follow();
 }
 
 export function singNoteOff(midi: number, body: BodyMix): void {
-  keys = keys.filter((k) => k !== midi);
-  const s = sounding;
-  if (!s || s.midi !== midi) return;
-  if (keys.length) {
-    glide(keys[keys.length - 1], "~");
-    return;
+  const lifted = alloc.lift(midi);
+  if (!lifted) return;
+  const v = lifted.voice;
+  const voice = singers[v];
+  const s = voice.sounding;
+  if (!s || s.midi !== midi) return follow();
+  if (lifted.back !== null) {
+    glide(v, lifted.back, "~");
+    return follow();
   }
   engine.release(s.tag);
   engine.release(s.tag + 1);
   s.note.t1 = now();
-  sounding = null;
-  // a melisma comes next: this vowel carries on there, and the coda waits for the chain's end
+  voice.sounding = null;
+  // a melisma comes next on this voice: this vowel carries on there, and the coda waits for the chain's end
   const st = useSing.getState();
-  if (st.syllables[st.cursor]?.melisma) return;
+  if (v === lyricVoice && st.syllables[st.cursor]?.melisma) return follow();
   const gs = planNoteOff(s.syl, midi, body);
-  if (!gs.length) return;
-  const tag = nextTag;
-  nextTag += 2;
-  engine.scheduleGestures(gs.map((g) => ({ ...g, tag: g.label === EXHALE_LABEL ? tag + 1 : tag })));
-  tails.push(tag);
-  if (tails.length > 8) tails.shift(); // long finished by now
-  exhalesLive = true;
+  if (gs.length) {
+    const tag = nextTag;
+    nextTag += 2;
+    engine.scheduleGestures(
+      gs.map((g) => ({ ...g, tag: g.label === EXHALE_LABEL ? tag + 1 : tag })),
+      undefined,
+      v,
+    );
+    voice.tails.push(tag);
+    if (voice.tails.length > 8) voice.tails.shift(); // long finished by now
+    voice.exhalesLive = true;
+  }
+  follow();
 }
 
 // ---- tunes
@@ -497,19 +583,26 @@ export function tickSinging(): void {
 /** Stop everything sung (leaving Sing mode, changing body): demo, notes and endings. */
 export function stopSinging(): void {
   stopDemo();
-  if (sounding) {
-    engine.release(sounding.tag);
-    engine.release(sounding.tag + 1);
-    sounding.note.t1 = now();
-    sounding = null;
+  for (const voice of singers) {
+    const s = voice.sounding;
+    if (s) {
+      engine.release(s.tag);
+      engine.release(s.tag + 1);
+      s.note.t1 = now();
+      voice.sounding = null;
+    }
+    for (const t of voice.tails) {
+      engine.release(t);
+      engine.release(t + 1);
+    }
+    voice.tails.length = 0;
+    voice.exhalesLive = false;
   }
-  for (const t of tails) {
-    engine.release(t);
-    engine.release(t + 1);
-  }
-  tails.length = 0;
-  exhalesLive = false;
-  keys = [];
+  sounding = null;
+  alloc.clear();
+  chord = null;
+  lyricVoice = 0;
+  liveVoices.notes = [];
 }
 
 export { TUNES };

@@ -30,7 +30,7 @@ export function SpectrumView(props: { ring?: boolean }) {
     const fx = (f: number) => left + ((Math.log(f) - Math.log(FMIN)) / (Math.log(FMAX) - Math.log(FMIN))) * (right - left);
     const dbY = (db: number) => top + (Math.min(0, Math.max(-RANGE, db)) / -RANGE) * (bot - top);
     const tele = engine.latest && sameBody(engine.latest.body, st.body) ? engine.latest : null;
-    // a chord in the plugin: a marker at each voice's pitch, and the whole curve (one voice's
+    // a chord: a marker at each voice's pitch, and the whole curve (one voice's
     // harmonics would leave the others out)
     const f0s = voicedPitches() ?? (tele && tele.t.voicing > 0.3 ? [tele.t.f0] : []);
     const f0 = f0s.length === 1 ? f0s[0] : 0;

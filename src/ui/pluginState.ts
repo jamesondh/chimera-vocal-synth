@@ -7,7 +7,7 @@ import { ARTIC_PARAMS, SOURCE_PARAMS, clipboardShortcuts, dbToVolume, gestureOpe
 import type { BeatStep, BodyMix, HumanArtic, Syllable, VoiceSource } from "../wasm/engine.ts";
 import { TELE_LABELS, decodeTelemetry } from "../worklet/telemetry.ts";
 import { clearPluginNotes, followPluginVoices, roll, useSing } from "./singing.ts";
-import { pluginVoices, type PluginVoice } from "./voices.ts";
+import { liveVoices, type LiveVoice } from "./voices.ts";
 import { followSpoken, useSpeech } from "./speech.ts";
 import { useStore } from "./store.ts";
 
@@ -89,7 +89,7 @@ function adopt(s: Snapshot): void {
   const artic = { ...initial.artic, ...s.settings.artic } as HumanArtic;
   for (const [key, id] of Object.entries(ARTIC_PARAMS)) (artic as unknown as Params)[key] = s.params[id];
   const { mic, ...beat } = s.settings.beat;
-  useStore.setState({ started: true, mode: s.settings.mode, body: s.settings.body, source, artic, tipFree: s.settings.tipFree, volume: dbToVolume(s.params.gain), hold: false, heldNotes: [], voiceNotes: [], mic, beat: { ...beat, playing: false, following: false, hostBpm: 0 } });
+  useStore.setState({ started: true, mode: s.settings.mode, body: s.settings.body, source, artic, tipFree: s.settings.tipFree, volume: dbToVolume(s.params.gain), hold: false, heldNotes: [], voiceNotes: [], voices: s.params.voices ?? 1, mic, beat: { ...beat, playing: false, following: false, hostBpm: 0 } });
   useSing.setState({ lyrics: s.settings.lyrics, syllables: s.syllables, cursor: s.cursor, vibrato: s.params.vibrato });
   linesGeneration = s.speech.generation;
   const { text, ipa, rate } = s.settings.speech;
@@ -112,6 +112,7 @@ function followParams(p: Params): void {
   if (source) patch.source = { ...st.source, ...source };
   if (artic) patch.artic = { ...st.artic, ...artic };
   if (!gestureOpen("gain") && volume !== st.volume) patch.volume = volume;
+  if (!gestureOpen("voices") && p.voices !== undefined && p.voices !== st.voices) patch.voices = p.voices;
   if (Object.keys(patch).length) useStore.setState(patch);
   if (!gestureOpen("vibrato") && p.vibrato !== useSing.getState().vibrato) useSing.setState({ vibrato: p.vibrato });
 }
@@ -130,7 +131,7 @@ async function poll(): Promise<void> {
   const [rev, syllables, cursor, , note, , busyNs, audioNs, , faulted, , female, child, spokenSerial, spokenLine, spokenGeneration, spokenT0, lines, speechCursor, beatStep, beatRunning, beatFollowing, hostBpm, samples, n] = h;
   const head = POLL_HEADER + VOICES_HEADER;
   const shownVoice = h[POLL_HEADER];
-  const voices: PluginVoice[] = Array.from({ length: MAX_VOICES }, (_, v) => {
+  const voices: LiveVoice[] = Array.from({ length: MAX_VOICES }, (_, v) => {
     const at = POLL_HEADER + 1 + 5 * v;
     return { note: h[at], sung: h[at + 1], serial: h[at + 2], f0: h[at + 3], voicing: h[at + 4] };
   });
@@ -213,7 +214,6 @@ function loop(): void {
 export async function attachToPlugin(): Promise<void> {
   // for the end-to-end test: what the piano roll holds isn't in the DOM
   (window as unknown as { __chimeraRoll: typeof roll }).__chimeraRoll = roll;
-  (window as unknown as { __chimeraVoices: typeof pluginVoices }).__chimeraVoices = pluginVoices;
   document.documentElement.classList.add("plugin-page");
   clipboardShortcuts();
   // no timeout: there's no loop yet to try again, and a host busy loading a project may take a while
