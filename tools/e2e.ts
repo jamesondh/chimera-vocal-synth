@@ -365,6 +365,30 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.close();
 }
 
+// a chord as the very first keys on Play, before audio has started: each voice at its own pitch
+// (the start once sent every voice the newest key's pitch: a unison)
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on("pageerror", (e) => errors.push(`[first-chord] pageerror: ${e.message}`));
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.getByRole("radio", { name: "Play" }).click();
+  const chip = page.locator(".s-keys .voices-chip");
+  for (let i = 0; i < 4 && (await chip.textContent())?.trim() !== "Voices 3"; i++) await chip.click();
+  await page.keyboard.down("a");
+  await page.keyboard.down("d");
+  await page.waitForTimeout(1200);
+  const pitches = await page.evaluate(() => {
+    // @ts-expect-error debug handle
+    const vs = (window.__chimeraVoices?.voices ?? []) as { f0: number; voicing: number }[];
+    return vs.filter((v) => v.voicing > 0.3).map((v) => Math.round(69 + 12 * Math.log2(v.f0 / 440))).sort((a, b) => a - b);
+  });
+  await page.keyboard.up("a");
+  await page.keyboard.up("d");
+  logs.push(`[first-chord] play before start: pitches ${pitches.join(",")}`);
+  if (pitches.join(",") !== "48,52") errors.push(`[first-chord] C3 and E3, pressed before audio started, played ${pitches.join(",") || "nothing"}`);
+  await page.close();
+}
+
 // an arrow key moves every encoder, on every page of Sing and Beatbox: on one whose value is
 // rounded (Key, Tempo), an arrow once moved a thousandth of the dial and the rounding put it back
 {
@@ -754,6 +778,6 @@ await run({ width: 1440, height: 980 }, "desktop");
 await run({ width: 390, height: 844 }, "mobile");
 await browser.close();
 console.log("console errors:", errors.length ? "\n" + errors.join("\n") : "none");
-console.log(logs.filter((l) => /load|rate|slow|warn|transcription|example|creature|held|back to|beatbox|silence|sing|chord|octave|retry|tongue|song|video|arrow/i.test(l)).slice(0, 56).join("\n"));
+console.log(logs.filter((l) => /load|rate|slow|warn|transcription|example|creature|held|back to|beatbox|silence|sing|chord|octave|retry|tongue|song|video|arrow/i.test(l)).slice(0, 57).join("\n"));
 // a run that collected errors fails, so CI and agents can't read it as a pass
 if (errors.length) process.exit(1);

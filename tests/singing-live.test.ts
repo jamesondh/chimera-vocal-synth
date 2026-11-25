@@ -514,6 +514,37 @@ describe("Play mode, a chord of voices", () => {
     st().setVoices(1);
   });
 
+  test("a chord pressed before the audio exists: each voice gets its own pitch once it does", async () => {
+    // the first thing a visitor does. The keys' pitches went to an engine that wasn't there, and
+    // the start sent every voice the one shared pitch (the newest key's): two voices in unison
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: false, body: MALE, hold: false, heldNotes: [] });
+    useStore.getState().setVoices(3);
+    const st = useStore.getState;
+    void st().start();
+    st().noteOn(48);
+    st().noteOn(52);
+    // (the stub records what the real engine drops until it has started)
+    voiceSources.length = gates.length = 0;
+    startAudio();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(st().started).toBe(true);
+    // (which voice has which key is the allocator's business: two voices, a pitch each, from silence)
+    const sent = [...voiceSources].sort((a, b) => a[1] - b[1]);
+    expect(sent.map(([, f0, snap]) => [f0, snap])).toEqual([
+      [hz(48), true],
+      [hz(52), true],
+    ]);
+    const [low, high] = sent.map(([v]) => v);
+    expect(low).not.toBe(high);
+    const gateOf = (v: number) => gates.filter(([w]) => w === v).at(-1)?.[1];
+    expect([0, 1, 2].map(gateOf)).toEqual([0, 1, 2].map((v) => (v === low || v === high ? 1 : 0)));
+    st().noteOff(48);
+    st().noteOff(52);
+    st().setVoices(1);
+  });
+
   test("one voice plays as before: a second key moves the one voice's pitch", async () => {
     const { useStore } = await import("../src/ui/store.ts");
     useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });

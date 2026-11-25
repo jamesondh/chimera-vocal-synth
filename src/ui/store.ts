@@ -168,6 +168,14 @@ function sendState(s: State) {
     engine.setBeat({ steps: s.beat.steps, bpm: s.beat.bpm, swing: s.beat.swing, playing: s.beat.playing });
   }
   setVoiceCount(playingVoices(s));
+  // a chord whose keys went down before the engine existed: each voice's own pitch, which the
+  // shared one above (the newest key's) has just written over
+  if (alloc.count > 1 && s.mode === "play") {
+    for (let v = 0; v < alloc.count; v++) {
+      const keys = alloc.keys[v];
+      if (keys.length) engine.voiceSource(v, { f0: midiToHz(keys[keys.length - 1]) }, true);
+    }
+  }
   updateGate(s);
 }
 

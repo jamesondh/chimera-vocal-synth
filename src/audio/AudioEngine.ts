@@ -454,6 +454,12 @@ export class AudioEngine {
 
   /** One voice of a chord's own source (its note's pitch), at once; `snap`: no glide to it. */
   voiceSource(voice: number, values: Partial<VoiceSource>, snap = false): void {
+    // in the order they were called: the shared source waits for the frame (setSource), and sent
+    // after this it would write its pitch over this voice's
+    if (this.pendingSource) {
+      this.send({ type: "source", values: this.pendingSource });
+      this.pendingSource = null;
+    }
     this.send({ type: "source", values, voice, ...(snap ? { snap } : {}) });
   }
 
