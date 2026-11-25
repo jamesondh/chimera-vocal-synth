@@ -181,12 +181,18 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   if (!(singing > 0.01)) errors.push(`[${tag}] a sung key made no sound (${singing})`);
   if (!(after < 1e-3)) errors.push(`[${tag}] voice still sounding after the sung notes: ${after}`);
   if (sylBefore === sylAfter) errors.push(`[${tag}] the syllable cursor did not move (${sylBefore})`);
-  // a chord: Voices 3, three keys at once sing one syllable, a voice each at its pitch
+  // a chord: Voices 2, two keys at once sing one syllable, a voice each at its pitch. (Two voices
+  // and a short hold, and back to 1 at once: every voice of the count renders, and a slow machine
+  // that held three and then stepped through 4 went over its load and rebuilt at the lighter
+  // rate, which stopped the song of the next step.)
   const voicesChip = page.locator(".s-keys .voices-chip");
-  for (let i = 0; i < 2; i++) await voicesChip.click();
-  const chipText = (await voicesChip.textContent())?.trim();
+  const chipTo = async (want: string) => {
+    for (let i = 0; i < 4 && (await voicesChip.textContent())?.trim() !== want; i++) await voicesChip.click();
+    return (await voicesChip.textContent())?.trim();
+  };
+  const chipText = await chipTo("Voices 2");
   const chordSylBefore = await nextSyl();
-  for (const k of ["a", "d", "g"]) await page.keyboard.down(k);
+  for (const k of ["a", "d"]) await page.keyboard.down(k);
   await page.waitForTimeout(600);
   const chordPitches = await page.evaluate(() => {
     // @ts-expect-error debug handle
@@ -194,15 +200,18 @@ async function run(viewport: { width: number; height: number }, tag: string) {
     return vs.filter((v) => v.voicing > 0.3).map((v) => Math.round(69 + 12 * Math.log2(v.f0 / 440))).sort((a, b) => a - b);
   });
   const chordSylHeld = await nextSyl();
-  for (const k of ["a", "d", "g"]) await page.keyboard.up(k);
-  await page.waitForTimeout(1200);
+  for (const k of ["a", "d"]) await page.keyboard.up(k);
+  // (a voice taken away renders for one more second, so the releases are still heard)
+  const chipBack = await chipTo("Voices 1");
+  await page.waitForTimeout(1500);
   const chordAfter = await rms();
-  await voicesChip.click(); // 4
-  await voicesChip.click(); // back to 1
-  const chipBack = (await voicesChip.textContent())?.trim();
-  logs.push(`[${tag}] chord: ${chipText}, pitches ${chordPitches.join(",")}, syllable ${chordSylBefore} -> ${chordSylHeld}, then rms ${chordAfter.toFixed(4)}, ${chipBack}`);
-  if (chipText !== "Voices 3" || chipBack !== "Voices 1") errors.push(`[${tag}] the Voices chip read ${chipText}, then ${chipBack}`);
-  if (chordPitches.join(",") !== "48,52,55") errors.push(`[${tag}] a chord of C3 E3 G3 sang ${chordPitches.join(",")}`);
+  const chordRate = await page.evaluate(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.ctx?.sampleRate ?? 0;
+  });
+  logs.push(`[${tag}] chord: ${chipText}, pitches ${chordPitches.join(",")}, syllable ${chordSylBefore} -> ${chordSylHeld}, then rms ${chordAfter.toFixed(4)}, ${chipBack}, ${chordRate} Hz`);
+  if (chipText !== "Voices 2" || chipBack !== "Voices 1") errors.push(`[${tag}] the Voices chip read ${chipText}, then ${chipBack}`);
+  if (chordPitches.join(",") !== "48,52") errors.push(`[${tag}] a chord of C3 and E3 sang ${chordPitches.join(",")}`);
   if (chordSylBefore === chordSylHeld) errors.push(`[${tag}] the chord did not sing a syllable (${chordSylBefore})`);
   if (!(chordAfter < 1e-3)) errors.push(`[${tag}] a voice still sounding after the chord: ${chordAfter}`);
   // a menu isn't an instrument: a letter typed in it picks an entry, it doesn't play a note
@@ -373,7 +382,7 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.goto(url, { waitUntil: "networkidle" });
   await page.getByRole("radio", { name: "Play" }).click();
   const chip = page.locator(".s-keys .voices-chip");
-  for (let i = 0; i < 4 && (await chip.textContent())?.trim() !== "Voices 3"; i++) await chip.click();
+  for (let i = 0; i < 4 && (await chip.textContent())?.trim() !== "Voices 2"; i++) await chip.click();
   await page.keyboard.down("a");
   await page.keyboard.down("d");
   await page.waitForTimeout(1200);
