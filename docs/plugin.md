@@ -117,7 +117,7 @@ They share `Shared`:
   `AtomicBool` says it is dirty. If the lock is busy the changes wait a block. Everything in it
   *merges* rather than queues, so a host that stops processing can't overflow it:
   `artic: ArticPatch`, `tip_free`, `source: SourcePatch`, `hold`, `mode`, `cursor`,
-  `voice: Option<(Box<HumanVoice>, BodyMix)>`, `syllables: Option<Vec<LiveSyllable>>`. `initialize`
+  `voice: Option<(Vec<Box<HumanVoice>>, BodyMix)>` (a body for each voice), `syllables: Option<Vec<LiveSyllable>>`. `initialize`
   clears it, and records the sample rate there, so a voice built for another rate is dropped when
   the main thread tries to publish it, never on the audio side.
 - **UI notes** are the exception that must queue, in a bounded array. On overflow the array empties
@@ -267,8 +267,9 @@ What the voices share, and what is each one's own:
   (Sing) has a note and an amber pitch line for each voice; the Keys header (Play) names the chord;
   the lines by the head list each voice's F0 or note; the spectrum marks each F0 and, for a chord,
   draws the whole curve instead of one voice's harmonics. The head, the tube and the folds show one
-  voice: the one with the newest note still sounding, and after that its release. All voices have
-  one mouth, so the head is right for each; only pitch and breath differ. The Pitch dial is a
+  voice: the one with the newest note still sounding, and after that its release. The voices share
+  one pose, so in Play the head is right for each: only pitch and breath differ. In Sing a voice
+  may be on another syllable, and the head is the mouth of the voice shown. The Pitch dial is a
   control, so it shows the newest note. The poll sends each voice's note, syllable, press count,
   pitch and voicing after its header (`VOICES_HEADER`); `src/ui/voices.ts` holds them for the page.
 
@@ -281,7 +282,8 @@ because a joining voice starts its control steps from its own phase.
 A chord's syllable is forgotten when the lyrics or the cursor change, when the transport starts
 again from the top, and when everything stops, so the first note after that sings from the cursor.
 The host's choke of one note lifts that note in Sing and Play. With one voice, in Speak and
-Beatbox, and for a choke that names no key, it stops everything, as it did.
+Beatbox, and for a choke that names no key, it stops everything, as it did. That is also what a
+choke of one channel with no key does (CLAP allows it): every note stops, not that channel's alone.
 
 Known limits. Every voice the parameter asks for is rendered all the time, sounding or not (the cost
 is in `docs/polyphony.md`). The same pitch
@@ -299,8 +301,9 @@ moves the parameter on to the next of 1, 2, 3, 4, 6 and 8, then back to 1.
 The web app plays chords too, with the same chip on its Keys screens (1 to 4 voices, default 1) and
 the same rules for which voice takes a key, less the MPE rule: the web app reads no MPE. The rules
 are a second copy, in TypeScript (`src/ui/voiceAlloc.ts`), because the web app plans its notes on the
-main thread and the plugin plans them in Rust; `tests/voice-alloc.test.ts` holds the same cases as
-the plugin's tests. Sing's chord window (50 ms of voice time), the melisma rule and each voice's
+main thread and the plugin plans them in Rust. One table of cases, `tests/voice-rules.json`, is run
+by both (`tests/voice-alloc.test.ts` and the plugin's `polyphony.rs`), so the two copies give the
+same answers. Sing's chord window (50 ms of voice time), the melisma rule and each voice's
 coda are the plugin's; Play gives each key its own voice's pitch and breath, a voice that starts
 from silence starts on its pitch, and the Pitch dial moves only the voices with no key down. Speak,
 Beatbox and the creatures use the first voice only.
@@ -317,7 +320,7 @@ telemetry for the pitch lines.
 Different from the plugin: at most 4 voices, because a voice costs about 15.5% of one core in wasm
 on an Apple M-series laptop (9.9% native), and every voice the chip asks for is rendered all the time;
 the web app also rebuilds itself at 32 kHz when a device can't keep up, which ends the notes. A
-change of Voices while keys are down ends those notes; the next press is dealt again. Not measured:
+change of Voices or of the body while keys are down ends those notes; the next press is dealt again. Not measured:
 a phone, Chrome's or Firefox's wasm speed.
 
 ## State
