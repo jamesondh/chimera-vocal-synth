@@ -3,8 +3,8 @@ import { usePhosphor } from "../usePhosphor.ts";
 import { engine } from "../../audio/AudioEngine.ts";
 import { currentPlan, onPlan, type SpokenPlan } from "../speech.ts";
 import { activation, type Gesture } from "../../wasm/engine.ts";
-import { core, TEXT, V } from "../colors.ts";
-import { beam, beamPts, blockLineH, label, labelBlock, labelWidth, seg, wrapLabel, type LabelOpts, type Pt } from "../render/vector.ts";
+import { core, mix, TEXT, V } from "../colors.ts";
+import { beam, beamPts, blockLineH, label, LABEL_MIN, labelBlock, type LabelOpts, labelWidth, type Pt, seg, wrapLabel } from "../render/vector.ts";
 
 /** rows of the score, coloured like the articulators on the face (lips pink, tongue green, soft palate white, glottis amber) */
 const ROWS: { name: string; keys: string[]; color: string }[] = [
@@ -19,8 +19,8 @@ const ROWS: { name: string; keys: string[]; color: string }[] = [
  * the score's text: medium weight in a light tint of each row's colour. Thin strokes in the line
  * colours (at 9 px, 85%) all but vanished, worst on a phone
  */
-const NAME: LabelOpts = { size: 10, weight: "m", ls: 0.14 };
-const GESTURE: LabelOpts = { size: 10, weight: "m", align: "center", ls: 0.08 };
+const NAME: LabelOpts = { size: LABEL_MIN, weight: "m", ls: 0.14 };
+const GESTURE: LabelOpts = { size: LABEL_MIN, weight: "m", align: "center", ls: 0.08 };
 
 function rowOf(g: Gesture): number {
   const keys = Object.keys(g.targets);
@@ -55,10 +55,10 @@ export function ScoreView() {
       // on black over the rules, wrapped to the score's width
       const msg = "SPEAK SOMETHING TO SEE ITS GESTURES: WHICH ARTICULATOR MOVES, WHEN, AND HOW THEY OVERLAP.";
       const cy = (top + bottom) / 2;
-      const bh = wrapLabel(ctx, msg, right - left - 16, { size: 10, ls: 0.12 }).length * blockLineH(10) + 8;
+      const bh = wrapLabel(ctx, msg, right - left - 16, { size: LABEL_MIN, ls: 0.12 }).length * blockLineH(10) + 8;
       ctx.fillStyle = "#000";
       ctx.fillRect(left, cy - bh / 2, right - left, bh);
-      labelBlock(ctx, msg, left + 8, cy, right - left - 16, { size: 10, color: TEXT.secondary, ls: 0.12 });
+      labelBlock(ctx, msg, left + 8, cy, right - left - 16, { size: LABEL_MIN, color: TEXT.secondary, ls: 0.12 });
       return;
     }
     const plan = sp.plan;
@@ -87,7 +87,7 @@ export function ScoreView() {
       const lbl = g.label === "aspiration" || g.label === "voiceless" ? "OPEN" : g.label === "velum" ? "LOWERED" : g.label;
       // only inside its own trapezoid (a wider label ran over the sides and its neighbours)
       if (lbl && labelWidth(ctx, lbl, GESTURE) <= x1 - x0 - 6) {
-        label(ctx, lbl, (xa + xb) / 2, yb - 4, { ...GESTURE, color: core(ROWS[r].color), alpha: isVowel && act < 0.05 ? 0.75 : 1 });
+        label(ctx, lbl, (xa + xb) / 2, yb - 4, { ...GESTURE, color: isVowel && act < 0.05 ? mix(core(ROWS[r].color), "#000000", 0.25) : core(ROWS[r].color) });
       }
     }
     // the pitch contour
@@ -98,7 +98,7 @@ export function ScoreView() {
       const pts: Pt[] = f0s.map((q) => [X(q.t), yb - ((q.f - fmin) / Math.max(1, fmax - fmin)) * (yb - ya)]);
       beamPts(ctx, pts, V.amber, 1.3);
       const lastP = pts[pts.length - 1];
-      label(ctx, `${Math.round(f0s[f0s.length - 1].f)} HZ`, lastP[0] + 6, lastP[1] + 3, { size: 10, color: core(V.amber), weight: "m", ls: 0.1 });
+      label(ctx, `${Math.round(f0s[f0s.length - 1].f)} HZ`, lastP[0] + 6, lastP[1] + 3, { size: LABEL_MIN, color: core(V.amber), weight: "m", ls: 0.1 });
     }
     // segments along the bottom
     let lastRight = -Infinity;
@@ -120,7 +120,7 @@ export function ScoreView() {
       tri.lineTo(x, top - 3);
       tri.closePath();
       beam(ctx, tri, V.white, 1.1);
-      label(ctx, `${Math.max(0, now).toFixed(2)} S`, x + 8, top - 4, { size: 9, color: V.white, ls: 0.12, alpha: 0.8 });
+      label(ctx, `${Math.max(0, now).toFixed(2)} S`, x + 8, top - 4, { size: LABEL_MIN, color: mix(V.white, "#000000", 0.2), ls: 0.12 });
     }
   });
   return <canvas ref={ref} className="score-canvas" aria-label="Gestural score of the current utterance: which articulator moves, when, and how they overlap" role="img" />;

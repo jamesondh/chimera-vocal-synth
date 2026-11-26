@@ -6,7 +6,7 @@ import { blendLog, sameBody, type BodyMix } from "../body.ts";
 import { useModel } from "../useModel.ts";
 import { VoiceModel } from "../analysis.ts";
 import { TEXT, V } from "../colors.ts";
-import { beamPts, handle, ipaGlyph, label, seg, type Pt } from "../render/vector.ts";
+import { beamPts, handle, ipaGlyph, label, LABEL_MIN, type Pt, seg } from "../render/vector.ts";
 import { nearestVowel } from "./AnatomyView.tsx";
 
 /**
@@ -70,8 +70,8 @@ export function VowelMap() {
       handle(ctx, live.x, live.y, V.green, 8);
       ipaGlyph(ctx, live.x + 20, live.y - 8, near, 17, V.green);
     }
-    label(ctx, "F2", w - 6, h - 5, { size: 9, color: TEXT.secondary, align: "right", ls: 0.1 });
-    label(ctx, "F1", 4, h - 5, { size: 9, color: TEXT.secondary, ls: 0.1 });
+    label(ctx, "F2", w - 6, h - 5, { size: LABEL_MIN, color: TEXT.secondary, align: "right", ls: 0.1 });
+    label(ctx, "F1", 4, h - 5, { size: LABEL_MIN, color: TEXT.secondary, ls: 0.1 });
   });
 
   const apply = (e: React.PointerEvent) => {

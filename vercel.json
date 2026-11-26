@@ -9,6 +9,7 @@
       "t3/**": false
     }
   },
+  "redirects": [{ "source": "/plugin", "destination": "/plugin/", "permanent": true }],
   "headers": [
     {
       "source": "/assets/(.*)",

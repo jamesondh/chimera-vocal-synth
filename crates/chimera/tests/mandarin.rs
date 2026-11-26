@@ -198,3 +198,38 @@ fn a_long_word_that_cant_be_split_fails_fast() {
     let texts: Vec<String> = typed("xīnr").into_iter().map(|x| x.0).collect();
     assert_eq!(texts, ["xīnr"]);
 }
+
+#[test]
+fn chang_after_a_degree_word() {
+    // review of #115: 很长 read zhǎng, the default (the more frequent reading: 长大, 校长)
+    let mut l = MandarinLexicon::new();
+    l.load("长\tzhang3\n很\then3\n太\ttai4\n么\tme5\n那\tna4\n怎\tzen3\n路\tlu4\n长大\tzhang3 da4\n");
+    assert_eq!(l.read("路很长"), ["lu4", "hen3", "chang2"]);
+    assert_eq!(l.read("太长"), ["tai4", "chang2"]);
+    assert_eq!(l.read("那么长"), ["na4", "me5", "chang2"]);
+    // not after a bare 么 (怎么长: how does it grow), and a phrase still decides (很长大 is 长大)
+    assert_eq!(l.read("怎么长"), ["zen3", "me5", "zhang3"]);
+    assert_eq!(l.read("很长大"), ["hen2", "zhang3", "da4"]); // and 3-3 sandhi on 很
+    assert_eq!(l.read("长"), ["zhang3"]);
+}
+
+#[test]
+fn the_demo_song_reads_one_syllable_per_note() {
+    // 送别, the Mandarin demo song, through the lexicon the page loads: a syllable to each note (a
+    // missing reading would shift every later word onto the wrong note), 长亭 read cháng, not zhǎng
+    use chimera::phonetics::songs::DEMO_SONGS;
+    use std::io::Read;
+    let path = format!("{}/../../public/data/mandarin.txt.gz", env!("CARGO_MANIFEST_DIR"));
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(&std::fs::read(&path).unwrap()[..]).read_to_string(&mut text).unwrap();
+    let mut l = MandarinLexicon::new();
+    l.load(&text);
+    let song = DEMO_SONGS.iter().find(|s| s.name == "送别").expect("the Mandarin demo song");
+    let s = read_lyrics(song.lyrics, &[&Mandarin(&l)]);
+    assert_eq!(s.len(), song.notes.len());
+    assert_eq!(s.iter().filter(|x| x.melisma == Some(true)).count(), 12);
+    let sung: Vec<String> = s.iter().filter(|x| x.melisma != Some(true)).map(ipa).collect();
+    assert_eq!(sung[0], "tʂʰɑŋ");
+    let at = |c: &str| ipa(s.iter().find(|x| x.text == c).unwrap());
+    assert_eq!((at("涯"), at("角"), at("落")), ("ia".into(), "tɕ˭iaʊ̠".into(), "lu̠ɔ".into()));
+}

@@ -13,8 +13,8 @@ use chimera::phonetics::planner::{self, PhraseInput, PlanOptions};
 use chimera::phonetics::sing::{self, MelismaOptions, NoteOnOptions, SongOptions, SungNote};
 use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::mandarin::MandarinLexicon;
-use chimera::phonetics::syllables::lyrics_to_syllables_with;
-use chimera::phonetics::{Segment, Syllable, ipa, songs, vowel_data};
+use chimera::phonetics::syllables::{Lang, lyrics_in};
+use chimera::phonetics::{Segment, Syllable, ipa, songs, turkish, vowel_data};
 use chimera::voice::human_airway::HumanAirway;
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -134,8 +134,11 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
             st.mandarin.load(&arg::<String>(req, "text")?);
             Ok(json!(true))
         }
-        // every built-in front end: pinyin, English, Korean, and Mandarin once its lexicon is loaded
-        "lyricsToSyllables" => to_json(&lyrics_to_syllables_with(&arg::<String>(req, "text")?, &st.g2p, &st.mandarin)),
+        // every built-in front end: pinyin, English or Turkish (`lang`, the language of
+        // Latin-script words; unset: English), Korean, Russian, and Mandarin once its lexicon is loaded
+        "lyricsToSyllables" => to_json(&lyrics_in(&arg::<String>(req, "text")?, &st.g2p, &st.mandarin, arg::<Option<Lang>>(req, "lang")?.unwrap_or_default())),
+        // Turkish needs no dictionary: its spelling rules are the G2P
+        "trPhrases" => to_json(&turkish::to_phrases(&arg::<String>(req, "text")?)),
         // ---------------------------------------------------------------- creatures
         "creaturePreview" => {
             let id: String = arg(req, "id")?;

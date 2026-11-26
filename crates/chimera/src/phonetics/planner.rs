@@ -2,8 +2,9 @@
 //! glottal opening gesture peaking at the release (VOT emerges), nasality is velum lowering with
 //! anticipation, coarticulation comes from overlapping vowel gestures beneath consonant gestures.
 //!
-//! The planners allocate and run off the audio thread. [`oral_gestures_into`] (used by the beat
-//! sequencer) builds into a caller's `Vec` and allocates nothing once it has capacity.
+//! Most planners allocate and run off the audio thread. [`plan_timed`] (live notes) and
+//! [`oral_gestures_into`] (the beat sequencer) build into a caller's `Vec` and allocate nothing
+//! once it has capacity, for up to [`INLINE_SEGMENTS`] segments.
 
 use super::durations::{SegInfo, klatt_durations};
 use super::inventory::{Glottal, Manner, PhonemeDef, Voicing, dental_closure, phoneme};
@@ -12,6 +13,7 @@ use crate::anatomy::human::{ArticKey, ArticPatch, BodyMix, BodyName};
 use crate::control::score::{ControlKey, Gesture, Targets};
 use crate::math::{js_max, js_min, js_round};
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
@@ -256,9 +258,39 @@ fn one(k: impl Into<ControlKey>, x: f64) -> Targets {
 }
 
 /// A planner segment: the input segment plus what the planner attaches to it.
+/// Segments [`plan_timed`] handles without allocating (a live note has at most 19: a legato
+/// triphthong's off-glide and 8 coda consonants, 8 onset consonants, an on-glide and the vowel).
+pub const INLINE_SEGMENTS: usize = 24;
+
+/// A segment whose duration is settled: what [`plan_timed`] plans from. The marks are
+/// [`Segment`]'s.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TimedSegment<'a> {
+    pub ipa: &'a str,
+    /// duration (s), before the speaking rate
+    pub dur: f64,
+    pub stress: Option<u8>,
+    pub f0: Option<f64>,
+    pub aspirated: Option<bool>,
+    pub vot: Option<f64>,
+    pub nasalized: Option<bool>,
+    pub palatalized: Option<bool>,
+    pub breathy: Option<bool>,
+    pub glide: Option<f64>,
+}
+
+/// What [`plan_timed`] returns besides the gestures.
+#[derive(Clone, Copy, Debug)]
+pub struct Timing {
+    /// end of the last segment (s)
+    pub end: f64,
+    /// start and end of the last segment (s)
+    pub last: (f64, f64),
+}
+
 struct Seg<'a> {
     ipa: &'a str,
-    dur: Option<f64>,
+    dur: f64,
     stress: Option<u8>,
     f0: Option<f64>,
     def: Option<PhonemeDef>,
@@ -318,7 +350,6 @@ struct Span {
 }
 
 pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
-    let rate = o.rate.unwrap_or(1.0);
     let body = o.body;
     // durations by the Klatt rules, on whole segments (diphthongs before they are split)
     let durs = klatt_durations(input, |s| {
@@ -328,13 +359,38 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         let d = phoneme(&s.ipa, body);
         SegInfo { vowel: false, manner: d.map(|d| d.manner), voiced: Some(d.is_some_and(|d| d.voicing == Voicing::Voiced)), dur: d.map(|d| d.dur) }
     });
+    let timed = input.iter().zip(&durs).map(|(s, d)| TimedSegment {
+        ipa: &s.ipa,
+        dur: *d,
+        stress: s.stress,
+        f0: s.f0,
+        aspirated: s.aspirated,
+        vot: s.vot,
+        nasalized: s.nasalized,
+        palatalized: s.palatalized,
+        breathy: s.breathy,
+        glide: s.glide,
+    });
+    let mut gestures = Vec::new();
+    let mut segments = Vec::with_capacity(input.len());
+    let timing = plan_timed(timed, o, &mut gestures, Some(&mut segments));
+    Plan { gestures, segments, end: timing.end }
+}
+
+/// [`plan_utterance`] after the durations are known: appends the gestures to `gestures` and, if
+/// given, the timeline to `planned` (which allocates, for its strings).
+pub fn plan_timed<'a>(input: impl Iterator<Item = TimedSegment<'a>>, o: &PlanOptions, gestures: &mut Vec<Gesture>, mut planned: Option<&mut Vec<PlannedSegment>>) -> Timing {
+    let rate = o.rate.unwrap_or(1.0);
+    let body = o.body;
+    // what this call adds, for the speaking rate's shortening below
+    let first_gesture = gestures.len();
     // expand diphthongs into two vowel targets sharing the duration
-    let mut segs: Vec<Seg> = Vec::with_capacity(input.len() + 4);
-    for (si, s) in input.iter().enumerate() {
-        if let Some(parts) = expand(&s.ipa) {
-            let base = durs[si];
+    let mut segs: SmallVec<[Seg; INLINE_SEGMENTS]> = SmallVec::new();
+    for s in input {
+        if let Some(parts) = expand(s.ipa) {
+            let base = s.dur;
             // shares of the duration: a falling diphthong 55/45, a rising one 30/70, a triphthong 25/45/30
-            let shares: &[f64] = match (parts.len(), is_rising(&s.ipa)) {
+            let shares: &[f64] = match (parts.len(), is_rising(s.ipa)) {
                 (2, false) => &[0.55, 0.45],
                 (2, true) => &[0.3, 0.7],
                 (3, _) => &[0.25, 0.45, 0.3],
@@ -342,10 +398,10 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             };
             for (i, p) in parts.iter().enumerate() {
                 let dur = base * shares.get(i).copied().unwrap_or(1.0);
-                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, nasalized: s.nasalized, palatalized: None, breathy: s.breathy, glide: None });
+                segs.push(Seg { ipa: p, dur, stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, nasalized: s.nasalized, palatalized: None, breathy: s.breathy, glide: None });
             }
         } else {
-            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, nasalized: s.nasalized, palatalized: s.palatalized, breathy: s.breathy, glide: s.glide });
+            segs.push(Seg { ipa: s.ipa, dur: s.dur, stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, nasalized: s.nasalized, palatalized: s.palatalized, breathy: s.breathy, glide: s.glide });
         }
     }
     for s in segs.iter_mut() {
@@ -367,32 +423,16 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             d.targets = dental_closure();
         }
     }
-    let mut gestures: Vec<Gesture> = Vec::new();
-    let mut planned: Vec<PlannedSegment> = Vec::with_capacity(segs.len());
     let mut t = o.t0 + 0.06; // breath onset lead
-    let mut times: Vec<Span> = Vec::with_capacity(segs.len());
+    let mut times: SmallVec<[Span; INLINE_SEGMENTS]> = SmallVec::new();
     for s in &segs {
-        let mut d = if let Some(d) = s.dur {
-            d
-        } else if s.vowel.is_some() {
-            if s.stress == Some(1) {
-                0.17
-            } else if s.stress == Some(2) {
-                0.13
-            } else {
-                0.095
-            }
-        } else {
-            s.def.map_or(0.08, |d| d.dur)
-        };
-        // final lengthening on the last syllable rhyme
-        d /= rate;
+        let d = s.dur / rate;
         times.push(Span { t0: t, t1: t + d });
         t += d;
     }
     let end = t;
     // ---- vowel gestures: overlap neighbours so the tongue travels vowel-to-vowel
-    let v_idx: Vec<usize> = segs.iter().enumerate().filter(|(_, s)| s.vowel.is_some()).map(|(i, _)| i).collect();
+    let v_idx: SmallVec<[usize; INLINE_SEGMENTS]> = segs.iter().enumerate().filter(|(_, s)| s.vowel.is_some()).map(|(i, _)| i).collect();
     for (n, &i) in v_idx.iter().enumerate() {
         let prev = if n > 0 { times[v_idx[n - 1]].t1 } else { times[i].t0 - 0.08 };
         let next = if n < v_idx.len() - 1 { times[v_idx[n + 1]].t0 } else { times[i].t1 + 0.08 };
@@ -417,13 +457,15 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
     for (i, s) in segs.iter().enumerate() {
         let Span { t0, t1 } = times[i];
         let dur = t1 - t0;
-        planned.push(PlannedSegment {
-            ipa: s.ipa.to_string(),
-            t0,
-            t1,
-            stress: if s.vowel.is_some() { Some(s.stress.unwrap_or(0)) } else { None },
-            kind: if s.vowel.is_some() { "vowel".to_string() } else { s.def.map_or("?", |d| d.manner.as_str()).to_string() },
-        });
+        if let Some(planned) = planned.as_deref_mut() {
+            planned.push(PlannedSegment {
+                ipa: s.ipa.to_string(),
+                t0,
+                t1,
+                stress: if s.vowel.is_some() { Some(s.stress.unwrap_or(0)) } else { None },
+                kind: if s.vowel.is_some() { "vowel".to_string() } else { s.def.map_or("?", |d| d.manner.as_str()).to_string() },
+            });
+        }
         if s.vowel.is_some() && !s.glide_from {
             // what a vowel's marks hold for the whole vowel, through a diphthong's glide
             let end = times[(i + 1..segs.len()).take_while(|&j| segs[j].glide_from).last().unwrap_or(i)].t1;
@@ -439,7 +481,7 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         let Some(def) = s.def.as_ref() else { continue };
         let next_vowel = i < segs.len() - 1 && segs[i + 1].vowel.is_some();
         let prev_seg = if i > 0 { Some(&segs[i - 1]) } else { None };
-        let mut add_oral = |tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str| oral_gestures_into(def, tg, a, b, speed, label, &mut gestures);
+        let mut add_oral = |tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str| oral_gestures_into(def, tg, a, b, speed, label, gestures);
         match def.manner {
             // a stop that closes behind another stop's closure, its articulator already placed by
             // the segment before that (the tip raised for /ɹ/ in "sharp tree"), reaches contact
@@ -477,7 +519,7 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
                 // the folds have closed (below). Its 8 ms lead hands over from the closure. A span
                 // squeezed under 33 ms (a fast sung note) starts it with the span, not before.
                 if let Some(rel) = def.release.and_then(|r| phoneme(r, body)) {
-                    oral_gestures_into(&rel, &rel.targets, js_max(t0, split - 0.015), t1, 1.4, def.ipa, &mut gestures);
+                    oral_gestures_into(&rel, &rel.targets, js_max(t0, split - 0.015), t1, 1.4, def.ipa, gestures);
                 }
             }
             Manner::Fricative | Manner::Approximant | Manner::Lateral => add_oral(&def.targets, t0, t1, 1.3, def.ipa),
@@ -668,9 +710,10 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         }
     }
     if rate > 1.0 {
-        shorten_timing(&mut gestures, rate);
+        shorten_timing(&mut gestures[first_gesture..], rate);
     }
-    Plan { gestures, segments: planned, end }
+    let last = times.last().map_or((end, end), |x| (x.t0, x.t1));
+    Timing { end, last }
 }
 
 /// The share of an affricate's span that is closure, the rest being frication (the TSP speakers'

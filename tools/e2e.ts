@@ -143,6 +143,19 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await box_.fill("ɕiɛ˥˩");
   await ipaChip.click(); // and off
   if (await noticeText()) errors.push(`[${tag}] turning IPA mode off left the notice: ${await noticeText()}`);
+  // one language for Speak and Sing: TR chosen in Speak is lit in Sing, and still chosen when Speak
+  // comes back (it was Speak's own state, reset whenever the tab remounted)
+  const tr = (scope: string) => page.locator(scope).getByRole("button", { name: "Turkish" });
+  await tr(".right-speak").click();
+  await page.getByRole("radio", { name: "Sing" }).click();
+  await page.waitForTimeout(200);
+  const inSing = await tr(".s-lyrics").getAttribute("aria-pressed");
+  await page.getByRole("radio", { name: "Speak" }).click();
+  await page.waitForTimeout(200);
+  const speakAgain = { chip: await tr(".right-speak").getAttribute("aria-pressed"), box: await sayBox.inputValue() };
+  logs.push(`[${tag}] language: TR in Speak, in Sing ${inSing}; Speak again ${JSON.stringify(speakAgain)}`);
+  if (inSing !== "true" || speakAgain.chip !== "true" || speakAgain.box !== "Merhaba, nasılsın?") errors.push(`[${tag}] Speak and Sing don't share the language (Sing ${inSing}, Speak again ${JSON.stringify(speakAgain)})`);
+  await page.locator(".right-speak").getByRole("button", { name: "English" }).click();
   // sing mode: a key sings the marked syllable and moves the cursor; legato; a demo song
   await page.getByRole("radio", { name: "Sing" }).click();
   await page.waitForTimeout(600);
@@ -325,6 +338,39 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.keyboard.up("d");
   logs.push(`[first-key] sing before start: rms ${level.toFixed(4)}`);
   if (!(level > 0.01)) errors.push(`[first-key] the first sung key, pressed before audio started, made no sound (${level})`);
+  await page.close();
+}
+
+// an arrow key moves every encoder, on every page of Sing and Beatbox: on one whose value is
+// rounded (Key, Tempo), an arrow once moved a thousandth of the dial and the rounding put it back
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on("pageerror", (e) => errors.push(`[arrow-keys] pageerror: ${e.message}`));
+  await page.goto(url, { waitUntil: "networkidle" });
+  const stuck: string[] = [];
+  let turned = 0;
+  for (const mode of ["Sing", "Beatbox"]) {
+    await page.getByRole("radio", { name: mode }).click();
+    const tabs = page.locator(".right .enc-tab");
+    for (let t = 0; t < Math.max(1, await tabs.count()); t++) {
+      if (await tabs.count()) await tabs.nth(t).click();
+      const inputs = page.locator(".right .enc-input");
+      for (let i = 0; i < (await inputs.count()); i++) {
+        const input = inputs.nth(i);
+        const was = await input.inputValue();
+        await input.focus();
+        await page.keyboard.press("ArrowRight");
+        // at the top of its range it can only go down
+        if ((await input.inputValue()) === was) await page.keyboard.press("ArrowLeft");
+        const now = await input.inputValue();
+        turned++;
+        if (now === was) stuck.push(`${mode} ${await input.getAttribute("aria-valuetext")}`);
+      }
+    }
+  }
+  logs.push(`[arrow-keys] ${turned} encoders turned by an arrow key, ${stuck.length} stuck`);
+  if (!turned) errors.push("[arrow-keys] found no encoders to turn");
+  if (stuck.length) errors.push(`[arrow-keys] an arrow key didn't move: ${stuck.join(", ")}`);
   await page.close();
 }
 
@@ -684,6 +730,6 @@ await run({ width: 1440, height: 980 }, "desktop");
 await run({ width: 390, height: 844 }, "mobile");
 await browser.close();
 console.log("console errors:", errors.length ? "\n" + errors.join("\n") : "none");
-console.log(logs.filter((l) => /load|rate|slow|warn|transcription|example|creature|held|back to|beatbox|silence|sing|octave|retry|tongue|song|video/i.test(l)).slice(0, 52).join("\n"));
+console.log(logs.filter((l) => /load|rate|slow|warn|transcription|example|creature|held|back to|beatbox|silence|sing|octave|retry|tongue|song|video|arrow/i.test(l)).slice(0, 52).join("\n"));
 // a run that collected errors fails, so CI and agents can't read it as a pass
 if (errors.length) process.exit(1);

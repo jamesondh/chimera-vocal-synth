@@ -42,6 +42,12 @@ fn table(ipa: &str) -> Option<(f64, f64)> {
         "aʊ" => (240.0, 100.0),
         "ɔɪ" => (280.0, 150.0),
         "ɨ" => (110.0, 40.0),
+        // Turkish vowels outside Klatt's table, by their nearest English kin: /y/ high like /i/,
+        // /ø/ mid like /e/, /ɯ/ high and short like /ɪ/ (without them they fell back to 80 ms
+        // inherent, and an unstressed /ɯ/ inside a word lasted ~40 ms)
+        "y" => (155.0, 55.0),
+        "ø" => (190.0, 70.0),
+        "ɯ" => (135.0, 40.0),
         // consonants
         "p" => (85.0, 50.0),
         "t" => (75.0, 50.0),
@@ -78,6 +84,11 @@ fn table(ipa: &str) -> Option<(f64, f64)> {
 
 /// The least left of a vowel in a vowel + /ɹ/ nucleus (s): Klatt's shortest vowel minimum, /ɪ/'s.
 const NUCLEUS_VOWEL_MIN: f64 = 0.04;
+
+/// Klatt's inherent and minimum duration (ms) of a phoneme, if the table has it.
+pub fn inherent_ms(ipa: &str) -> Option<(f64, f64)> {
+    table(ipa)
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,6 +219,12 @@ pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> 
         let coda = i + 2 >= n || word[i + 2] != word[i + 1] || !inf[i + 2].vowel;
         if inf[i].vowel && segs[i + 1].ipa == "ɹ" && word[i + 1] == word[i] && coda && segs[i].dur.is_none() && segs[i + 1].dur.is_none() {
             durs[i] = (durs[i] - durs[i + 1]).max(NUCLEUS_VOWEL_MIN);
+        }
+    }
+    // a long sound: the rules' duration, so many times over
+    for (d, s) in durs.iter_mut().zip(segs) {
+        if let (None, Some(k)) = (s.dur, s.length) {
+            *d *= k;
         }
     }
     durs

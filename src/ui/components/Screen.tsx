@@ -5,11 +5,13 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
  * The body always has a positive size (see .screen-body in styles.css); canvases fill it.
  * A screen whose content names itself (the head) has no title: `lead` takes its place in the
  * header, and `label` names the screen for assistive tech.
+ * `watch` marks a screen that only shows (nothing in it to touch): on a phone it goes below every
+ * screen you touch (AGENTS.md; the layout lint checks the order).
  */
-export function Screen(props: { title?: string; sub?: string; lead?: ReactNode; focus?: boolean; className?: string; tools?: ReactNode; children: ReactNode; label?: string }) {
-  const { title, sub, lead, focus, className, tools, children, label } = props;
+export function Screen(props: { title?: string; sub?: string; lead?: ReactNode; focus?: boolean; watch?: boolean; className?: string; tools?: ReactNode; children: ReactNode; label?: string }) {
+  const { title, sub, lead, focus, watch, className, tools, children, label } = props;
   return (
-    <section className={`screen${focus ? " focus" : ""}${className ? " " + className : ""}`} aria-label={label ?? title}>
+    <section className={`screen${focus ? " focus" : ""}${watch ? " watch" : ""}${className ? " " + className : ""}`} aria-label={label ?? title}>
       {(title || lead || sub || tools) && (
         <header className="screen-head">
           {title && <h2 className="screen-title">{title}</h2>}

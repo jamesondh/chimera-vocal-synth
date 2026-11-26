@@ -11,6 +11,7 @@ mod render;
 mod wav;
 
 use chimera::anatomy::human::{BODY_CHILD, BODY_FEMALE, BODY_MALE, BodyMix, HumanBody};
+use chimera::phonetics::syllables::Lang;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
@@ -18,13 +19,16 @@ usage: chimera <command> [args] [--float]
 
   render speech  <out> [\"ipa / ipa\"] [male|female|child]
   render text    <out> [\"English text.\"] [male|female|child]
+  render turkish <out> [\"Türkçe metin.\"] [male|female|child]
   render song    [outdir] [male|female|child]
   render notes   <in.json> <out> [male|female|child] [--artic tracks.json] [--tele voice.tele]
-                 (melody file; midi <= 0 is a rest; --artic also writes the articulators at 100 Hz)
+                 (melody file; midi <= 0 is a rest; \"lang\": \"tr\" reads Latin-script lyrics as Turkish;
+                 --artic also writes the articulators at 100 Hz)
   render beatbox [outdir] [preset name | pattern] [male|female|child] [bpm] [bars]
   render creature [creatureId] [outdir]
   render vowels  [male|female|child] [out]
-  syllables      \"lyrics\"    (what the language front ends read: one JSON syllable per sung note)
+  syllables      \"lyrics\" [en|tr]  (what the language front ends read: one JSON syllable per sung
+                 note; tr reads Latin script as Turkish)
   diagnose       [outdir]
   compare csd    [csd-dir] [outdir] [--songs a|b|all|en001a,…] [--body female] [--jobs n]
                  [--against earlier/score.json]  (score.json: distance to the singer, and the verdict)
@@ -103,6 +107,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             match *kind {
                 "speech" => render::speech(&ctx, rest),
                 "text" => render::text(&ctx, rest),
+                "turkish" => render::turkish(&ctx, rest),
                 "song" => render::song(&ctx, rest),
                 "notes" => render::notes(&ctx, rest),
                 "beatbox" => render::beatbox(&ctx, rest),
@@ -114,7 +119,14 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["compare", "csd", ..] => compare::csd(&ctx, &args[2..]),
         ["compare", "tsp", ..] => compare::tsp::run(&ctx, &args[2..]),
         ["diagnose", ..] => diagnose::run(&ctx, &args[1..]),
-        ["syllables", text] => render::sung_lyrics(text).and_then(|s| serde_json::to_string(&s).map_err(|e| e.to_string())).map(|j| println!("{j}")),
+        ["syllables", text] => {
+            let lang = match args.get(2).map(String::as_str) {
+                None | Some("en") => Lang::En,
+                Some("tr") => Lang::Tr,
+                Some(l) => return Err(format!("no front end for {l}: en or tr")),
+            };
+            render::sung_lyrics(text, lang).and_then(|s| serde_json::to_string(&s).map_err(|e| e.to_string())).map(|j| println!("{j}"))
+        }
         ["calibrate", "vowels", ..] => calibrate::vowels(&args[2..]),
         ["calibrate", "consonants", ..] => calibrate::consonants(&args[2..]),
         ["help" | "--help" | "-h", ..] => {

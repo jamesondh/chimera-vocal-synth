@@ -7,6 +7,7 @@ import { sameBody } from "../body.ts";
 import { useStore } from "../store.ts";
 import { VoiceModel } from "../analysis.ts";
 import { useModel } from "../useModel.ts";
+import { cssScale } from "../useCanvas.ts";
 import { V } from "../colors.ts";
 import type { HumanArtic, HumanFrame } from "../../wasm/types.ts";
 import type { TelemetryMessage } from "../../worklet/protocol.ts";
@@ -109,7 +110,7 @@ export function AnatomyView(props: { slots?: SlotsFn; info?: InfoFn; showFormant
         ctx.globalCompositeOperation = "source-over";
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cssScale(ctx, w, h);
         const view = clean ? { ...st.view, calipers: false, grid: false } : st.view;
         r.draw(ctx, m, f, a, tele, view, { hover: hoverRef.current, drag: dragRef.current?.id ?? null, dt, formants: formantsRef.current && !clean ? formants : [], slots: clean ? [] : slotsRef.current(m, a, f, formants, tele), info: clean ? [] : info.map((s) => s.toUpperCase()) });
         overlayRef.current?.(ctx, r, m, f, a, { w, h, dt });

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { inPlugin } from "../../audio/pluginBridge.ts";
 import { useStore } from "../store.ts";
 import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary, BREATH_MIN, BREATH_MAX, BREATH_LEVEL_MIN, BREATH_LEVEL_MAX, breathAtDial } from "../singing.ts";
 import { engine } from "../../audio/AudioEngine.ts";
@@ -11,6 +12,7 @@ import { Menu } from "./Controls.tsx";
 import { PianoRoll } from "./PianoRoll.tsx";
 import { SpectrumView } from "./SpectrumView.tsx";
 import { Chip, Screen } from "./Screen.tsx";
+import { LangPick } from "./LangPick.tsx";
 import { EncoderPages } from "./Encoder.tsx";
 import { noteName } from "./VoiceControls.tsx";
 import type { InfoFn } from "./AnatomyView.tsx";
@@ -43,6 +45,7 @@ export const singInfo: InfoFn = (_m, _f, tele) => {
 
 function Lyrics() {
   const lyrics = useSing((s) => s.lyrics);
+  const lang = useSing((s) => s.lang);
   const syllables = useSing((s) => s.syllables);
   const cursor = useSing((s) => s.cursor);
   const demo = useSing((s) => s.playing);
@@ -58,6 +61,7 @@ function Lyrics() {
         onChange={(e) => setLyrics(e.target.value)}
         onKeyDown={(e) => e.stopPropagation()}
         rows={Math.min(4, lyrics.split("\n").length)}
+        lang={lang}
         aria-label="Lyrics to sing"
         placeholder="Type the words to sing"
         title="Sing sings these words to the tune, a line to each of its phrases. Each key sings the next syllable; hold a key while you press the next one to sing legato. A lone “-” between words holds a vowel over several notes; hyphens split a word your way (“ti-ger”)."
@@ -89,6 +93,13 @@ function Lyrics() {
   );
 }
 
+/** The language Latin-script words are read in, in Sing and Speak (other scripts are read by their own). */
+function LyricsLang() {
+  const lang = useSing((s) => s.lang);
+  const setLang = useSing((s) => s.setLang);
+  return <LangPick value={lang} onChange={setLang} />;
+}
+
 function SongControls() {
   const source = useStore((s) => s.source);
   const setSource = useStore((s) => s.setSource);
@@ -113,25 +124,29 @@ function SongControls() {
         {
           name: "Song",
           encoders: [
-            { label: "Vibrato", value: vibrato, min: 0, max: 80, onChange: (v) => setVibrato(Math.round(v)), format: (v) => ({ value: String(Math.round(v)), unit: "cents" }) },
+            { label: "Vibrato", value: vibrato, min: 0, max: 80, step: 1, onChange: (v) => setVibrato(Math.round(v)), format: (v) => ({ value: String(Math.round(v)), unit: "cents" }) },
             { label: "Rate", value: source.vibratoRate, min: 3.5, max: 7.5, onChange: (v) => setSource({ vibratoRate: v }), format: (v) => ({ value: v.toFixed(1), unit: "Hz" }) },
             { label: "Breathy", value: source.breathiness, min: 0, max: 1, onChange: (v) => setSource({ breathiness: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
             // the singer's ring narrows the tube just above the folds, adding the bright band near 3 kHz
             { label: "Ring", value: epilarynx, min: 0, max: 1, onChange: (v) => setArtic({ epilarynx: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
           ],
         },
-        {
-          // the tune's speed and key, and the breath at its phrase ends (the ’ marks in the lyrics), from the
-          // next time Sing is pressed
-          name: "Tune",
-          encoders: [
-            { label: "Tempo", value: tempo, min: 0.5, max: 1.5, onChange: (v) => setTempo(Math.round(v * 20) / 20), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
-            { label: "Key", value: key, min: -12, max: 12, onChange: (v) => setKey(Math.round(v)), format: (v) => ({ value: (v > 0.5 ? "+" : "") + String(Math.round(v)), unit: "semitones" }) },
-            { label: "Breath", value: breath || BREATH_OFF, min: BREATH_OFF, max: BREATH_MAX, onChange: (v) => setBreath(toBreath(v)), format: (v) => (toBreath(v) ? { value: toBreath(v).toFixed(2), unit: "s" } : { value: "Off", unit: "\u00a0" }) },
-            // how hard the breath is drawn in (100 %: the engine's own level; half to double is about ∓6 dB); nothing to hear with Breath off
-            { label: "Level", value: breathLevel, min: BREATH_LEVEL_MIN, max: BREATH_LEVEL_MAX, log: true, onChange: (v) => setBreathLevel(Math.round(v * 20) / 20), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
-          ],
-        },
+        // the tune's speed and key, and the breath at its phrase ends (the ’ marks in the lyrics), from the
+        // next time Sing is pressed (the plugin has no tunes: the host plays)
+        ...(inPlugin
+          ? []
+          : [
+              {
+                name: "Tune",
+                encoders: [
+                  { label: "Tempo", value: tempo, min: 0.5, max: 1.5, step: 0.05, onChange: (v: number) => setTempo(Math.round(v * 20) / 20), format: (v: number) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
+                  { label: "Key", value: key, min: -12, max: 12, step: 1, onChange: (v: number) => setKey(Math.round(v)), format: (v: number) => ({ value: (v > 0.5 ? "+" : "") + String(Math.round(v)), unit: "semitones" }) },
+                  { label: "Breath", value: breath || BREATH_OFF, min: BREATH_OFF, max: BREATH_MAX, step: 0.05, onChange: (v: number) => setBreath(toBreath(v)), format: (v: number) => (toBreath(v) ? { value: toBreath(v).toFixed(2), unit: "s" } : { value: "Off", unit: "\u00a0" }) },
+                  // how hard the breath is drawn in (100 %: the engine's own level; half to double is about ∓6 dB); nothing to hear with Breath off
+                  { label: "Level", value: breathLevel, min: BREATH_LEVEL_MIN, max: BREATH_LEVEL_MAX, log: true, onChange: (v: number) => setBreathLevel(Math.round(v * 20) / 20), format: (v: number) => ({ value: String(Math.round(v * 100)), unit: "%" }) },
+                ],
+              },
+            ]),
         {
           name: "Tone",
           encoders: [{ label: "Bright", value: source.brightness, min: 0, max: 1, onChange: (v) => setSource({ brightness: v }), format: (v) => ({ value: String(Math.round(v * 100)), unit: "%" }) }],
@@ -268,14 +283,15 @@ export function SingRight() {
   const next = useSing((s) => (s.playing ? null : (s.syllables[s.cursor]?.text ?? null)));
   return (
     <div className="right right-sing">
-      <SingActions />
-      <Screen className="s-roll" title="Pitch">
+      {/* the plugin sings what the host plays: no tunes to sing or record */}
+      {!inPlugin && <SingActions />}
+      <Screen watch className="s-roll" title="Pitch">
         <PianoRoll />
       </Screen>
-      <Screen className="s-lyrics" title="Lyrics">
+      <Screen className="s-lyrics" title="Lyrics" tools={inPlugin ? undefined : <LyricsLang />}>
         <Lyrics />
       </Screen>
-      <Screen className="s-spec" title="Spectrum" sub={ring ? "Ring on" : ""}>
+      <Screen watch className="s-spec" title="Spectrum" sub={ring ? "Ring on" : ""}>
         <SpectrumView ring={ring} />
       </Screen>
       <Screen className="s-voice" title="Voice">

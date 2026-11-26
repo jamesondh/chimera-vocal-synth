@@ -129,13 +129,13 @@ export function BestiaryRight() {
       <Screen className="s-gallery" title="Creatures">
         <Gallery />
       </Screen>
-      <Screen className="s-wf" title="Spectrogram">
+      <Screen watch className="s-wf" title="Spectrogram">
         <Spectrogram />
       </Screen>
       <Screen className="s-cparams" title="Controls">
         {def && <Params def={def} />}
       </Screen>
-      <Screen className="s-airway" title="Airway" sub="Each tube unrolled">
+      <Screen watch className="s-airway" title="Airway" sub="Each tube unrolled">
         <CreatureTubes />
       </Screen>
       <Screen className="s-keys s-keys-compact" title="Keys" tools={<>{def && <KeysMode def={def} />}<MidiButton /></>}>

@@ -189,8 +189,13 @@ export class Gaze {
   private toYaw = 0;
   private next = 2;
 
-  update(clock: number, dt: number): void {
-    if (clock >= this.next) {
+  /** `at`: look there (pitch, yaw) instead of wandering, until it's left out again */
+  update(clock: number, dt: number, at?: { pitch: number; yaw: number }): void {
+    if (at) {
+      this.toPitch = at.pitch;
+      this.toYaw = at.yaw;
+      this.next = clock + 0.8;
+    } else if (clock >= this.next) {
       const centre = Math.random() < 0.35;
       this.toPitch = centre ? 0 : (Math.random() * 2 - 1) * 0.55;
       this.toYaw = centre ? 0 : (Math.random() * 2 - 1) * 0.9;

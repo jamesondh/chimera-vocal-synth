@@ -2801,3 +2801,50 @@ closure where the speakers' show a burst's rise only 42 and 59 % of the time (ex
 form E, leaving that context as after a vowel, read about the same on the speakers' judge). Held-out, so
 no change was made for it. It is on the owner's page. The next batch may look at this context: this
 sentence is no longer a clean held-out check of it.
+
+## Between batches: /s z/'s tongue tip 3 mm forward (issue #135, 2026-11-22, kept)
+
+A user driving the engine live through the C ABI reported /s z ts/ heard as /ʃ ʒ tʃ/, with a phone
+recognizer's numbers and their own target values (#135). The speakers' judge agrees: on main 7c0f722 the
+/s z/ centroids sit 0.9–2.5 kHz below the speakers', the largest sibilant costs it has.
+
+- **Cause.** Lead 10: /s/'s narrowest section sits too far behind the lips, so the cavity in front of it
+  is too long and the hiss starts low. The tip target `TtX 6.3` puts it there. The fix shortens that
+  cavity at its source, the place of the constriction, and keeps calibration's area (`TtY` refit with
+  `chimera calibrate consonants`).
+- **The change.** /s z/ `TtX 6.3 → 6.6` (3 mm forward), `TtY` recalibrated (9.15 → 8.8 in the base
+  table). /ts dz/ take /s z/'s targets. Mandarin's apical vowel ɿ (四) is tied to /s/'s tip, so it alone
+  was refit (`calibrate vowels all --missing`, with ɿ dropped from a copy of the table). For the male
+  body the narrowest point jumps between `TtX` 6.50 and 6.55; 6.6 sits clear of that step.
+- **Declined from the issue:** their /s/ values (male centroid about 2 kHz past real men; they bypass
+  calibration; spread lips block rounding before /u/), and their /f v ʒ tʃ/ changes (the /f/ spectrum
+  barely moves; its brightness is lead 15's, not a place error).
+
+| judge (main 7c0f722 → this) | before | after |
+|---|---|---|
+| speakers, training | 0.817 | 0.519 (BETTER, no term broken) |
+| speakers, held-out | 0.852 | 0.510 |
+| centroid /s/ women / men (speakers 7.41 / 5.73 kHz) | 5.38 / 4.71 | 6.61 / 6.05 |
+| centroid /z/ women / men (speakers 7.07 / 5.12 kHz) | 4.61 / 4.24 | 5.79 / 5.55 |
+| centroid /ʃ/ women / men (speakers 4.05 / 3.13 kHz) | 3.43 / 3.53 | 3.44 / 3.54 |
+| Whisper, training | 28.81 % | 28.48 % (NO CLEAR CHANGE) |
+| Whisper, held-out (never decides) | 39.00 % | 37.33 % |
+| singer, training | 0.442 | 0.442 (NO CLEAR CHANGE) |
+| singer, held-out | 0.598 | 0.604 |
+| bench os=2, male | 20.1 % | 20.9 % (noise: a target can't change the per-block cost) |
+
+- **Singer guards**, training songs, unchanged: 0 of 5793 notes off time, 0 dropped gestures, note
+  MCD 8.436 → 8.433 dB, envelope correlation 0.825, pitch error 5.22 cents.
+- **Speakers' group costs, female / male** (main → this). Scored: sibilants 2.252 → 1.041 /
+  0.945 → 0.404; timing 0.414 → 0.383 / 0.266 → 0.237; level 0.758 → 0.754 / 0.265 → 0.294 (the male
+  rise breaks no term). Diagnostics: formants 1.289 → 1.294 / 1.049 → 1.051; spectrum 1.260 → 1.236 /
+  1.541 → 1.521; voice 0.968 → 0.968 / 1.147 → 1.154; intonation 1.250 → 1.243 / 0.833 → 0.821;
+  voicing 0.282 → 0.279 / 0.411 → 0.400.
+
+The owner listened blind on 2026-11-22 (12 clips: isolated sounds, English, Turkish, sung Mandarin and
+Russian): this 5, main 0, can't tell 7. All four English sentences went to this; the other languages and
+the nonsense words were can't tell to a listener who speaks English only.
+
+Still open: lead 10's front-teeth area (4–6 cm² at the teeth for a held /s/, where a 1–3 mm incisor gap
+gives well under 1 cm²) and lead 11's 15–25 dB too much above 10 kHz in every fricative. Before /u/ the
+recognizer still hears /s/ as /ʃ/ in [usu].

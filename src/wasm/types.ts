@@ -171,6 +171,8 @@ export interface Segment {
   breathy?: boolean;
   /** a vowel that is a glide off the vowel before it, reached over this long (s): one movement, not a second held vowel */
   glide?: number;
+  /** a long sound: this many times the duration rules' length (Turkish's vowel before ğ) */
+  length?: number;
 }
 
 /** What the engine will not say as written in a piece of IPA text (see `skippedIpa`). */
@@ -197,6 +199,10 @@ export interface Plan {
   end: number;
 }
 
+/** The language Latin-script words are read in: their script can't tell Turkish from English, so
+ *  the player chooses (Rust's `syllables::Lang`). Hangul and Cyrillic go to their own front ends. */
+export type Lang = "en" | "tr";
+
 export interface Phrase {
   segments: Segment[];
   intonation: "statement" | "question";
@@ -219,6 +225,10 @@ export interface Syllable {
   nasalLead?: number;
   /** the rhyme's ending (an off-glide, a nasal coda) is one closing movement at the note's end, this long at most (s); unset: a held part */
   closing?: number;
+  /** how long after the onset's last consonant the voice starts (s); a song starts the vowel that long before its beat. Unset: the vowel's segment starts on the beat */
+  voiceLag?: number;
+  /** in a song the consonants before this syllable's vowel take at most this share of the time since the vowel before, shortening in proportion. Unset: they keep their lengths */
+  onsetShare?: number;
 }
 
 /** A bend of the pitch inside a sung note: `st` semitones, at its vowel's start or end, over `len` of the vowel (at most `max` s). */

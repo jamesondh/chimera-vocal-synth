@@ -11,6 +11,10 @@
 //! Lax stops aspirate briefly word-initially and aspirated ones long (Segment::vot); lax stops are
 //! voiced between voiced sounds.
 //! ㅈ ㅊ ㅉ are alveolo-palatal [tɕ], and ㅅ ㅆ before [i] or [j] are [ɕ].
+//!
+//! A block may also be typed as its letters, conjoining jamo (decomposed text, NFD): modern ones
+//! are joined into the block first. The letters modern Korean dropped (ㆍ ㅿ ㆁ ㆆ) have no block,
+//! so a block with one isn't read, like any other script no front end reads.
 
 use super::syllables::FrontEnd;
 use super::{Segment, Syllable};
@@ -19,6 +23,41 @@ const BASE: u32 = 0xAC00;
 
 pub fn is_hangul(c: char) -> bool {
     ('\u{AC00}'..='\u{D7A3}').contains(&c)
+}
+
+/// Modern conjoining jamo: an initial (L), a vowel (V) and a final (T), the letters a block is
+/// made of in decomposed text.
+const L: std::ops::RangeInclusive<u32> = 0x1100..=0x1112;
+const V: std::ops::RangeInclusive<u32> = 0x1161..=0x1175;
+const T: std::ops::RangeInclusive<u32> = 0x11A8..=0x11C2;
+
+fn is_modern_jamo(c: char) -> bool {
+    let c = c as u32;
+    L.contains(&c) || V.contains(&c) || T.contains(&c)
+}
+
+/// Modern conjoining jamo joined into blocks (Unicode's Hangul composition, as NFC does): L V
+/// is a block, and a block without a final takes a following T. Anything else is left as it was.
+fn compose(word: &str) -> String {
+    let mut out = String::with_capacity(word.len());
+    let mut last: Option<char> = None;
+    for c in word.chars() {
+        let (l, n) = (last.map(|c| c as u32), c as u32);
+        let joined = match l {
+            Some(l) if L.contains(&l) && V.contains(&n) => Some(BASE + ((l - 0x1100) * 21 + n - 0x1161) * 28),
+            Some(l) if is_hangul(char::from_u32(l).unwrap()) && (l - BASE).is_multiple_of(28) && T.contains(&n) => Some(l + n - 0x11A7),
+            _ => None,
+        };
+        match joined {
+            Some(b) => last = char::from_u32(b),
+            None => {
+                out.extend(last);
+                last = Some(c);
+            }
+        }
+    }
+    out.extend(last);
+    out
 }
 
 /// Initial consonants in Unicode order. 'ㅇ' as an initial is silent.
@@ -236,7 +275,7 @@ fn coda_ipa(c: char) -> &'static str {
 
 /// One word of Hangul (a run of blocks) → its sung syllables, the last marked as the word's end.
 pub fn word_syllables(word: &str) -> Vec<Syllable> {
-    let mut blocks: Vec<Block> = word.chars().filter(|&c| is_hangul(c)).map(decompose).collect();
+    let mut blocks: Vec<Block> = compose(word).chars().filter(|&c| is_hangul(c)).map(decompose).collect();
     for i in 1..blocks.len() {
         let (l, r) = blocks.split_at_mut(i);
         join(l.last_mut().unwrap(), &mut r[0]);
@@ -280,7 +319,10 @@ pub struct Korean;
 
 impl FrontEnd for Korean {
     fn starts(&self, c: char) -> bool {
-        is_hangul(c)
+        is_hangul(c) || L.contains(&(c as u32))
+    }
+    fn continues(&self, c: char) -> bool {
+        is_hangul(c) || is_modern_jamo(c)
     }
     fn word(&self, word: &str) -> Vec<Syllable> {
         word_syllables(word)

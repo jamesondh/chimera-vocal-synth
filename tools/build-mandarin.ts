@@ -2,9 +2,16 @@
  * Build the Mandarin front end's lexicon shipped to the browser (and read by the CLI).
  * Usage: bun tools/build-mandarin.ts   (downloads the pinned sources below)
  * Output: public/data/mandarin.txt.gz, lines "字<TAB>zhong1" (each Han character's first listed
- * reading, Unihan's order: usually the most common, not always, e.g. 得 de2, 长 zhang3) and "银行<TAB>yin2 hang2" (phrases whose reading differs from their characters' own,
+ * reading, Unihan's order: usually the most common, not always, e.g. 得 de2) and "银行<TAB>yin2 hang2"
+ * (phrases whose reading differs from their characters' own,
  * which is what decides a polyphone, and every phrase with 儿, which says whether 儿 is a syllable
  * or an erhua ending), tone numbers 1-4 and 5 for neutral, ü as v.
+ *
+ * Other defaults were compared and not taken: Unihan's kMandarin (the same as this for nearly every
+ * common polyphone, and 长 is zhang3 there too) and kHanyuPinlu (readings by corpus frequency; it
+ * changes 81 common characters, most to a neutral tone they only have inside a word: 西 xi5 from
+ * 东西). A reading that depends on its neighbour is a rule in the front end instead (长 after a
+ * degree word: 很长 hěn cháng).
  *
  * Sources, both MIT (mozillazg): pinyin-data's pinyin.txt (merged from Unicode's Unihan readings,
  * no CC-CEDICT) and phrase-pinyin-data's pinyin.txt (its base phrase list plus overrides; not the

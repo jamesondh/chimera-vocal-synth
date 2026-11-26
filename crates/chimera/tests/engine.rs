@@ -6,7 +6,7 @@ use chimera::anatomy::human::{ArticKey, ArticPatch, BodyName};
 use chimera::control::score::{Gesture, Targets};
 use chimera::engine::Engine;
 use chimera::phonetics::beatbox::{BeatStep, beat_ready, parse_beat};
-use chimera::voice::human_voice::SourcePatch;
+use chimera::voice::human_voice::{DEFAULT_SOURCE, SourcePatch};
 use common::*;
 
 #[test]
@@ -195,4 +195,29 @@ fn an_extreme_pose_does_not_squeal_with_the_voice_off() {
             }
         }
     }
+}
+
+/// A source change in the middle of a scored note dropped the score's vibrato, abduction and
+/// breath-scaled effort until the next control step, so a stream of them (aftertouch) crackled.
+#[test]
+fn restating_the_source_during_a_scored_note_changes_nothing() {
+    use chimera::control::score::ControlKey;
+    let sing = |restate: bool| {
+        let mut e = Engine::new(48000.0);
+        let mut note = Targets::default();
+        note.set(ArticKey::TbX, 3.6).set(ControlKey::F0, 180.0).set(ControlKey::BREATH, 0.8).set(ControlKey::VIBRATO, 30.0).set(ControlKey::ABDUCTION, 0.02);
+        e.schedule(&[Gesture::new(0.0, 1e9, 0.03, 0.08, 4.0, note).tag(3.0)], 0.01, false);
+        let mut out = vec![0.0f32; 24000];
+        for block in out.chunks_mut(37) {
+            if restate {
+                e.set_source(&SourcePatch { pressure: Some(DEFAULT_SOURCE.pressure), ..Default::default() });
+            }
+            e.render(block);
+        }
+        out
+    };
+    let (plain, restated) = (sing(false), sing(true));
+    assert!(plain.iter().any(|x| x.abs() > 0.01), "the note is silent");
+    let first = plain.iter().zip(&restated).position(|(a, b)| a.to_bits() != b.to_bits());
+    assert_eq!(first, None, "the same source, set again, changed the sound");
 }

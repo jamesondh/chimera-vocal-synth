@@ -8,7 +8,7 @@ import { call } from "./chimera.ts";
 import { CREATURE_VISUALS } from "../ui/creatureVisuals.ts";
 import type {
   ArticKey, ArticSpec, BeatPreset, BodyMix, BeatSound, BeatStep, CreatureDef, CreatureTelemetry, DemoSong, Gesture, HumanArtic, HumanBody,
-  HumanFrame, Phrase, Plan, Segment, SkippedIpa, SungNote, Syllable, VoiceSource, VowelRef,
+  HumanFrame, Lang, Phrase, Plan, Segment, SkippedIpa, SungNote, Syllable, VoiceSource, VowelRef,
 } from "./types.ts";
 
 export type * from "./types.ts";
@@ -155,9 +155,21 @@ export class MandarinLexicon {
   }
 }
 
-/** Lyrics → sung syllables through the built-in front ends: English (the page's dictionary, see EnglishG2P), Korean, and Mandarin once its lexicon is loaded. */
-export function lyricsToSyllables(text: string): Syllable[] {
-  return call("lyricsToSyllables", { text });
+/**
+ * Lyrics → sung syllables through the built-in front ends: pinyin, the Latin-script language
+ * (`lang`: English through the page's dictionary, see EnglishG2P, or Turkish), Korean, Russian,
+ * and Mandarin once its lexicon is loaded.
+ */
+export function lyricsToSyllables(text: string, lang: Lang = "en"): Syllable[] {
+  return call("lyricsToSyllables", { text, lang });
+}
+
+/**
+ * Turkish text → phrases of segments. Its spelling rules are the G2P, so there is no dictionary to
+ * load (crates/chimera/src/phonetics/turkish.rs).
+ */
+export function turkishPhrases(text: string): Phrase[] {
+  return call("trPhrases", { text });
 }
 
 // ------------------------------------------------------------------ planning

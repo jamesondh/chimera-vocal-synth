@@ -9,6 +9,11 @@ The approved mockups are in `docs/mockups/` (open `index.html`). This plan says 
 - **Look.** WarGames NORAD screens: thin glowing lines on pure black, no filled panels, crisp glow (not bloom-heavy), no scanlines or curvature, no terminal-style typing.
 - **Colour roles.** Blue is the body and structure. Amber is sound (pressure, flow, spectra). Green, red, pink and white are four control slots: each screen maps its own four controls onto them, OP-1 style, and draws what they move in the same colour.
 - **Type.** Hershey Simplex single-stroke capitals everywhere. IPA glyphs Hershey lacks are drawn as strokes.
+  Labels are set to be read at a glance:
+  - Medium weight (500) below 20 px. Weight 400 falls in the Light face's range, a hairline at label sizes.
+  - At least 11 px, DOM or canvas: labels and ticks 11–12 px, screen titles and mode tabs 13 px. `tools/layout-lint.ts` fails smaller text, and `label()` in `src/ui/render/vector.ts` floors canvas text at `LABEL_MIN`.
+  - Text never uses the line colours (`--blue-dim`, `--blue-mid`, `--frame`). `--ink` is for values, titles and the lit state, `--label` for names and ticks, `--label-quiet` for subtitles and hints (each 10:1 or more on black); `--blue` (9:1) stays for chrome, and a control's own colour for its name and unit.
+  - Tracking 0.06–0.12em on small caps. Dim text by colour, not opacity (alpha only for text fading in or out). Canvas text sits on a thin black halo so traces never cut through it.
 - **Layout.** A wall of screens: a tall left screen (the face, or the creature) and a right column of instrument screens that changes per mode.
 - **Anatomy.** Outlines from the engine's geometry; the airway's cross-section lines lit by pressure; airflow streaks; turbulence dots; fading afterglow of the tongue, jaw and lips; four big slot readouts under the chin.
 
@@ -31,7 +36,7 @@ A hook, `usePhosphor(draw)`, replaces `useCanvasLoop` for the vector screens: DP
 ## Layout
 
 - `App` becomes a top bar plus a grid: the tall left screen and a right column. Each mode defines its right column (as in the mockups).
-- Below about 1100 px wide, the screens stack in one column: the left screen first, then the rest in reading order. Phones get the same stack.
+- Below about 1100 px wide, the screens stack in one column: the left screen first, then the rest in reading order. On a phone (640 px and under), everything you touch comes before everything you only watch: the controls sit right under the head, and the screens marked `<Screen watch>` (the charts, the tube, the folds) go last.
 - A `Screen` component draws the frame, title and subtitle; `focus` brightens the frame of the screen the encoders are bound to. Its content area always has a positive size (a minimum height per screen), and canvases fill it absolutely, so nothing collapses when stacked.
 - Wide content (the consonant chart, the sequencer) scrolls horizontally inside its screen on narrow layouts.
 

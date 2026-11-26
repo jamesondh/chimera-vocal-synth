@@ -88,10 +88,28 @@ impl MandarinLexicon {
                 i += 1;
             }
         }
+        // after a degree word a polyphone is the adjective (很长 hěn cháng, not the default zhǎng of
+        // 长大 and 校长); a phrase still decides first
+        for i in 1..cs.len() {
+            let Some(&(_, adjective)) = AFTER_DEGREE.iter().find(|(c, _)| *c == cs[i]) else { continue };
+            let before: String = cs[i.saturating_sub(2)..i].iter().collect();
+            if !from_phrase[i] && DEGREE_WORDS.iter().any(|w| before.ends_with(w)) {
+                out[i] = adjective.to_string();
+            }
+        }
         sandhi(&cs, &mut out);
         out.into_iter().zip(from_phrase).collect()
     }
 }
+
+/// Polyphones that are adjectives after a degree word, where the character's default reading isn't
+/// (长's default zhǎng is the more frequent reading in running text: 长大, 校长, 成长).
+const AFTER_DEGREE: &[(char, &str)] = &[('长', "chang2")];
+/// Words of degree before an adjective (多么 and 那么, not a bare 么: 怎么长 is "how does it grow").
+const DEGREE_WORDS: &[&str] = &[
+    "很", "太", "真", "挺", "好", "多", "更", "最", "极", "蛮", "超", "够", "越", "那么", "这么", "多么", "非常", "特别", "比较",
+    "有点", "这样", "那样",
+];
 
 fn tone(py: &str) -> u8 {
     py.chars().last().and_then(|c| c.to_digit(10)).map_or(5, |d| d as u8)
@@ -168,6 +186,35 @@ fn onset_dur(ipa: &str, aspirated: Option<bool>) -> Option<f64> {
 
 /// Aspiration length of Mandarin's aspirated stops and affricates (s).
 const MANDARIN_VOT: f64 = 0.09;
+
+/// The consonants before a sung vowel take at most this share of the time since the vowel before
+/// (`Syllable::onset_share`). Real singers' initials are a share of that time whatever the tempo
+/// (114,000 syllable pairs of M4Singer's 20 singers: the median 0.39-0.43 between 50 and 400 ms,
+/// three quarters under 0.50-0.55), 60 ms long on the fastest notes and 160 on slow ones. At a
+/// fixed length they left a fast note no vowel: after an aspirated initial, 85 % of the vowels
+/// under 150 ms were 12 dB or more under the singer's.
+///
+/// M4Singer: Zhang et al., "M4Singer: A Multi-Style, Multi-Singer and Musical Score Provided
+/// Mandarin Singing Corpus", NeurIPS 2022 Datasets and Benchmarks (CC BY-NC-SA 4.0). Only
+/// aggregate figures like these come from it: none of its audio, annotations or alignments is
+/// in this repository.
+const ONSET_SHARE: f64 = 0.55;
+
+/// How long after an initial's own segment the voice starts (s): the aspiration; an unaspirated
+/// stop's burst (11-17 ms measured on the renders) or affricate's (18); a fricative's release
+/// (25-34; [ɕ]'s is 3). The song planner starts the vowel that long before the beat
+/// (`Syllable::voice_lag`): sung with the vowel's segment on the beat, the voice came in 35-45 ms
+/// after it and 110 ms after an aspirated initial, where singers' is on it.
+fn voice_lag(ipa: &str, aspirated: Option<bool>) -> Option<f64> {
+    match (ipa, aspirated) {
+        (_, Some(true)) => Some(MANDARIN_VOT),
+        ("p" | "t" | "k", Some(false)) => Some(0.015),
+        ("tɕ" | "tʂ" | "ts", Some(false)) => Some(0.018),
+        ("f" | "x" | "ʂ", _) => Some(0.027),
+        ("s", _) => Some(0.034),
+        _ => None,
+    }
+}
 
 /// An initial → its sound and, for stops and affricates, its aspiration.
 fn initial(i: &str) -> Option<(&'static str, Option<bool>)> {
@@ -341,6 +388,8 @@ pub fn pinyin_syllable(py: &str, text: &str) -> Option<Syllable> {
         // more natural but made them harder to recognise in the scramble test, so they stay full.)
         nasal_lead: (!coda.is_empty()).then_some(NASAL_LEAD),
         closing: Some(CLOSING),
+        voice_lag: initial(ini).and_then(|(ipa, aspirated)| voice_lag(ipa, aspirated)),
+        onset_share: Some(ONSET_SHARE),
         ..Default::default()
     })
 }

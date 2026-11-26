@@ -4,6 +4,8 @@
  */
 import workletUrl from "../worklet/processor.ts?worker&url";
 import { chimeraModule } from "../wasm/chimera.ts";
+import { inPlugin, ipc, sendToPlugin, setParam, volumeToDb } from "./pluginBridge.ts";
+import { SampleAnalyser, type Analyser } from "./sampleAnalyser.ts";
 import { preferPlaybackSession } from "./session.ts";
 import type { ToWorklet, FromWorklet, TelemetryMessage, PlannedMessage, CreatureTelemetryMessage } from "../worklet/protocol.ts";
 import type { BodyMix } from "../wasm/types.ts";
@@ -12,6 +14,9 @@ import type { VoiceSource } from "../wasm/types.ts";
 
 type Listener = (t: TelemetryMessage) => void;
 
+const ANALYSER_SIZE = 4096;
+const ANALYSER_SMOOTHING = 0.6;
+const FAST_ANALYSER_SIZE = 2048;
 // 48 kHz whatever the device runs at (the browser resamples): the airway's cost grows with the
 // square of its rate, and a 192 kHz device took ~3x the CPU of 48 kHz and starved the worklet
 // (load 120-150%, no sound; issue #33). 32 kHz is the fallback for a device too slow for 48: its
@@ -33,9 +38,9 @@ const WARM_UP_MS = 2000;
 export class AudioEngine {
   ctx: AudioContext | null = null;
   private node: AudioWorkletNode | null = null;
-  analyser: AnalyserNode | null = null;
+  analyser: Analyser | null = null;
   /** unsmoothed, short-window analyser for the spectrogram */
-  analyserFast: AnalyserNode | null = null;
+  analyserFast: Analyser | null = null;
   /** long time-domain window for the waveform scope */
   analyserScope: AnalyserNode | null = null;
   private master: GainNode | null = null;
@@ -141,11 +146,11 @@ export class AudioEngine {
     master.gain.value = 0.8;
     this.master = master;
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 4096;
-    analyser.smoothingTimeConstant = 0.6;
+    analyser.fftSize = ANALYSER_SIZE;
+    analyser.smoothingTimeConstant = ANALYSER_SMOOTHING;
     this.analyser = analyser;
     const fast = ctx.createAnalyser();
-    fast.fftSize = 2048;
+    fast.fftSize = FAST_ANALYSER_SIZE;
     fast.smoothingTimeConstant = 0;
     this.analyserFast = fast;
     const scope = ctx.createAnalyser();
@@ -176,28 +181,7 @@ export class AudioEngine {
     master.connect(analyser);
     master.connect(fast);
     master.connect(scope);
-    node.port.onmessage = (e: MessageEvent<FromWorklet>) => {
-      const m = e.data;
-      if (m.type === "telemetry") {
-        this.latest = m;
-        this.latestAt = performance.now();
-        this.latestCreature = null;
-        this.watchLoad(m.load);
-        for (const l of this.listeners) l(m);
-      } else if (m.type === "ctelemetry") {
-        this.latestCreature = m;
-        this.latest = null;
-        this.watchLoad(m.load);
-      } else if (m.type === "planned") {
-        this.lastPlan = m;
-        for (const l of this.plannedListeners) l(m);
-      } else if (m.type === "ready") {
-        for (const l of this.readyListeners) l();
-      } else if (m.type === "error") {
-        this.error = m.message;
-        console.error("worklet:", m.message);
-      }
-    };
+    node.port.onmessage = (e: MessageEvent<FromWorklet>) => this.receive(e.data);
     // a rebuild comes from no gesture, and a browser may hold the new context until there is one
     // (its resume() then doesn't settle until then): the next tap or key resumes it, and nothing
     // waits on it for long, so the rebuild still finishes (the state is sent, the old song stops)
@@ -262,6 +246,49 @@ export class AudioEngine {
   onRebuilt(l: () => void): () => void {
     this.rebuiltListeners.add(l);
     return () => this.rebuiltListeners.delete(l);
+  }
+
+  /** In the plugin there's no Web Audio: the same analysers, fed with what the audio thread sends. */
+  pluginAnalysers(): { feed: (samples: Float32Array) => void } {
+    const slow = new SampleAnalyser(ANALYSER_SIZE, ANALYSER_SMOOTHING);
+    const fast = new SampleAnalyser(FAST_ANALYSER_SIZE, 0);
+    this.analyser = slow;
+    this.analyserFast = fast;
+    return {
+      feed: (samples) => {
+        slow.push(samples);
+        fast.push(samples);
+      },
+    };
+  }
+
+  /** The plugin's host sets the rate and runs the engine: there's nothing to rebuild lighter. */
+  private noteLoad(load: number): void {
+    if (inPlugin) this.load = load;
+    else this.watchLoad(load);
+  }
+
+  /** A message from the engine: the worklet's, or the plugin's as the page's poll decodes it. */
+  receive(m: FromWorklet): void {
+    if (m.type === "telemetry") {
+      this.latest = m;
+      this.latestAt = performance.now();
+      this.latestCreature = null;
+      this.noteLoad(m.load);
+      for (const l of this.listeners) l(m);
+    } else if (m.type === "ctelemetry") {
+      this.latestCreature = m;
+      this.latest = null;
+      this.noteLoad(m.load);
+    } else if (m.type === "planned") {
+      this.lastPlan = m;
+      for (const l of this.plannedListeners) l(m);
+    } else if (m.type === "ready") {
+      for (const l of this.readyListeners) l();
+    } else if (m.type === "error") {
+      this.error = m.message;
+      console.error("worklet:", m.message);
+    }
   }
 
   onTelemetry(l: Listener): () => void {
@@ -337,11 +364,60 @@ export class AudioEngine {
   }
 
   private send(m: ToWorklet): void {
-    this.node?.port.postMessage(m);
+    if (inPlugin) sendToPlugin(m);
+    else this.node?.port.postMessage(m);
+  }
+
+  // ---- what only the plugin has: there the keys, the lyrics and the mode belong to Rust
+
+  /** A key on the page went down or up. */
+  pluginNote(midi: number, on: boolean, velocity?: number): void {
+    ipc({ type: "note", midi, on, velocity });
+  }
+
+  pluginLyrics(text: string): void {
+    ipc({ type: "lyrics", text });
+  }
+
+  pluginCursor(index: number): void {
+    ipc({ type: "cursor", index });
+  }
+
+  pluginMode(mode: string): void {
+    ipc({ type: "mode", mode });
+  }
+
+  pluginHold(on: boolean): void {
+    ipc({ type: "hold", on });
+  }
+
+  /** The text to say changed: Rust plans its lines. */
+  pluginSpeech(edit: { text?: string; ipa?: boolean; rate?: number }): void {
+    ipc({ type: "speech", ...edit });
+  }
+
+  pluginSpeechCursor(index: number): void {
+    ipc({ type: "speechCursor", index });
+  }
+
+  /** Say the next line, as a note at the natural pitch would. */
+  pluginSpeak(): void {
+    ipc({ type: "speak" });
+  }
+
+  /** Say this once. */
+  pluginSayIpa(ipa: string): void {
+    ipc({ type: "sayIpa", ipa });
+  }
+
+  /** Whether the sequencer follows the host's transport. */
+  pluginFollowHost(on: boolean): void {
+    ipc({ type: "followHost", on });
   }
 
   /** Route the voice through the close-mic chain (on) or straight to the output (off). */
   setMic(on: boolean): void {
+    if (inPlugin) return ipc({ type: "mic", on });
     if (on === this.micOn) return;
     this.micOn = on;
     if (!this.node || !this.master || !this.micIn) return;
@@ -349,7 +425,7 @@ export class AudioEngine {
     this.node.connect(on ? this.micIn : this.master);
   }
 
-  setBeat(m: { steps?: import("../wasm/types.ts").BeatStep[] | (import("../wasm/types.ts").BeatStep | null)[]; bpm?: number; swing?: number; playing?: boolean }): void {
+  setBeat(m: { steps?: import("../wasm/types.ts").BeatStep[] | (import("../wasm/types.ts").BeatStep | null)[]; bpm?: number; swing?: number; playing?: boolean; preset?: string | null }): void {
     this.send({ type: "beat", ...m });
   }
 
@@ -368,7 +444,8 @@ export class AudioEngine {
   }
 
   setVolume(v: number): void {
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
+    if (inPlugin) setParam("gain", volumeToDb(v));
+    else if (this.master && this.ctx) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
   }
 
   setBody(body: BodyMix): void {
@@ -379,14 +456,16 @@ export class AudioEngine {
     this.send({ type: "gate", level });
   }
 
-  /** Coalesced: many calls within a frame become one message. */
+  /** Coalesced: many calls within a frame become one message. (In the plugin Rust merges them.) */
   setArtic(values: Partial<HumanArtic>, tipFree?: boolean): void {
+    if (inPlugin) return this.send({ type: "artic", values, tipFree });
     this.pendingArtic = { ...(this.pendingArtic ?? {}), ...values };
     if (tipFree !== undefined) this.pendingTipFree = tipFree;
     this.scheduleFlush();
   }
 
   setSource(values: Partial<VoiceSource>): void {
+    if (inPlugin) return this.send({ type: "source", values });
     this.pendingSource = { ...(this.pendingSource ?? {}), ...values };
     this.scheduleFlush();
   }

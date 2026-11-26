@@ -12,7 +12,7 @@ use chimera::creatures::voice::CreatureVoice;
 use chimera::creatures::{CREATURES, creature_by_id};
 use chimera::math::{js_max, js_min, js_round, log10};
 use chimera::phonetics::beatbox::{BEAT_PRESETS, BEAT_SOUNDS, BeatStep, beat_ready, parse_beat};
-use chimera::phonetics::english::EnglishG2P;
+use chimera::phonetics::english::{EnglishG2P, Phrase};
 use chimera::phonetics::ipa::{skipped_ipa, tokenize_ipa};
 use chimera::phonetics::planner::{
     PhraseInput, PlanOptions, plan_phrases, plan_utterance, vowel_table,
@@ -23,7 +23,8 @@ use chimera::phonetics::sing::{
 };
 use chimera::phonetics::songs::DEMO_SONGS;
 use chimera::phonetics::mandarin::{MandarinLexicon, is_han};
-use chimera::phonetics::syllables::{lyrics_to_syllables, lyrics_to_syllables_with};
+use chimera::phonetics::syllables::{Lang, lyrics_in, lyrics_to_syllables};
+use chimera::phonetics::turkish;
 use chimera::phonetics::{Intonation, Plan, Syllable};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
 use std::io::Read;
@@ -60,11 +61,12 @@ pub fn zh() -> Result<MandarinLexicon, String> {
     Ok(l)
 }
 
-/// Lyrics → syllables through every built-in front end (the Mandarin lexicon only when needed).
-pub fn sung_lyrics(text: &str) -> Result<Vec<Syllable>, String> {
+/// Lyrics → syllables through every built-in front end, Latin script read as `lang` (the Mandarin
+/// lexicon only when needed).
+pub fn sung_lyrics(text: &str, lang: Lang) -> Result<Vec<Syllable>, String> {
     let g = g2p()?;
     let lex = if text.chars().any(is_han) { zh()? } else { MandarinLexicon::new() };
-    Ok(lyrics_to_syllables_with(text, &g, &lex))
+    Ok(lyrics_in(text, &g, &lex, lang))
 }
 
 /// A file name from a song's name: letters of any script, everything else as one "-".
@@ -177,9 +179,13 @@ pub fn text_f0(body_name: &str) -> f64 {
 /// Say `text` the way `render text` does: CMUdict G2P, the phrase planner from t0 = 50 ms, the
 /// body's speaking f0, 300 ms of tail. `chimera compare tsp` measures exactly these renders.
 pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String> {
+    say_phrases(&g.to_phrases(text), body_name)
+}
+
+/// Say phrases from any G2P the way `render text` does (see [`say`]).
+pub fn say_phrases(phrases: &[Phrase], body_name: &str) -> Result<Spoken, String> {
     let b = body(body_name)?;
     let f0 = text_f0(body_name);
-    let phrases = g.to_phrases(text);
     let shown: Vec<String> = phrases
         .iter()
         .map(|p| {
@@ -241,6 +247,20 @@ pub fn text(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Turkish text through its spelling rules and the phrase planner.
+/// `render turkish <out> ["Türkçe metin."] [body]`
+pub fn turkish(ctx: &Ctx, a: &[String]) -> Result<(), String> {
+    let name = arg(a, 0, "out/turkish");
+    let text = arg(a, 1, "Merhaba, nasılsın?");
+    let body_name = arg(a, 2, "male");
+    let s = say_phrases(&turkish::to_phrases(text), body_name)?;
+    println!("{}", s.shown);
+    let file = wav_name(name);
+    ctx.write_wav(&file, &s.out)?;
+    println!("wrote {file}  {} s", fixed(s.out.len() as f64 / FS, 2));
+    Ok(())
+}
+
 /// The demo songs, and a live-style key sequence. `render song [outdir] [body]`
 pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let out_dir = arg(a, 0, "out/song");
@@ -255,7 +275,7 @@ pub fn song(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     };
 
     for song in DEMO_SONGS {
-        let syl = lyrics_to_syllables(song.lyrics, &g);
+        let syl = sung_lyrics(song.lyrics, Lang::En)?;
         let octave = match body_name {
             "female" => song.octave.female,
             "child" => song.octave.child,
@@ -553,12 +573,16 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     // how hard it is drawn in, as a multiple of the planner's own level; absent: that level
     let breath_level = j["breathLevel"].as_f64();
     let raw: Vec<[f64; 2]> = serde_json::from_value(j["notes"].clone()).map_err(|e| format!("notes: {e}"))?;
-    // "syllables" sing what a language front end wrote; otherwise the lyrics go through the
-    // English front end (the pronouncing dictionary)
+    // "syllables" sing what a language front end wrote; otherwise the lyrics go through the front
+    // ends, Latin script read as "lang" ("en", the default, or "tr")
     let syl: Vec<Syllable> = if j.get("syllables").is_some() {
         serde_json::from_value(j["syllables"].clone()).map_err(|e| format!("syllables: {e}"))?
     } else {
-        sung_lyrics(j["lyrics"].as_str().ok_or("lyrics missing")?)?
+        let lang = match j.get("lang") {
+            None => Lang::En,
+            Some(l) => serde_json::from_value(l.clone()).map_err(|e| format!("lang: {e}"))?,
+        };
+        sung_lyrics(j["lyrics"].as_str().ok_or("lyrics missing")?, lang)?
     };
     let sounding = raw.iter().filter(|n| n[0] > 0.0).count();
     if syl.len() != sounding {

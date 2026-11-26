@@ -40,13 +40,20 @@
   --white: #eef6f8;
   --amber: #ffb340;
   --glow-blue: 0 0 1.5px rgba(79, 182, 242, 0.9), 0 0 6px rgba(79, 182, 242, 0.4);
+  /* text inks (docs/ui-redesign.md → Type): --blue-dim, --blue-mid and --frame are for lines,
+     never text. --ink is values, titles and the active state; --label is names and ticks;
+     --label-quiet is subtitles and hints (10:1 or more on black); --blue (9:1) stays for chrome. */
+  --ink: #eaf7ff;
+  --label: #a9dcf8;
+  --label-quiet: #7cbfe6;
+  --line-strong: #2a6a95;
   /* older names, remapped so screens not yet redrawn sit on black in blue and amber */
   --black: #000000;
   --console: #000000;
   --inset: #000000;
   --line: var(--frame);
   --text: var(--blue);
-  --text-dim: var(--blue-mid);
+  --text-dim: var(--label);
   --caliper: var(--amber);
   --caliper-dim: rgba(255, 179, 64, 0.45);
   --radius-s: 0;
@@ -81,6 +88,17 @@ button,
 input {
   font: inherit;
   color: inherit;
+}
+
+/* form controls don't inherit the weight; without this they fall back to Hershey Light */
+select,
+textarea {
+  font-weight: 500;
+}
+
+::placeholder {
+  color: var(--label-quiet);
+  opacity: 1;
 }
 
 :focus-visible {
@@ -128,8 +146,9 @@ input {
 
 .topbar-right {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 18px;
+  gap: 8px 18px;
 }
 
 .volume {
@@ -235,7 +254,7 @@ button.primary.large {
   margin: 24px;
   color: var(--text-dim);
   font-size: 12px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -426,7 +445,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .ipa-chart thead th {
-  font-size: 11px;
+  font-size: 12px;
   text-align: center;
 }
 
@@ -668,7 +687,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .pad-air {
-  font-size: 11.5px;
+  font-size: 12px;
   font-stretch: 87%;
   color: var(--text-dim);
 }
@@ -677,16 +696,8 @@ input[type="range"]::-moz-range-thumb {
   position: absolute;
   top: 6px;
   right: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
-  opacity: 0.7;
-}
-
-.transport {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
 }
 
 .seq-grid {
@@ -756,7 +767,7 @@ input[type="range"]::-moz-range-thumb {
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 650;
   color: #1d1a10;
   line-height: 1;
@@ -1000,6 +1011,8 @@ body {
   background: #000;
   color: var(--blue);
   font-size: 13px;
+  /* Hershey Medium: the default 400 falls in the Light face's range, a hairline at label sizes */
+  font-weight: 500;
   letter-spacing: 0.06em;
 }
 
@@ -1027,7 +1040,7 @@ body {
 }
 
 .topbar-right {
-  gap: 14px;
+  gap: 8px 14px;
 }
 
 .volume input {
@@ -1048,8 +1061,8 @@ body {
 }
 
 .tagline {
-  font-size: 10px;
-  letter-spacing: 0.18em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
@@ -1066,21 +1079,21 @@ body {
 .segmented button {
   border: 1px solid transparent;
   border-radius: 0;
-  padding: 4px 11px;
-  font-size: 12px;
-  letter-spacing: 0.18em;
+  padding: 5px 11px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--label);
 }
 
 .segmented button:hover {
-  color: var(--text);
+  color: var(--ink);
   text-shadow: var(--glow-blue);
 }
 
 .segmented button.on {
   background: transparent;
-  color: var(--text);
+  color: var(--ink);
   border-color: var(--blue);
   box-shadow: 0 0 5px rgba(79, 182, 242, 0.35), inset 0 0 4px rgba(79, 182, 242, 0.15);
   text-shadow: var(--glow-blue);
@@ -1132,8 +1145,8 @@ body {
 
 .volume,
 .load {
-  font-size: 10px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
@@ -1142,6 +1155,21 @@ body {
   display: inline-flex;
   color: var(--text-dim);
   transition: color 120ms, filter 120ms;
+}
+
+.plugin-link {
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 120ms, text-shadow 120ms;
+}
+
+.plugin-link:hover {
+  color: var(--text);
+  text-shadow: var(--glow-blue);
 }
 
 .repo-link:hover {
@@ -1154,14 +1182,14 @@ button.primary,
 .chip {
   appearance: none;
   background: transparent;
-  border: 1px solid var(--frame);
+  border: 1px solid var(--line-strong);
   border-radius: 0;
-  color: var(--text);
+  color: var(--label);
   padding: 5px 11px;
   font-family: var(--font);
-  font-weight: 300;
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
   filter: none;
@@ -1180,16 +1208,31 @@ button.primary.large {
 }
 
 .chip:hover {
-  color: var(--text);
-  border-color: var(--blue-dim);
+  color: var(--ink);
+  border-color: var(--blue-mid);
 }
 
 .chip.on,
 .chip[aria-pressed="true"] {
-  color: var(--text);
+  color: var(--ink);
   border-color: var(--blue);
   box-shadow: 0 0 5px rgba(79, 182, 242, 0.35), inset 0 0 4px rgba(79, 182, 242, 0.15);
   text-shadow: var(--glow-blue);
+}
+
+/* the lit state says so in shape as well as colour: a small square before the label */
+.chip.on::before,
+.chip[aria-pressed="true"]::before,
+.enc-tab.on::before,
+.screen-tools .toggle input:checked + span::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 6px 1px 0;
+  background: var(--blue);
+  box-shadow: 0 0 4px var(--blue);
+  vertical-align: middle;
 }
 
 /* ---------- the wall */
@@ -1257,9 +1300,9 @@ button.primary.large {
   border-radius: 0;
   color: #fff4dc;
   font-family: var(--font);
-  font-weight: 400;
+  font-weight: 500;
   font-size: 17px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   text-shadow: 0 0 6px rgba(255, 179, 64, 0.55);
   box-shadow: 0 0 10px rgba(255, 179, 64, 0.3), inset 0 0 8px rgba(255, 179, 64, 0.12);
@@ -1305,7 +1348,7 @@ button.primary.large {
   padding: 8px 14px 8px 11px;
   gap: 8px;
   font-size: 12px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   background: transparent;
   box-shadow: none;
 }
@@ -1328,7 +1371,7 @@ button.primary.large {
 
 .act-error {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   letter-spacing: 0.06em;
   /* lighter and heavier than the rest: full --red in the light strokes was hard to read */
@@ -1372,7 +1415,7 @@ button.primary.large {
   color: var(--text);
   font-family: var(--font);
   font-size: 12px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
 }
@@ -1385,7 +1428,7 @@ button.primary.large {
 .screen-tools .menu select {
   min-height: 0;
   padding: 2px 22px 2px 8px;
-  font-size: 9px;
+  font-size: 11px;
   background-position: right 7px center;
 }
 
@@ -1404,7 +1447,7 @@ button.primary.large {
 
 .left .body-control .segmented button {
   padding: 2px 9px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 /* ---------- a screen */
@@ -1432,21 +1475,21 @@ button.primary.large {
 
 .screen-title {
   margin: 0;
-  font-size: 12px;
-  font-weight: 300;
-  letter-spacing: 0.2em;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text);
+  color: var(--ink);
   text-shadow: var(--glow-blue);
 }
 
 .screen-sub {
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 10px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--label-quiet);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1477,8 +1520,7 @@ button.primary.large {
 .screen-body > .enc-pages,
 .screen-body > .say,
 .screen-body > .lyrics,
-.screen-body > .pads,
-.screen-body > .transport {
+.screen-body > .pads {
   flex: 1 1 auto;
 }
 
@@ -1518,18 +1560,22 @@ button.primary.large {
 }
 
 .screen-tools .toggle span {
-  border: 1px solid var(--frame);
-  padding: 2px 7px;
-  font-size: 9px;
-  letter-spacing: 0.16em;
+  border: 1px solid var(--line-strong);
+  padding: 4px 9px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--label);
   cursor: pointer;
 }
 
+.screen-tools .toggle span:hover {
+  color: var(--ink);
+}
+
 .screen-tools .toggle input:checked + span {
-  color: var(--text);
-  border-color: var(--blue-dim);
+  color: var(--ink);
+  border-color: var(--blue);
   text-shadow: var(--glow-blue);
 }
 
@@ -1553,25 +1599,29 @@ button.primary.large {
 }
 
 .screen-tools .chip {
-  padding: 2px 8px;
-  font-size: 9px;
+  padding: 4px 9px;
+  font-size: 12px;
 }
 
 .enc-tab {
   appearance: none;
   background: transparent;
-  border: 1px solid var(--frame);
-  color: var(--text-dim);
-  padding: 2px 7px;
+  border: 1px solid var(--line-strong);
+  color: var(--label);
+  padding: 4px 9px;
   font-family: var(--font);
-  font-size: 9px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
 }
 
+.enc-tab:hover {
+  color: var(--ink);
+}
+
 .enc-tab.on {
-  color: var(--text);
+  color: var(--ink);
   border-color: var(--blue);
   text-shadow: var(--glow-blue);
 }
@@ -1580,7 +1630,10 @@ button.primary.large {
   flex: 1;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: center;
+  /* the row's encoders centred as a group, each from the top: labels and dials line up whatever
+     their readouts take (a unit under its value) */
+  align-content: center;
+  align-items: start;
 }
 
 .enc-row.cols-2 {
@@ -1598,12 +1651,11 @@ button.primary.large {
 
 .enc-label {
   max-width: 100%;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.25;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.08em;
   text-align: center;
   text-transform: uppercase;
-  opacity: 0.85;
   /* long names (a creature's "Drive (pure → raspy)") wrap to two lines rather than run into the next */
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1656,11 +1708,37 @@ button.primary.large {
   text-shadow: 0 0 2px var(--slot);
 }
 
+/* the unit beside the value, so they read as one quantity (6.0 Hz); it drops under when narrow */
+.enc-readout {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0 4px;
+  max-width: 100%;
+}
+
+/* the shown value (and unit) and hidden copies of the widest it can show share one cell: the box
+   keeps the widest's width (readoutRoom in Encoder.tsx) */
+.enc-value-box,
+.enc-unit-box {
+  display: grid;
+  justify-items: center;
+}
+
+.enc-value-box > *,
+.enc-unit-box > * {
+  grid-area: 1 / 1;
+}
+
+.enc-sizer {
+  visibility: hidden;
+}
+
 .enc-unit {
-  font-size: 9px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.7;
   white-space: nowrap;
 }
 
@@ -1728,9 +1806,9 @@ button.primary.large {
 }
 
 .panel h2 {
-  font-weight: 300;
+  font-weight: 500;
   font-size: 12px;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--blue);
 }
@@ -1751,7 +1829,7 @@ input[type="text"],
 .pad-name,
 .specimen-name {
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
 }
 
 /* sliders that remain: a thin line, the set part brighter, a small framed thumb */
@@ -1827,13 +1905,15 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 
+/* phones, every tab: what you touch comes before what you only watch (Screen's `watch`), so
+   the controls sit right under the head and the charts go last (AGENTS.md; the layout lint checks) */
 @media (max-width: 640px) {
   .app {
     padding: 6px 8px 12px;
   }
   .right-play {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "act" "tube" "folds" "spec" "vowels" "voice" "keys";
+    grid-template-areas: "act" "keys" "vowels" "voice" "tube" "folds" "spec";
   }
   .left .screen-body {
     min-height: 118vw;
@@ -1934,7 +2014,8 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.04em;
 }
 
-.vowel-pick {
+.vowel-pick,
+.lang-pick {
   display: flex;
   gap: 4px;
 }
@@ -1966,8 +2047,8 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .ipa-chart th {
-  font-size: 8px;
-  font-weight: 300;
+  font-size: 11px;
+  font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -1990,16 +2071,16 @@ input[type="range"]::-moz-range-thumb {
   border: 1px solid var(--frame);
   padding: 0 1px;
   text-align: center;
-  height: 18px;
+  height: 22px;
 }
 
 .ipa-chart button.ipa {
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: var(--blue);
+  color: var(--ink);
   font-family: var(--font);
-  font-size: 12px;
+  font-size: 15px;
   line-height: 1.05;
   padding: 0 4px;
   text-transform: none;
@@ -2018,7 +2099,7 @@ input[type="range"]::-moz-range-thumb {
 .ipa-chart .ipa-empty {
   width: auto;
   min-width: 1.3em;
-  height: 16px;
+  height: 20px;
 }
 
 .ipa-chart button.ipa.now {
@@ -2047,7 +2128,7 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 640px) {
   .right-speak {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "act" "say" "score" "chart" "tube" "folds";
+    grid-template-areas: "act" "say" "chart" "score" "tube" "folds";
   }
   .say-row {
     flex-wrap: wrap;
@@ -2061,10 +2142,12 @@ input[type="range"]::-moz-range-thumb {
 /* ---------- Sing */
 /* the words right under the button that sings them; the pitch roll only shows what was sung: a
    smaller share than it had, so the song's button fits a 1280 x 800 window and the keys keep
-   their room */
+   their room. 200fr to the keys' 172fr, as Play's charts: fr rows keep their ratio down to the
+   keys' minimum, and at 240fr that stretched the roll 41 px past its own, so Sing scrolled on a
+   desktop window that fit Play */
 .right-sing {
   grid-template-columns: minmax(0, 342fr) minmax(0, 342fr);
-  grid-template-rows: auto auto minmax(min-content, 240fr) auto minmax(min-content, 172fr);
+  grid-template-rows: auto auto minmax(min-content, 200fr) auto minmax(min-content, 172fr);
   grid-template-areas: "act act" "lyrics lyrics" "roll roll" "spec voice" "keys keys";
 }
 
@@ -2122,20 +2205,20 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text);
   padding: 2px 7px;
   font-family: var(--font);
-  font-size: 10px;
-  letter-spacing: 0.14em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
 }
 
 .syl.sung {
-  color: var(--blue-mid);
+  /* sung syllables stay visibly behind the upcoming ones (1.9:1 against --text) */
+  color: var(--label-quiet);
   border-color: rgba(19, 57, 84, 0.6);
 }
 
 .syl.held {
   font-style: normal;
-  opacity: 0.8;
 }
 
 .syl.next {
@@ -2161,11 +2244,11 @@ input[type="range"]::-moz-range-thumb {
 .from-start {
   margin-left: 6px;
   padding: 2px 7px;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .right-sing .enc-label {
-  font-size: 9px;
+  font-size: 11px;
 }
 
 @media (max-width: 1100px) {
@@ -2187,7 +2270,7 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 640px) {
   .right-sing {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "act" "lyrics" "roll" "spec" "voice" "keys";
+    grid-template-areas: "act" "lyrics" "keys" "voice" "roll" "spec";
   }
   /* 16 px: iOS zooms the page into any smaller field it focuses */
   .lyrics textarea {
@@ -2196,10 +2279,14 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ---------- Beatbox */
+/* The pads beside the spectrogram over the tempo: stacked under the spectrogram, their five rows
+   made Beatbox ~90 px taller than any other tab, and a desktop window had to scroll. Only the
+   sequencer's row grows: a row the pads span must not be fr (Chrome then sizes the fr from the
+   pads' whole height, and every fr row inflated to a 1148 px page). */
 .right-beatbox {
   grid-template-columns: minmax(0, 392fr) minmax(0, 292fr);
-  grid-template-rows: auto minmax(min-content, 236fr) minmax(min-content, 176fr) auto auto;
-  grid-template-areas: "act act" "seq seq" "wf wf" "pads transport" "keys keys";
+  grid-template-rows: auto minmax(min-content, 1fr) auto auto auto;
+  grid-template-areas: "act act" "seq seq" "pads wf" "pads transport" "keys keys";
 }
 
 .s-seq { grid-area: seq; }
@@ -2208,8 +2295,10 @@ input[type="range"]::-moz-range-thumb {
 .s-transport { grid-area: transport; }
 
 /* the sequencer as a glowing grid, hits marked with an X (the film's tic-tac-toe board) */
+/* ten rows of a readable height: the grid is laid over the body, so it sets no height itself */
 .s-seq .screen-body {
   overflow-x: auto;
+  min-height: 136px;
 }
 
 .s-seq .seq-grid {
@@ -2233,8 +2322,8 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 9px;
-  letter-spacing: 0.14em;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
   white-space: nowrap;
@@ -2243,7 +2332,7 @@ input[type="range"]::-moz-range-thumb {
 
 .s-seq .seq-label b {
   min-width: 26px;
-  font-weight: 300;
+  font-weight: 500;
   font-size: 12px;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -2294,7 +2383,7 @@ input[type="range"]::-moz-range-thumb {
 .s-seq .cell-note {
   position: absolute;
   inset: auto 0 1px 0;
-  font-size: 8px;
+  font-size: 11px;
   color: var(--amber);
   letter-spacing: 0.04em;
 }
@@ -2349,14 +2438,14 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .s-pads .pad-name {
-  font-size: 9px;
-  letter-spacing: 0.14em;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .s-pads .pad-air {
-  font-size: 8px;
-  letter-spacing: 0.12em;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
@@ -2365,28 +2454,11 @@ input[type="range"]::-moz-range-thumb {
   position: absolute;
   top: 3px;
   right: 5px;
-  font-size: 8px;
+  font-size: 11px;
   color: var(--text-dim);
 }
 
 /* transport */
-.s-transport .transport {
-  padding: 4px 14px 10px;
-  display: grid;
-  grid-template-rows: auto minmax(min-content, 1fr) auto auto;
-  gap: 8px;
-  margin: 0;
-}
-
-.transport-encoders {
-  display: flex;
-  flex-direction: column;
-}
-
-.transport-encoders > .enc-pages {
-  flex: 1 1 auto;
-}
-
 .s-transport .enc-dial {
   width: min(60px, 100%);
 }
@@ -2395,31 +2467,35 @@ input[type="range"]::-moz-range-thumb {
   font-size: 22px;
 }
 
-.transport .sbn {
-  display: flex;
+/* the beat as text, in the sequencer's header: as wide as the header has room for, up to a
+   point, and on a line of its own when the title leaves too little */
+.s-seq .screen-tools {
+  flex: 0 1 380px;
+}
+
+.s-seq .sbn {
+  flex: 1;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
 }
 
-.transport .sbn input {
+.s-seq .sbn input {
   flex: 1;
   min-width: 0;
+  padding: 3px 8px;
+  font-size: 12px;
 }
 
-.transport .sbn .dim {
+.s-seq .sbn .dim {
   flex: none;
-  font-size: 8px;
-  letter-spacing: 0.14em;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.transport .sbn input {
-  padding: 3px 8px;
-  font-size: 11px;
 }
 
 /* the hit, in big outlined letters over the face */
@@ -2445,16 +2521,15 @@ input[type="range"]::-moz-range-thumb {
 .beat-name,
 .beat-air,
 .beat-step {
-  font-size: 11px;
-  letter-spacing: 0.18em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--amber);
 }
 
 .beat-air,
 .beat-step {
-  font-size: 9px;
-  opacity: 0.8;
+  font-size: 11px;
 }
 
 /* a compact keys strip */
@@ -2491,7 +2566,11 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 640px) {
   .right-beatbox {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "act" "seq" "wf" "pads" "transport" "keys";
+    grid-template-areas: "act" "seq" "pads" "transport" "keys" "wf";
+  }
+  /* alone on its row, as tall as its two dials (beside the pads it matches their height) */
+  .s-transport .screen-body {
+    min-height: 0;
   }
   .beat-overlay {
     top: 10px;
@@ -2557,8 +2636,8 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .s-gallery .specimen-name {
-  font-size: 10px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--blue);
 }
@@ -2568,29 +2647,32 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .s-gallery .specimen-latin {
-  font-size: 8px;
+  font-size: 11px;
   font-style: normal;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
   text-transform: uppercase;
   color: var(--text-dim);
-  white-space: nowrap;
+  /* at the 11 px floor a binomial doesn't fit a card on one line: it wraps at the space */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 100%;
 }
 
 .cparams-role {
   margin: 2px 14px 0;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.5;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
 .s-cparams .enc-label {
-  font-size: 9px;
-  letter-spacing: 0.12em;
+  font-size: 11px;
+  letter-spacing: 0.08em;
 }
 
 @media (max-width: 1100px) {
@@ -2612,7 +2694,7 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 640px) {
   .right-bestiary {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "act" "gallery" "wf" "cparams" "airway" "keys";
+    grid-template-areas: "act" "gallery" "cparams" "keys" "wf" "airway";
   }
   .s-gallery .specimens {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2646,7 +2728,7 @@ input[type="range"]::-moz-range-thumb {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
@@ -2706,4 +2788,121 @@ input[type="range"]::-moz-range-thumb {
   .duet-head .screen-head {
     padding: 7px 8px 0;
   }
+}
+
+/* ---------- the plugin window's grip */
+/* the page zooms out to fit (docs/plugin.md, "Window size"), but text shrinks less than the rest of it
+   on a display that isn't Retina, so the wheel can still reach what's below; with a mouse macOS would
+   show a scrollbar here, beside the grip */
+html.plugin-page:not(.in-browser) {
+  scrollbar-width: none;
+}
+html.plugin-page:not(.in-browser)::-webkit-scrollbar {
+  display: none;
+}
+/* on Linux the page is in a web browser (crates/chimera-plugin/src/browser.rs), whose window resizes itself */
+html.in-browser .resize-grip {
+  display: none;
+}
+
+/* in from the corner, because macOS keeps the last dozen points or so of a resizable window's corner
+   for resizing that window, and a drag there never reaches the page; larger than what's drawn, because
+   it shrinks with the page's zoom (measured in REAPER by crates/chimera-plugin/host-test/run.sh) */
+.resize-grip {
+  position: fixed;
+  right: 6px;
+  bottom: 6px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  color: var(--label);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.resize-grip:hover {
+  color: var(--white);
+}
+.resize-grip svg {
+  display: block;
+}
+
+/* ---------- the plugin's spoken lines: one chip per line, cut short if it's long */
+.say-lined {
+  gap: 4px;
+}
+.say-lines {
+  min-height: 26px;
+  max-height: 26px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.say-lines::-webkit-scrollbar {
+  display: none;
+}
+.say-lines > * {
+  flex: none;
+}
+.say-line {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- the action bar in the plugin: one row, and lower, since a window can't scroll */
+.in-plugin .act-row {
+  flex-wrap: nowrap;
+}
+.in-plugin .act-row > * {
+  min-width: 0;
+}
+.in-plugin .right .action-bar .screen-body {
+  padding: 5px 10px;
+}
+.in-plugin .act-primary {
+  flex: none;
+  min-height: 34px;
+  padding: 5px 16px 5px 12px;
+  font-size: 15px;
+}
+
+/* ---------- Beatbox in the plugin: a window has to show it all without scrolling, so the pads
+   spread across the width and the waterfall takes the room beside the transport */
+.in-plugin .right-beatbox {
+  grid-template-columns: minmax(0, 1fr) 272px;
+  /* no fr on the sequencer: fr tracks keep their ratio, so its minimum would inflate the waterfall */
+  grid-template-rows: auto minmax(min-content, 22%) minmax(min-content, 1fr) auto auto;
+  grid-template-areas: "act act" "seq seq" "wf transport" "pads pads" "keys keys";
+}
+.in-plugin .s-pads .pads {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.in-plugin .s-pads .pad {
+  min-height: 44px;
+}
+/* each pad's tooltip still says how the sound is made */
+.in-plugin .s-pads .pad-air {
+  display: none;
+}
+
+/* ---------- the plugin's window doesn't scroll, and a 1120 x 800 window (LAYOUT_MIN) has no
+   room to spare for the larger labels: Play's six encoder tabs stay on one row (a second row
+   pushed the keys 7 px past the window), and Speak's consonant chart keeps the 15 px symbols in
+   shorter cells (its 22 px rows pushed the tube and folds 16 px past it) */
+.in-plugin .enc-tab {
+  padding: 4px 5px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.in-plugin .ipa-chart td {
+  height: 19px;
+}
+.in-plugin .ipa-chart button.ipa,
+.in-plugin .ipa-chart .ipa-empty {
+  height: 18px;
 }

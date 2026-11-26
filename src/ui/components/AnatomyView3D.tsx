@@ -18,6 +18,7 @@ import { sameBody } from "../body.ts";
 import { useStore } from "../store.ts";
 import { VoiceModel } from "../analysis.ts";
 import { useModel } from "../useModel.ts";
+import { cssScale } from "../useCanvas.ts";
 import { V } from "../colors.ts";
 import { articulatorSlots, tractInfo, type InfoFn, type OverlayFn, type SlotsFn } from "./AnatomyView.tsx";
 import type { ViewFlags } from "../render/anatomy.ts";
@@ -231,7 +232,7 @@ export function AnatomyView3D(props: { slots?: SlotsFn; info?: InfoFn; showForma
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(glCanvas, 0, 0, canvas.width, canvas.height);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cssScale(ctx, w, h);
         if (r.caliper) {
           const [cx, cy] = r.project(r.caliper.x, r.caliper.y, r.caliper.z);
           label(ctx, r.caliper.area <= 0.0005 ? "CLOSED" : `${r.caliper.area.toFixed(2)} CM²`, cx + 10, cy - 6, { size: 11, color: V.white, ls: 0.12 });
