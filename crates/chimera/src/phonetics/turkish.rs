@@ -25,12 +25,12 @@
 //! falls, which the nuclear accent already gives.
 
 use super::durations::inherent_ms;
-use super::english::{Phrase, is_phrase_punct, split_keeping};
+use super::english::{is_phrase_punct, split_keeping};
 use super::inventory::phoneme;
 use super::mandarin::MandarinLexicon;
 use super::syllables::{FrontEnd, Lang, lyrics_in};
 use crate::anatomy::human::BodyMix;
-use super::{Intonation, Segment, Syllable};
+use super::{Intonation, Phrase, Segment, Syllable};
 
 /// A doubled consonant lasts this many times its single inherent duration.
 const GEMINATE: f64 = 1.6;

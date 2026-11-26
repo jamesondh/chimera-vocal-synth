@@ -10,6 +10,7 @@ lyrics ──► router ──► FRONT END ──► syllables ──► BACK E
                         Mandarin: pinyin lexicon  consonant lengths)
                         Pinyin: typed with tones
                         Russian: spelling rules
+                        Spanish: spelling rules
                         explicit syllables
 ```
 
@@ -33,13 +34,15 @@ Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3), aspiration as the
 | Han | Mandarin | `public/data/mandarin.txt.gz` (208 KB, fetched when lyrics have Han characters) | `phonetics/mandarin.rs` |
 | Latin with tones | Mandarin as pinyin | nothing (checked against Mandarin's 411 syllables) | `phonetics/mandarin.rs` (`Pinyin`) |
 | Latin, when chosen | Turkish | nothing: spelling rules, stress by rule ([turkish.md](turkish.md)) | `phonetics/turkish.rs` |
+| Latin, when chosen | Spanish | nothing: spelling rules, written stress and dialect presets | `phonetics/spanish.rs` |
 
 The router (`read_lyrics` in `syllables.rs`) sends each word to the front end whose script it is
-in, so a line can mix them (`我爱你 hello 빵야 nǐhǎo`). It also handles what every language
+in, so a line can mix them (`我爱你 hello 빵야 nǐhǎo`); Latin-script words go to the selected one.
+It also handles what every language
 shares: melisma marks (`-`, `~`), phrase punctuation (ASCII and full-width `，。！？`) and word ends.
 
 Script can't tell Latin-script languages apart, so the player chooses which front end reads Latin
-script: English unless Turkish is chosen (`Lang` in `syllables.rs`; EN/TR in Speak and Sing).
+script: English unless Turkish or Spanish is chosen (`Lang` in `syllables.rs`; EN/TR/ES in Speak and Sing).
 Toned pinyin and the other scripts are routed as before whichever is chosen.
 
 Pinyin and English share the Latin alphabet, so a front end may **decline** a word it scanned
@@ -48,8 +51,19 @@ declined can't claim a piece of it: `café` stays English's "caf" rather than "c
 "é". Characters no front end claims are skipped, as on main: `Zürich` sings "Z rich". Nothing after
 them is lost.
 
-`chimera syllables "<lyrics>" [en|tr]` prints what the front ends read, one JSON syllable per sung
-note: the quickest way to check a front end.
+`chimera syllables "<lyrics>" [en|tr|es] [--dialect neutro|rioplatense|castellano]` prints what
+the front ends read, one JSON syllable per sung note: the quickest way to check a front end.
+`chimera render spanish <out> ["Texto español."] [body] [--dialect ...]` renders Spanish text
+without patching the source. A melody JSON can select the same route with `"lang": "es"` and
+`"dialect": "neutro|rioplatense|castellano"`.
+
+## Spanish
+
+Spanish uses spelling rules, written accents for stress and Spanish syllabification; it needs no
+dictionary. Speak and Sing share the selected language. When Spanish is selected, the three presets
+are Neutro (seseo, yeísmo, coda /s/ retained), Rioplatense (seseo, sheísmo, aspirated coda /s/) and
+Castellano (distinción, yeísmo, coda /s/ retained). The front end marks Spanish stops
+`aspirated: false` and applies word allophones before syllabification so singing receives them too.
 
 ## Korean
 
@@ -80,7 +94,7 @@ it, untried) and the stiff voice of tense stops. A Korean speaker's ear is still
 Hiragana, katakana (and half-width katakana) are read as they are written, with no dictionary:
 **kanji are not claimed.** A Han character goes to the Mandarin front end (a Chinese reading, or
 nothing when its lexicon isn't loaded) and the kana around it are sung, so type Japanese lyrics in
-kana, as most singing editors expect. Kana need no choice in the EN/TR setting (`Lang` only says
+kana, as most singing editors expect. Kana need no choice in the EN/TR/ES setting (`Lang` only says
 what Latin script is); which language a Han text is waits for more language choices ("Not yet").
 
 **One mora is one note**, the convention of Japanese singing, so a note is the unit the song counts
@@ -417,9 +431,9 @@ three of four comparisons.
 ## Not yet
 
 - **More language choices.** Routing by script can't tell German from English, or Cantonese and
-  Japanese from Mandarin, so Latin text is English unless it is toned pinyin or Turkish is chosen,
-  and Han characters are Mandarin (which leaves a Japanese kanji nowhere to go but Mandarin's
-  reading). Each new Latin-script language joins `Lang`, the one language setting (#40).
+  Japanese from Mandarin, so Latin text is English unless it is toned pinyin or Turkish or Spanish
+  is chosen, and Han characters are Mandarin (which leaves a Japanese kanji nowhere to go but
+  Mandarin's reading). Each new Latin-script language joins `Lang`, the one language setting (#40).
 - **Bends on live notes:** a key pressed in Sing or a note from the plugin (`plan_note_on`) sings
   the note's pitch.
 - **Tones in speech:** Speak doesn't read Mandarin yet; the tones' contours and speech tuning come

@@ -5,7 +5,7 @@
 import { create } from "zustand";
 import { inPlugin } from "../audio/pluginBridge.ts";
 import type { BodyMix } from "../wasm/types.ts";
-import { EnglishG2P, MandarinLexicon, turkishPhrases, type Lang, type Phrase } from "../wasm/engine.ts";
+import { EnglishG2P, MandarinLexicon, turkishPhrases, type Dialect, type Lang, type Phrase } from "../wasm/engine.ts";
 import { tokenizeIpa } from "../wasm/engine.ts";
 import { planPhrases, type Plan, type Segment } from "../wasm/engine.ts";
 import { engine } from "../audio/AudioEngine.ts";
@@ -92,18 +92,20 @@ export function speakPhrases(phrases: { segments: Segment[]; intonation?: "state
 }
 
 /** Say text: IPA, or words read as `lang` (English unless said). */
-export async function speakText(text: string, o: { ipa: boolean; lang?: Lang; body: BodyMix; rate: number; f0: number }): Promise<SpokenPlan | null> {
+export async function speakText(text: string, o: { ipa: boolean; lang?: Lang; dialect?: Dialect; body: BodyMix; rate: number; f0: number }): Promise<SpokenPlan | null> {
   if (!text.trim()) return null;
   let phrases: Phrase[];
   if (o.ipa) phrases = ipaToPhrases(text);
   else if (o.lang === "tr") phrases = turkishPhrases(text);
   else {
-    try {
-      await g2p.load();
-    } catch {
-      // dictionary unavailable: the letter-to-sound rules still work
+    if (o.lang !== "es") {
+      try {
+        await g2p.load();
+      } catch {
+        // dictionary unavailable: the letter-to-sound rules still work
+      }
     }
-    phrases = g2p.toPhrases(text);
+    phrases = g2p.toPhrases(text, o.lang ?? "en", o.dialect);
   }
   if (!phrases.length) return null;
   return speakPhrases(phrases, o);

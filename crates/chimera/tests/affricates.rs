@@ -83,6 +83,30 @@ fn a_voiceless_affricates_frication_runs_into_the_vowel_with_no_h_after_it() {
     }
 }
 
+#[test]
+fn initial_and_contextual_postalveolar_affricates_keep_their_closures() {
+    let at = |t: f64| (t * FS / FRAME as f64) as usize;
+    for (body, name, f0) in VOICES {
+        for (context, ipa) in [
+            ("word-initial", "tʃˈiko"),
+            ("after-e", "lˈetʃe"),
+            ("after-a", "ˈatʃa"),
+            ("after-n", "ˈantʃo"),
+        ] {
+            let (fr, t0, t1) = say(ipa, "tʃ", body, name, f0);
+            let vowel = fr[at(t1 + 0.1)..at(t1 + 0.14)].iter().map(|f| f.0).fold(f64::MIN, f64::max);
+            let first = (at(t0)..at(t1 + 0.1))
+                .find(|&i| fr[i].1 < -10.0 && fr[i].0 > vowel - 30.0)
+                .unwrap_or_else(|| panic!("{name} {context}: no frication"));
+            let closure_ms = (first - at(t0)) * 10;
+            let (frication_ms, gap_ms) = frication(&fr, t0, t1, name);
+            assert!((50..=80).contains(&closure_ms), "{name} {context}: closure {closure_ms} ms");
+            assert!(frication_ms >= 50, "{name} {context}: frication {frication_ms} ms");
+            assert!(gap_ms <= 20, "{name} {context}: gap {gap_ms} ms");
+        }
+    }
+}
+
 /// A voiced affricate has frication too (experiment 29). Its folds stayed together, so voicing ran through
 /// a release with no audible frication, MFA called that the vowel, and /dʒ/ read half its length. What sets
 /// it apart from /tʃ/ is that the voice carries into its closure and fades there, where /tʃ/'s folds have

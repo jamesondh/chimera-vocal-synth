@@ -6,6 +6,8 @@
  * same stand-in: a second file mocking the engine module would replace this one's mid-run.
  */
 import { describe, expect, mock, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 import { initEngine, WasmVoice } from "./harness.ts";
 import type { Gesture } from "../src/wasm/types.ts";
 const MALE = { female: 0, child: 0 };
@@ -222,8 +224,17 @@ describe("Sing mode, live keys", () => {
     // #87's tunes menu left out the contributed demo songs ("Ночной ветер", Daisy Bell)
     const { DEMO_SONGS, MandarinLexicon } = await import("../src/wasm/engine.ts");
     const { TUNES } = await import("../src/song/tunes.ts");
-    // 送别 is in Han characters, read with the lexicon the page fetches (/data/mandarin.txt.gz)
-    await new MandarinLexicon().load(new URL("../public/data/mandarin.txt.gz", import.meta.url).href);
+    // 送别 is in Han characters, read with the lexicon the page fetches (/data/mandarin.txt.gz).
+    // Bun has no DecompressionStream, so serve the file already inflated as the page would receive
+    // it from a server that sends Content-Encoding: gzip. Put fetch back for the files after this one.
+    const realFetch = globalThis.fetch;
+    try {
+      const lexicon = gunzipSync(readFileSync(new URL("../public/data/mandarin.txt.gz", import.meta.url))).toString();
+      globalThis.fetch = (async () => new Response(lexicon)) as unknown as typeof fetch;
+      await new MandarinLexicon().load(new URL("../public/data/mandarin.txt.gz", import.meta.url).href);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
     const melodies = TUNES.map((t) => JSON.stringify(t.phrases.flat()));
     for (const d of DEMO_SONGS) expect(melodies).toContain(JSON.stringify(d.notes.map(([m, b]) => [m, b])));
     const songs = TUNES.filter((t) => t.lyrics !== undefined);

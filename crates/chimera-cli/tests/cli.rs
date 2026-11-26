@@ -522,3 +522,47 @@ fn render_notes_tele_records_the_live_telemetry_without_changing_the_sound() {
     let a_lip = artic["frames"][96][lip].as_f64().unwrap(); // 0.96 s = 60 tele hops
     assert!((at(60, 11 + lip) as f64 - a_lip).abs() < 1e-3, "lipAp {} vs {a_lip}", at(60, 11 + lip));
 }
+
+#[test]
+fn the_cli_reads_spanish_lyrics_in_three_dialects() {
+    let castellano: serde_json::Value = serde_json::from_str(&chimera(&[
+        "syllables", "Córdoba higuera crecí", "es", "--dialect", "castellano",
+    ])).unwrap();
+    let texts: Vec<&str> = castellano.as_array().unwrap().iter().map(|s| s["text"].as_str().unwrap()).collect();
+    assert_eq!(texts, ["Cór", "do", "ba", "hi", "gue", "ra", "cre", "cí"]);
+
+    let phones: Vec<String> = castellano.as_array().unwrap().iter().map(|s| {
+        let mut out = String::new();
+        for p in s["onset"].as_array().unwrap().iter().chain(std::iter::once(&s["nucleus"])).chain(s["coda"].as_array().unwrap()) {
+            out.push_str(p["ipa"].as_str().unwrap());
+        }
+        out
+    }).collect();
+    assert!(phones.join("").contains("θ"));
+
+    let rioplatense: serde_json::Value = serde_json::from_str(&chimera(&[
+        "syllables", "lluvia mayo mismo", "es", "--dialect", "rioplatense",
+    ])).unwrap();
+    let rioplatense_text = rioplatense.to_string();
+    assert!(rioplatense_text.contains("ʃ"), "{rioplatense_text}");
+    assert!(rioplatense_text.contains("h"), "{rioplatense_text}");
+
+    let melody = tmp("melody-es.json");
+    let j = serde_json::json!({
+        "bpm": 120,
+        "lang": "es",
+        "dialect": "castellano",
+        "lyrics": "Córdoba higuera crecí",
+        "notes": [[60,1],[62,1],[64,1],[65,1],[64,1],[62,1],[60,1],[62,1]],
+    });
+    std::fs::write(&melody, j.to_string()).unwrap();
+    let stem = tmp("notes-es");
+    let stdout = chimera(&["render", "notes", &melody, &stem, "male"]);
+    assert!(stdout.contains("8 notes"), "{stdout}");
+    assert!(std::fs::read(format!("{stem}.wav")).unwrap().starts_with(b"RIFF"));
+
+    let stem = tmp("speak-es");
+    let stdout = chimera(&["render", "spanish", &stem, "La guerra en la tierra del país.", "male", "--dialect", "castellano"]);
+    assert!(stdout.contains("wrote"), "{stdout}");
+    assert!(std::fs::read(format!("{stem}.wav")).unwrap().starts_with(b"RIFF"));
+}

@@ -5,6 +5,7 @@
 use chimera::anatomy::human::{BODY_FEMALE, BODY_MALE, HumanBody};
 use chimera::phonetics::Segment;
 use chimera::phonetics::planner::{PlanOptions, plan_utterance};
+use chimera::phonetics::spanish::SpanishG2P;
 use chimera::voice::human_voice::{HumanVoice, SourcePatch};
 
 const FS: f64 = 48000.0;
@@ -49,4 +50,41 @@ fn a_trill_stays_voiced_and_releases_without_a_burst() {
         assert!(longest * 5 <= 15, "{name}: the trill went quiet for {} ms", longest * 5);
         assert!(quietest < 0.5, "{name}: no strike dips the sound");
     }
+}
+
+#[test]
+fn spanish_rr_gets_an_extra_cycle_without_lengthening_word_initial_r() {
+    let g = SpanishG2P::new();
+    let options = PlanOptions { body: "male".into(), t0: 0.05, f0: Some(112.0), ..Default::default() };
+    let cycles = |word: &str| {
+        let plan = plan_utterance(&g.word(word, false), &options);
+        plan.gestures.iter().filter(|gesture| gesture.label_str() == "r").count()
+    };
+    // At 20 Hz each cycle contributes a closure and, except after the last one, an opening.
+    // Orthographic rr gets three strikes; initial single r retains the two-cycle timing.
+    assert_eq!(cycles("guerra"), 5);
+    assert_eq!(cycles("régimen"), 3);
+}
+
+#[test]
+fn spanish_guerra_renders_repeated_contacts() {
+    let g = SpanishG2P::new();
+    let plan = plan_utterance(&g.word("guerra", false), &PlanOptions { body: "male".into(), t0: 0.05, f0: Some(112.0), ..Default::default() });
+    let mut voice = HumanVoice::new(FS, BODY_MALE, 2);
+    voice.set_source(&SourcePatch::f0(112.0));
+    voice.schedule(&plan.gestures);
+    let mut audio = vec![0.0f32; (FS * (plan.end + 0.25)) as usize];
+    for block in audio.chunks_mut(128) { voice.render(block); }
+    let trill = plan.segments.iter().find(|s| s.ipa == "r").unwrap();
+    let reference = plan.segments.iter().filter(|s| matches!(s.ipa.as_str(), "e" | "a"))
+        .map(|s| rms(&audio, s.t0 + 0.02, s.t1 - 0.01)).fold(0.0, f64::max);
+    let (mut t, mut inside, mut dips) = (trill.t0, false, 0);
+    while t + 0.005 <= trill.t1 {
+        let low = rms(&audio, t, t + 0.005) / reference < 0.5;
+        if low && !inside { dips += 1; }
+        inside = low;
+        t += 0.005;
+    }
+    eprintln!("Spanish guerra: {dips} audible contact dips in the trill");
+    assert!(dips >= 3, "only {dips} contact dips in the trill");
 }

@@ -13,6 +13,7 @@ use chimera::phonetics::planner::{self, PhraseInput, PlanOptions};
 use chimera::phonetics::sing::{self, MelismaOptions, NoteOnOptions, SongOptions, SungNote};
 use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::mandarin::MandarinLexicon;
+use chimera::phonetics::spanish::{Dialect, SpanishG2P};
 use chimera::phonetics::syllables::{Lang, lyrics_in};
 use chimera::phonetics::{Segment, Syllable, ipa, songs, turkish, vowel_data};
 use chimera::voice::human_airway::HumanAirway;
@@ -35,6 +36,8 @@ struct State {
     next_model: usize,
     /// the page's English G2P (one dictionary, loaded once)
     g2p: EnglishG2P,
+    /// Spanish spelling rules and its selected dialect
+    es: SpanishG2P,
     /// the Mandarin front end's lexicon (loaded once, when lyrics first need it)
     mandarin: MandarinLexicon,
 }
@@ -128,15 +131,57 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
             st.g2p.load_dict(&arg::<String>(req, "text")?);
             Ok(json!(true))
         }
-        "g2pPhrases" => to_json(&st.g2p.to_phrases(&arg::<String>(req, "text")?)),
-        "g2pWord" => to_json(&st.g2p.word(&arg::<String>(req, "word")?, arg::<Option<bool>>(req, "reduce")?.unwrap_or(true))),
+        "g2pPhrases" => {
+            let text = arg::<String>(req, "text")?;
+            let lang = arg::<Option<Lang>>(req, "lang")?.unwrap_or_default();
+            let phrases = match lang {
+                Lang::En => st.g2p.to_phrases(&text),
+                Lang::Tr => turkish::to_phrases(&text),
+                Lang::Es => {
+                    let mut es = st.es.clone();
+                    if let Some(d) = req.get("dialect").filter(|d| !d.is_null()) {
+                        es.set_dialect(serde_json::from_value::<Dialect>(d.clone()).map_err(|e| format!("dialect: {e}"))?);
+                    }
+                    es.to_phrases(&text)
+                }
+            };
+            to_json(&phrases)
+        }
+        "g2pWord" => {
+            let word = arg::<String>(req, "word")?;
+            let reduce = arg::<Option<bool>>(req, "reduce")?.unwrap_or(true);
+            let lang = arg::<Option<Lang>>(req, "lang")?.unwrap_or_default();
+            match lang {
+                Lang::En => to_json(&st.g2p.word(&word, reduce)),
+                Lang::Tr => to_json(&turkish::word(&word, true)),
+                Lang::Es => {
+                    let mut es = st.es.clone();
+                    if let Some(d) = req.get("dialect").filter(|d| !d.is_null()) {
+                        es.set_dialect(serde_json::from_value::<Dialect>(d.clone()).map_err(|e| format!("dialect: {e}"))?);
+                    }
+                    to_json(&es.word(&word, reduce))
+                }
+            }
+        }
         "zhLoad" => {
             st.mandarin.load(&arg::<String>(req, "text")?);
             Ok(json!(true))
         }
-        // every built-in front end: pinyin, English or Turkish (`lang`, the language of
+        // every built-in front end: pinyin, English, Turkish or Spanish (`lang`, the language of
         // Latin-script words; unset: English), Korean, Russian, and Mandarin once its lexicon is loaded
-        "lyricsToSyllables" => to_json(&lyrics_in(&arg::<String>(req, "text")?, &st.g2p, &st.mandarin, arg::<Option<Lang>>(req, "lang")?.unwrap_or_default())),
+        "lyricsToSyllables" => {
+            let text = arg::<String>(req, "text")?;
+            let lang = arg::<Option<Lang>>(req, "lang")?.unwrap_or_default();
+            if lang == Lang::Es {
+                let mut es = st.es.clone();
+                if let Some(d) = req.get("dialect").filter(|d| !d.is_null()) {
+                    es.set_dialect(serde_json::from_value::<Dialect>(d.clone()).map_err(|e| format!("dialect: {e}"))?);
+                }
+                to_json(&lyrics_in(&text, &es, &st.mandarin, lang))
+            } else {
+                to_json(&lyrics_in(&text, &st.g2p, &st.mandarin, lang))
+            }
+        }
         // Turkish needs no dictionary: its spelling rules are the G2P
         "trPhrases" => to_json(&turkish::to_phrases(&arg::<String>(req, "text")?)),
         // ---------------------------------------------------------------- creatures

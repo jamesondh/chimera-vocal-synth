@@ -12,7 +12,7 @@ use chimera::creatures::voice::CreatureVoice;
 use chimera::creatures::{CREATURES, creature_by_id};
 use chimera::math::{js_max, js_min, js_round, log10};
 use chimera::phonetics::beatbox::{BEAT_PRESETS, BEAT_SOUNDS, BeatStep, beat_ready, parse_beat};
-use chimera::phonetics::english::{EnglishG2P, Phrase};
+use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::ipa::{skipped_ipa, tokenize_ipa};
 use chimera::phonetics::planner::{
     PhraseInput, PlanOptions, plan_phrases, plan_utterance, vowel_table,
@@ -24,8 +24,9 @@ use chimera::phonetics::sing::{
 use chimera::phonetics::songs::DEMO_SONGS;
 use chimera::phonetics::mandarin::{MandarinLexicon, is_han};
 use chimera::phonetics::syllables::{Lang, lyrics_in, lyrics_to_syllables};
+use chimera::phonetics::spanish::{CASTELLANO, Dialect, NEUTRO, RIOPLATENSE, SpanishG2P};
 use chimera::phonetics::turkish;
-use chimera::phonetics::{Intonation, Plan, Syllable};
+use chimera::phonetics::{Intonation, Phrase, Plan, Syllable};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
 use std::io::Read;
 use std::time::Instant;
@@ -64,9 +65,22 @@ pub fn zh() -> Result<MandarinLexicon, String> {
 /// Lyrics → syllables through every built-in front end, Latin script read as `lang` (the Mandarin
 /// lexicon only when needed).
 pub fn sung_lyrics(text: &str, lang: Lang) -> Result<Vec<Syllable>, String> {
-    let g = g2p()?;
+    sung_lyrics_dialect(text, lang, None)
+}
+
+/// Lyrics with an optional Spanish dialect preset (ignored by the other front ends).
+pub fn sung_lyrics_dialect(text: &str, lang: Lang, dialect: Option<Dialect>) -> Result<Vec<Syllable>, String> {
     let lex = if text.chars().any(is_han) { zh()? } else { MandarinLexicon::new() };
-    Ok(lyrics_in(text, &g, &lex, lang))
+    if lang == Lang::Es {
+        let mut es = SpanishG2P::new();
+        if let Some(d) = dialect {
+            es.set_dialect(d);
+        }
+        Ok(lyrics_in(text, &es, &lex, lang))
+    } else {
+        let g = g2p()?;
+        Ok(lyrics_in(text, &g, &lex, lang))
+    }
 }
 
 /// A file name from a song's name: letters of any script, everything else as one "-".
@@ -567,7 +581,7 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let vibrato = j["vibrato"].as_f64().unwrap_or(35.0);
     let raw: Vec<[f64; 2]> = serde_json::from_value(j["notes"].clone()).map_err(|e| format!("notes: {e}"))?;
     // "syllables" sing what a language front end wrote; otherwise the lyrics go through the front
-    // ends, Latin script read as "lang" ("en", the default, or "tr")
+    // ends, Latin script read as "lang" ("en", the default, "tr" or "es"), with "dialect" for Spanish
     let syl: Vec<Syllable> = if j.get("syllables").is_some() {
         serde_json::from_value(j["syllables"].clone()).map_err(|e| format!("syllables: {e}"))?
     } else {
@@ -575,7 +589,14 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
             None => Lang::En,
             Some(l) => serde_json::from_value(l.clone()).map_err(|e| format!("lang: {e}"))?,
         };
-        sung_lyrics(j["lyrics"].as_str().ok_or("lyrics missing")?, lang)?
+        let dialect = match j.get("dialect") {
+            None => None,
+            Some(d) => {
+                let name = d.as_str().ok_or("dialect: expected a string")?;
+                Some(spanish_dialect(name)?)
+            }
+        };
+        sung_lyrics_dialect(j["lyrics"].as_str().ok_or("lyrics missing")?, lang, dialect)?
     };
     let sounding = raw.iter().filter(|n| n[0] > 0.0).count();
     if syl.len() != sounding {
@@ -940,4 +961,48 @@ pub fn vowels(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     }
     ctx.write_wav(&wav_name(name), &out)?;
     Ok(())
+}
+
+/// Map a CLI dialect name to the Spanish engine preset.
+pub fn spanish_dialect(name: &str) -> Result<Dialect, String> {
+    match name {
+        "neutro" => Ok(NEUTRO),
+        "rioplatense" => Ok(RIOPLATENSE),
+        "castellano" => Ok(CASTELLANO),
+        _ => Err(format!("unknown Spanish dialect {name:?}; have neutro, rioplatense, castellano")),
+    }
+}
+
+/// Spanish text through its spelling rules and the selected dialect.
+/// `render spanish <out> ["Texto español."] [body] [--dialect ...]`
+pub fn spanish(ctx: &Ctx, a: &[String]) -> Result<(), String> {
+    let name = arg(a, 0, "out/spanish");
+    let text = arg(a, 1, "Hola, ¿cómo estás?");
+    let body_name = arg(a, 2, "male");
+    let dialect = match a.iter().position(|x| x == "--dialect") {
+        None => NEUTRO,
+        Some(i) => spanish_dialect(a.get(i + 1).ok_or("--dialect needs neutro, rioplatense, or castellano")?)?,
+    };
+    let mut g = SpanishG2P::new();
+    g.set_dialect(dialect);
+    let s = say_phrases(&g.to_phrases(text), body_name)?;
+    println!("{}", s.shown);
+    let file = wav_name(name);
+    ctx.write_wav(&file, &s.out)?;
+    println!("wrote {file}  {} s", fixed(s.out.len() as f64 / FS, 2));
+    Ok(())
+}
+
+#[cfg(test)]
+mod spanish_cli_tests {
+    use super::spanish_dialect;
+    use chimera::phonetics::spanish::{CASTELLANO, NEUTRO, RIOPLATENSE};
+
+    #[test]
+    fn spanish_cli_dialects_match_engine_presets() {
+        assert_eq!(spanish_dialect("neutro").unwrap(), NEUTRO);
+        assert_eq!(spanish_dialect("rioplatense").unwrap(), RIOPLATENSE);
+        assert_eq!(spanish_dialect("castellano").unwrap(), CASTELLANO);
+        assert!(spanish_dialect("other").is_err());
+    }
 }

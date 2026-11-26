@@ -3,10 +3,10 @@
 
 use chimera::anatomy::human::BodyMix;
 use chimera::engine::default_f0;
-use chimera::phonetics::english::{EnglishG2P, Phrase};
+use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::ipa::tokenize_ipa;
 use chimera::phonetics::planner::{PhraseInput, PlanOptions, plan_phrases};
-use chimera::phonetics::{Intonation, Plan};
+use chimera::phonetics::{Intonation, Phrase, Plan};
 use serde::{Deserialize, Serialize};
 
 /// The text to say and how, as a project saves it.

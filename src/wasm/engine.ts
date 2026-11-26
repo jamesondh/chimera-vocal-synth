@@ -13,6 +13,19 @@ import type {
 
 export type * from "./types.ts";
 
+/** Spanish front-end switches, mirrored from the Rust engine's Dialect. */
+export interface Dialect {
+  seseo: boolean;
+  ll: "jeismo" | "sheismo" | "zheismo" | "lleista";
+  aspiratedS: boolean;
+}
+export const DIALECT_PRESETS = {
+  neutro: { seseo: true, ll: "jeismo", aspiratedS: false },
+  rioplatense: { seseo: true, ll: "sheismo", aspiratedS: true },
+  castellano: { seseo: false, ll: "jeismo", aspiratedS: false },
+} satisfies Record<string, Dialect>;
+export type DialectPreset = keyof typeof DIALECT_PRESETS;
+
 interface Catalog {
   neutral: HumanArtic;
   bodies: { male: HumanBody; female: HumanBody; child: HumanBody };
@@ -101,13 +114,13 @@ export class EnglishG2P {
   }
 
   /** Text → phrases of segments. */
-  toPhrases(text: string): Phrase[] {
-    return call("g2pPhrases", { text });
+  toPhrases(text: string, lang: Lang = "en", dialect?: Dialect): Phrase[] {
+    return call("g2pPhrases", { text, lang, dialect });
   }
 
   /** One word → segments with lexical stress. `reduce`: weak forms of function words (speech). */
-  word(w: string, reduce = true): Segment[] {
-    return call("g2pWord", { word: w, reduce });
+  word(w: string, reduce = true, lang: Lang = "en", dialect?: Dialect): Segment[] {
+    return call("g2pWord", { word: w, reduce, lang, dialect });
   }
 }
 
@@ -154,11 +167,11 @@ export class MandarinLexicon {
 
 /**
  * Lyrics → sung syllables through the built-in front ends: pinyin, the Latin-script language
- * (`lang`: English through the page's dictionary, see EnglishG2P, or Turkish), Korean, Russian,
+ * (`lang`: English through the page's dictionary, see EnglishG2P, Turkish or Spanish), Korean, Russian,
  * and Mandarin once its lexicon is loaded.
  */
-export function lyricsToSyllables(text: string, lang: Lang = "en"): Syllable[] {
-  return call("lyricsToSyllables", { text, lang });
+export function lyricsToSyllables(text: string, lang: Lang = "en", dialect?: Dialect): Syllable[] {
+  return call("lyricsToSyllables", { text, lang, dialect });
 }
 
 /**
