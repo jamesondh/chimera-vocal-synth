@@ -94,6 +94,10 @@ export function SpectrumView(props: { ring?: boolean }) {
     const env: Pt[] = [];
     for (let i = 0; i < tf.freqs.length; i++) if (tf.freqs[i] >= FMIN && tf.freqs[i] <= FMAX) env.push([fx(tf.freqs[i]), dbY(tf.db[i] - mx)]);
     beamPts(ctx, env, V.amber, 1.5, { hot: true });
+    // close formants (F1 and F2 of a back vowel) would write their names over each other: a name
+    // moves right of the one before it, its marker stays at its frequency
+    const fLabel = { size: LABEL_MIN, color: V.amber, align: "center", ls: 0.1 } as const;
+    let prevRight = -Infinity;
     tf.formants.slice(0, 3).forEach((F, i) => {
       let near = 0;
       for (let k = 0; k < tf.freqs.length; k++) if (Math.abs(tf.freqs[k] - F) < Math.abs(tf.freqs[near] - F)) near = k;
@@ -104,7 +108,10 @@ export function SpectrumView(props: { ring?: boolean }) {
       tri.lineTo(x, y);
       tri.closePath();
       beam(ctx, tri, V.amber, 1.2);
-      label(ctx, `F${i + 1}`, x, y - 12, { size: LABEL_MIN, color: V.amber, align: "center", ls: 0.1 });
+      const text = `F${i + 1}`, half = labelWidth(ctx, text, fLabel) / 2;
+      const lx = Math.max(x, prevRight + 4 + half);
+      prevRight = lx + half;
+      label(ctx, text, lx, y - 12, fLabel);
     });
     if (f0 > 0) {
       const x = fx(f0);
