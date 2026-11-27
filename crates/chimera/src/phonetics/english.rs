@@ -202,7 +202,135 @@ impl EnglishG2P {
         if clean.contains('-') {
             return clean.split('-').flat_map(|p| self.word(p, reduce)).collect();
         }
+        // regular English inflections of a dictionary stem ('s, -s/-es/-ies, -ed/-d/-ied)
+        if let Some(segs) = self.inflected(clean) {
+            return segs;
+        }
         letter_to_sound(clean)
+    }
+
+    fn lookup_stem(&self, stem: &str) -> Option<Vec<Segment>> {
+        if stem.len() < 2 {
+            return None;
+        }
+        let dict = self.dict.as_ref()?;
+        let entry = homograph(stem).or_else(|| dict.get(stem).map(String::as_str))?;
+        (!entry.is_empty()).then(|| arpabet_to_segments(entry))
+    }
+
+    /// Inflected forms missing from CMUdict whose base stem is in the dictionary:
+    /// `'s` possessives, `-s`/`-es`/`-ies` plurals, and `-d`/`-ed`/`-ied` past forms.
+    /// Exact dictionary entries are checked first, so irregular forms and stems ending
+    /// in `-s` or `-ed` are never split.
+    fn inflected(&self, clean: &str) -> Option<Vec<Segment>> {
+        if let Some(stem) = clean.strip_suffix("'s") {
+            let mut segs = self.lookup_stem(stem)?;
+            append_s(&mut segs);
+            return Some(segs);
+        }
+        if let Some(base) = clean.strip_suffix("ies")
+            && base.len() >= 2
+            && let Some(mut segs) = self.lookup_stem(&format!("{base}y"))
+        {
+            append_s(&mut segs);
+            return Some(segs);
+        }
+        if let Some(base) = clean.strip_suffix("es")
+            && base.len() >= 2
+            && let Some(mut segs) = self.lookup_stem(base)
+            && segs.last().is_some_and(|s| is_sibilant(&s.ipa) || is_vowel(&s.ipa))
+        {
+            append_s(&mut segs);
+            return Some(segs);
+        }
+        if let Some(stem) = clean.strip_suffix('s')
+            && !clean.ends_with("ss")
+            && !clean.ends_with("'s")
+            && let Some(mut segs) = self.lookup_stem(stem)
+        {
+            append_s(&mut segs);
+            return Some(segs);
+        }
+        if let Some(base) = clean.strip_suffix("ied")
+            && base.len() >= 2
+            && let Some(mut segs) = self.lookup_stem(&format!("{base}y"))
+        {
+            append_ed(&mut segs);
+            return Some(segs);
+        }
+        if let Some(base) = clean.strip_suffix("ed")
+            && base.len() >= 2
+        {
+            let b = base.as_bytes();
+            let last = b[b.len() - 1];
+            let doubled = b.len() >= 3 && last == b[b.len() - 2] && is_ascii_consonant(last);
+            // CVC stems ("caped" -> "cape") try silent-e first; VVC stems ("suited" -> "suit") try base first.
+            let silent_e_first = is_ascii_vowel(b[b.len() - 2])
+                && is_ascii_consonant(last)
+                && !matches!(last, b'w' | b'x' | b'y')
+                && (b.len() < 3 || !is_ascii_vowel(b[b.len() - 3]));
+            let stem_segs = if doubled {
+                // Stems naturally end in -ll/-ss/-ff/-zz ("call", "pass", "buzz"), so try base first there.
+                if matches!(last, b'l' | b's' | b'f' | b'z') {
+                    self.lookup_stem(base).or_else(|| self.lookup_stem(&base[..base.len() - 1]))
+                } else {
+                    self.lookup_stem(&base[..base.len() - 1]).or_else(|| self.lookup_stem(base))
+                }
+            } else if silent_e_first {
+                self.lookup_stem(&format!("{base}e")).or_else(|| self.lookup_stem(base))
+            } else {
+                self.lookup_stem(base).or_else(|| self.lookup_stem(&format!("{base}e")))
+            };
+            if let Some(mut segs) = stem_segs {
+                append_ed(&mut segs);
+                return Some(segs);
+            }
+        }
+        None
+    }
+}
+
+fn is_ascii_vowel(b: u8) -> bool {
+    matches!(b, b'a' | b'e' | b'i' | b'o' | b'u' | b'y')
+}
+
+fn is_ascii_consonant(b: u8) -> bool {
+    b.is_ascii_lowercase() && !is_ascii_vowel(b)
+}
+
+fn is_sibilant(ipa: &str) -> bool {
+    matches!(ipa, "s" | "z" | "ʃ" | "ʒ" | "tʃ" | "dʒ")
+}
+
+fn push_seg(segs: &mut Vec<Segment>, ipa: &str) {
+    segs.push(Segment { ipa: ipa.to_string(), stress: Some(0), ..Default::default() });
+}
+
+/// Appends the English `-s`/`'s` voicing allomorph: /ɪz/ after sibilants, /s/ after voiceless
+/// obstruents, /z/ otherwise.
+fn append_s(segs: &mut Vec<Segment>) {
+    match segs.last().map(|s| s.ipa.as_str()) {
+        Some(last) if is_sibilant(last) => {
+            push_seg(segs, "ɪ");
+            push_seg(segs, "z");
+        }
+        Some("p" | "t" | "k" | "f" | "θ") => push_seg(segs, "s"),
+        Some(_) => push_seg(segs, "z"),
+        None => {}
+    }
+}
+
+/// Appends the English `-ed` voicing allomorph: /ɪd/ after /t d/, /t/ after voiceless
+/// obstruents, /d/ otherwise.
+fn append_ed(segs: &mut Vec<Segment>) {
+    match segs.last().map(|s| s.ipa.as_str()) {
+        Some("t" | "d") => {
+            push_seg(segs, "ɪ");
+            push_seg(segs, "d");
+        }
+        Some("p" | "k" | "f" | "θ" | "s" | "ʃ" | "tʃ") => push_seg(segs, "t"),
+        Some(_) => push_seg(segs, "d"),
+        None => {}
     }
 }
 
