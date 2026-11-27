@@ -24,7 +24,7 @@ fn table(ipa: &str) -> Option<(f64, f64)> {
         // Finnish open front ä (vowel_data.rs): as long as æ
         "æ̞" => (230.0, 80.0),
         "a" => (230.0, 80.0),
-        "ɑ" => (240.0, 100.0),
+        "ɑ" | "ɑ̠" => (240.0, 100.0),
         "ɒ" => (240.0, 100.0),
         "ɔ" => (240.0, 100.0),
         "o" => (220.0, 80.0),
@@ -34,8 +34,8 @@ fn table(ipa: &str) -> Option<(f64, f64)> {
         "ʊ̠" => (160.0, 60.0),
         "aʊ̠" => (240.0, 100.0),
         "u" => (210.0, 70.0),
-        // Mandarin's back u (vowel_data.rs): as long as u
-        "u̠" => (210.0, 70.0),
+        // Mandarin's back u and Finnish's close back u (vowel_data.rs): as long as u
+        "u̠" | "u̝" => (210.0, 70.0),
         "ʌ" => (140.0, 60.0),
         "ə" => (120.0, 60.0),
         "ɚ" => (180.0, 80.0),
@@ -52,7 +52,7 @@ fn table(ipa: &str) -> Option<(f64, f64)> {
         "œ" => (170.0, 70.0),
         "ɯ" => (135.0, 40.0),
         // Finnish diphthongs (shared duration before `plan_timed` splits them 55/45 in speech)
-        "ie" | "ʊɔ" | "yœ" | "ɑi" | "ɑu̠" | "oi" | "ou̠" | "æ̞i" | "æi" | "œi" | "øi" | "u̠i" | "ui" | "yi" | "æ̞y" | "æy" | "œy" | "øy" | "eu̠" | "eu" | "iu̠" | "iu" | "ey" | "iy" => (230.0, 120.0),
+        "ie" | "ʊɔ" | "yœ" | "ɑ̠i" | "ɑi" | "ɑ̠u̝" | "ɑu̝" | "ɑu̠" | "oi" | "ou̝" | "ou̠" | "æ̞i" | "æi" | "œi" | "øi" | "u̝i" | "u̠i" | "ui" | "yi" | "æ̞y" | "æy" | "œy" | "øy" | "eu̝" | "eu̠" | "eu" | "iu̝" | "iu̠" | "iu" | "ey" | "iy" => (230.0, 120.0),
         // consonants
         "p" => (85.0, 50.0),
         "t" | "t̪" => (75.0, 50.0),

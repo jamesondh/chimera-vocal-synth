@@ -24,16 +24,18 @@ fn letters_diphthongs_and_unaspirated_stops() {
     assert_eq!(ipa(&word("yöllä")), "yœl̪æ̞");
     assert_eq!(ipa(&word("tähtönen")), "t̪æ̞ht̪œnen");
     assert_eq!(ipa(&word("pöytä")), "pœyt̪æ̞");
-    assert_eq!(ipa(&word("Revontulet")), "revont̪u̠l̪et̪");
-    assert_eq!(ipa(&word("kukka")), "ku̠kɑ");
-    assert_eq!(ipa(&word("langat")), "l̪ɑŋɑt̪");
-    assert_eq!(ipa(&word("lanka")), "l̪ɑŋkɑ");
+    assert_eq!(ipa(&word("Revontulet")), "revont̪u̝l̪et̪");
+    assert_eq!(ipa(&word("kukka")), "ku̝kɑ̠");
+    assert_eq!(ipa(&word("langat")), "l̪ɑ̠ŋɑ̠t̪");
+    assert_eq!(ipa(&word("lanka")), "l̪ɑ̠ŋkɑ̠");
+    assert_eq!(ipa(&word("yöhön")), "yœhœn");
+    assert_eq!(lyrics_to_syllables("tähtien").iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["täh", "ti", "en"]);
 }
 
 #[test]
 fn long_vowels_and_geminates_keep_length_in_speech() {
     let maa = word("maa");
-    assert_eq!(ipa(&maa), "mɑ");
+    assert_eq!(ipa(&maa), "mɑ̠");
     assert_eq!(maa[1].length, Some(1.40));
     let ma = word("ma");
     assert_eq!(ma[1].length, Some(0.55));
@@ -43,10 +45,10 @@ fn long_vowels_and_geminates_keep_length_in_speech() {
         &p.iter().map(|ph| chimera::phonetics::planner::PhraseInput { segments: ph.segments.clone(), intonation: Some(ph.intonation), pause: Some(ph.pause) }).collect::<Vec<_>>(),
         &PlanOptions { body: BodyMix::from("female"), t0: 0.0, ..Default::default() },
     );
-    // Opening diphthongs expand to i+ɛ, u̠+ɔ, y+œ in speech
+    // Opening diphthongs expand to i+ɛ, u̝+ɔ, y+œ in speech
     let planned: Vec<&str> = plan.segments.iter().map(|s| s.ipa.as_str()).collect();
     assert!(planned.windows(2).any(|w| w == ["i", "ɛ"]), "{planned:?}");
-    assert!(planned.windows(2).any(|w| w == ["u̠", "ɔ"]), "{planned:?}");
+    assert!(planned.windows(2).any(|w| w == ["u̝", "ɔ"]), "{planned:?}");
     assert!(planned.windows(2).any(|w| w == ["y", "œ"]), "{planned:?}");
 }
 

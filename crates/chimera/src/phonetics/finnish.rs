@@ -26,14 +26,21 @@ use super::{Intonation, Segment, Syllable};
 
 /// Spoken duration multiplier for a doubled Finnish consonant (`kk`, `tt`, `rr`, `ll`, …).
 const GEMINATE: f64 = 2.2;
-/// Spoken duration multiplier for a single (short) Finnish vowel: Klatt's English stressed vowels
-/// are 210–240 ms inherent, which makes short Finnish vowels sound long (`tulli`, `turri`).
-const SHORT_VOWEL: f64 = 0.55;
+/// Spoken duration multipliers for single (short) Finnish vowels:
+/// - Klatt's English stressed vowels are 210–240 ms inherent, so `0.55` brings a stressed short
+///   Finnish vowel to ~80–90 ms (giving a crisp ~2.5× contrast against `LONG_VOWEL = 1.40`).
+/// - Klatt already halves medial unstressed English vowels (schwa reduction); Finnish does not
+///   reduce unstressed vowels, so medial unstressed short vowels stay near `1.0` (~75–85 ms)
+///   instead of being crushed to 40 ms (`lämpöä` → `lämpyä`, `tähtönen` → `tähtnen`).
+const SHORT_VOWEL_STRESSED: f64 = 0.55;
+const SHORT_VOWEL_MEDIAL: f64 = 1.00;
+const SHORT_VOWEL_FINAL: f64 = 0.60;
 /// Spoken duration multiplier for a doubled Finnish vowel (`aa`, `ee`, `uu`, `ää`, …): ~2.5× a
 /// short vowel (`0.55` vs `1.40`) so `tuli / tuuli / tulli` contrast drastically.
 const LONG_VOWEL: f64 = 1.40;
-/// Spoken duration multiplier for a Finnish diphthong (roughly the length of a long vowel).
-const DIPHTHONG_LEN: f64 = 1.15;
+/// Spoken duration multiplier for a Finnish diphthong (enough room for both vowel targets,
+/// especially open→close `au` in `laulu` where the lips travel from 2.0 down to 0.14).
+const DIPHTHONG_LEN: f64 = 1.35;
 
 fn is_letter(c: char) -> bool {
     let l = c.to_lowercase().next().unwrap_or(c);
@@ -44,7 +51,11 @@ fn is_vowel_letter(c: char) -> bool {
     matches!(c, 'a' | 'e' | 'i' | 'o' | 'u' | 'y' | 'ä' | 'ö' | 'å')
 }
 
-fn is_diphthong(a: char, b: char) -> bool {
+fn is_opening_diphthong(a: char, b: char) -> bool {
+    matches!((a, b), ('i', 'e') | ('u', 'o') | ('y', 'ö'))
+}
+
+fn is_closing_diphthong(a: char, b: char) -> bool {
     matches!(
         (a, b),
         ('a', 'i')
@@ -62,24 +73,21 @@ fn is_diphthong(a: char, b: char) -> bool {
             | ('i', 'y')
             | ('ä', 'y')
             | ('ö', 'y')
-            | ('i', 'e')
-            | ('u', 'o')
-            | ('y', 'ö')
     )
 }
 
 fn single_vowel_ipa(c: char) -> &'static str {
     match c {
-        'a' => "ɑ",
+        'a' => "ɑ̠",
         'ä' => "æ̞",
         'ö' => "œ",
         'å' => "o",
         'e' => "e",
         'i' => "i",
         'o' => "o",
-        'u' => "u̠",
+        'u' => "u̝",
         'y' => "y",
-        _ => "ɑ",
+        _ => "ɑ̠",
     }
 }
 
@@ -87,11 +95,11 @@ fn single_vowel_ipa(c: char) -> &'static str {
 fn diphthong_ipa(a: char, b: char) -> Option<(&'static str, Option<f64>)> {
     Some(match (a, b) {
         // Finnish falling diphthongs with pure Finnish endpoints (avoiding English lax ɪ/ʊ and fronted u)
-        ('a', 'i') => ("ɑi", Some(0.42)),
-        ('a', 'u') => ("ɑu̠", Some(0.42)),
+        ('a', 'i') => ("ɑ̠i", Some(0.45)),
+        ('a', 'u') => ("ɑ̠u̝", Some(0.52)),
         ('e', 'i') => ("eɪ", None),
-        ('o', 'u') => ("ou̠", Some(0.42)),
-        ('o', 'i') => ("oi", Some(0.42)),
+        ('o', 'u') => ("ou̝", Some(0.50)),
+        ('o', 'i') => ("oi", Some(0.45)),
         // Opening diphthongs: spend ~60% of the sung note on the more open second half
         ('i', 'e') => ("ie", Some(0.60)),
         ('u', 'o') => ("ʊɔ", Some(0.60)),
@@ -99,12 +107,12 @@ fn diphthong_ipa(a: char, b: char) -> Option<(&'static str, Option<f64>)> {
         // Remaining Finnish closing/front diphthongs
         ('ä', 'i') => ("æ̞i", Some(0.42)),
         ('ö', 'i') => ("œi", Some(0.42)),
-        ('u', 'i') => ("u̠i", Some(0.42)),
+        ('u', 'i') => ("u̝i", Some(0.42)),
         ('y', 'i') => ("yi", Some(0.42)),
         ('ä', 'y') => ("æ̞y", Some(0.42)),
         ('ö', 'y') => ("œy", Some(0.42)),
-        ('e', 'u') => ("eu̠", Some(0.42)),
-        ('i', 'u') => ("iu̠", Some(0.42)),
+        ('e', 'u') => ("eu̝", Some(0.42)),
+        ('i', 'u') => ("iu̝", Some(0.42)),
         ('e', 'y') => ("ey", Some(0.42)),
         ('i', 'y') => ("iy", Some(0.42)),
         _ => return None,
@@ -237,7 +245,11 @@ fn split_syllables(typed: &str) -> Vec<RawSyllable> {
         if i < lower.len() && is_vowel_letter(lower[i]) {
             let v1 = nucleus[0];
             let v2 = lower[i];
-            if v2 == v1 || is_diphthong(v1, v2) {
+            // Opening diphthongs `ie / uo / yö` only stay in one syllable in the first syllable
+            // of a word (`kierros`, `Suomi`, `yöllä`); in non-initial syllables (`tähtien`,
+            // `pilvien`, `filippiinien`), they split across a syllable boundary (`täh-ti-en`).
+            let diph = is_closing_diphthong(v1, v2) || (syls.is_empty() && is_opening_diphthong(v1, v2));
+            if v2 == v1 || diph {
                 nucleus.push(v2);
                 i += 1;
             }
@@ -297,11 +309,18 @@ pub fn word(typed: &str) -> Vec<Segment> {
             }
         }
         out.extend(onset);
+        let short_scale = if stress == 1 {
+            SHORT_VOWEL_STRESSED
+        } else if idx + 1 < len {
+            SHORT_VOWEL_MEDIAL
+        } else {
+            SHORT_VOWEL_FINAL
+        };
         let (ipa, len_scale) = match syl.nucleus.as_slice() {
-            [a] => (single_vowel_ipa(*a), SHORT_VOWEL),
-            [a, b] if a == b => (single_vowel_ipa(*a), LONG_VOWEL),
+            [a] => (single_vowel_ipa(*a), short_scale),
+            [a, b] if a == b => (single_vowel_ipa(*a), if stress == 1 { LONG_VOWEL } else { LONG_VOWEL * 1.25 }),
             [a, b] => (diphthong_ipa(*a, *b).map_or_else(|| single_vowel_ipa(*a), |(d, _)| d), DIPHTHONG_LEN),
-            _ => ("ɑ", SHORT_VOWEL),
+            _ => ("ɑ̠", short_scale),
         };
         out.push(Segment { ipa: ipa.into(), stress: Some(stress), length: Some(len_scale), ..Default::default() });
         let mut coda = consonants_to_segments(&syl.coda);
@@ -333,7 +352,7 @@ fn sung_syllables(typed: &str) -> Vec<Syllable> {
                 [a] => (single_vowel_ipa(*a), None),
                 [a, b] if a == b => (single_vowel_ipa(*a), None),
                 [a, b] => diphthong_ipa(*a, *b).unwrap_or((single_vowel_ipa(*a), None)),
-                _ => ("ɑ", None),
+                _ => ("ɑ̠", None),
             };
             let onset = consonants_to_segments(&syl.onset).into_iter().map(|s| Segment { length: None, ..s }).collect();
             let coda = consonants_to_segments(&syl.coda).into_iter().map(|s| Segment { length: None, ..s }).collect();

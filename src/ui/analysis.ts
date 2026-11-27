@@ -10,7 +10,7 @@ import { bodyWeights, type BodyMix } from "./body.ts";
 /** Language-specific vowels that the planner sings but the vowel space leaves out: Mandarin's
  *  apical vowels ɿ ʅ and retracted u̠ ʊ̠, and Finnish's open front æ̞, which would sit on top of
  *  the English u ʊ æ the map is drawn for. */
-const NOT_ON_THE_MAP = new Set(["ɿ", "ʅ", "u̠", "ʊ̠", "æ̞"]);
+const NOT_ON_THE_MAP = new Set(["ɿ", "ʅ", "u̠", "ʊ̠", "æ̞", "u̝", "ɑ̠"]);
 
 export interface VowelPoint {
   ipa: string;
