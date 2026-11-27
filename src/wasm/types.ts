@@ -1,5 +1,6 @@
 /** Engine types as the UI sees them (the JSON shapes of the Rust engine's serde types). */
 export type ArticKey = "jaw" | "tbX" | "tbY" | "ttX" | "ttY" | "ttCurl" | "root" | "lipAp" | "lipProt" | "lipWidth" | "labiodental" | "velum" | "larynx" | "epilarynx" | "ventricular" | "lateral" | "dorsum";
+export type ArabicDialect = "msa" | "egyptian";
 export type SourceKey = "abduction" | "closure" | "breath" | "f0" | "vibrato";
 export type ControlKey = ArticKey | SourceKey;
 
@@ -167,6 +168,8 @@ export interface Segment {
   nasalized?: boolean;
   /** a consonant with a secondary palatal gesture, the tongue body raised and fronted (IPA ʲ) */
   palatalized?: boolean;
+  /** a vowel with the tongue root retracted near an emphatic consonant */
+  pharyngealized?: boolean;
   /** breathy voice: a voiced stop or affricate's release (IPA ʱ), or a vowel (combining diaeresis below) */
   breathy?: boolean;
   /** a vowel that is a glide off the vowel before it, reached over this long (s): one movement, not a second held vowel */
@@ -201,7 +204,7 @@ export interface Plan {
 
 /** The language Latin-script words are read in: their script can't tell Turkish from English, so
  *  the player chooses (Rust's `syllables::Lang`). Hangul and Cyrillic go to their own front ends. */
-export type Lang = "en" | "tr";
+export type Lang = "en" | "tr" | "ar";
 
 export interface Phrase {
   segments: Segment[];

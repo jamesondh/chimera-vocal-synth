@@ -23,7 +23,7 @@ for tests and the `chimera` CLI.
    make with the voice, posed by joint angles or moved by other tools' motion (Mixamo, BVH,
    glTF): a small library, not animation software (no timeline, no renderer).
 8. **Not now**: a DAW or sequencer, a light theme, multi-voice dialogue, translating the
-   interface (the voice speaks and sings many languages; the labels stay in English).
+   interface (the voice speaks and sings many languages; the labels stay in English and the layout stays left-to-right).
 
 ## What it does
 

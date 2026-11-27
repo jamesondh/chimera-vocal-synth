@@ -94,7 +94,9 @@ function Lyrics() {
 function LyricsLang() {
   const lang = useSing((s) => s.lang);
   const setLang = useSing((s) => s.setLang);
-  return <LangPick value={lang} onChange={setLang} />;
+  const arabicDialect = useSing((s) => s.arabicDialect);
+  const setArabicDialect = useSing((s) => s.setArabicDialect);
+  return <LangPick value={lang} onChange={setLang} arabicDialect={arabicDialect} onArabicDialect={setArabicDialect} />;
 }
 
 function SongControls() {

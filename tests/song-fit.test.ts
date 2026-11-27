@@ -6,8 +6,8 @@ import { describe, expect, test } from "bun:test";
 import { initEngine } from "./harness.ts";
 
 await initEngine();
-const { lyricsToSyllables } = await import("../src/wasm/engine.ts");
-const { TUNES } = await import("../src/song/tunes.ts");
+const { lyricsToSyllables, textToPhrases } = await import("../src/wasm/engine.ts");
+const { SAWT_SAFIR_AL_BULBUL_ID, SAWT_SAFIR_AL_BULBUL_LYRICS, TUNES } = await import("../src/song/tunes.ts");
 const { fitLine, fitSong, lines, phraseSize, la } = await import("../src/song/fit.ts");
 type SungNote = import("../src/wasm/types.ts").SungNote;
 type Syllable = import("../src/wasm/types.ts").Syllable;
@@ -27,6 +27,45 @@ describe("tunes", () => {
   });
   test("ids are unique", () => {
     expect(new Set(TUNES.map((t) => t.id)).size).toBe(TUNES.length);
+  });
+  test("the poem defaults to a slower recitation and uses the singular nose", () => {
+    const poem = TUNES.find((t) => t.id === SAWT_SAFIR_AL_BULBUL_ID)!;
+    const secondsPerLine = beats(poem.phrases[0].map(([, duration]) => ({ beats: duration }))) * 60 / poem.bpm;
+    expect(secondsPerLine).toBeGreaterThanOrEqual(2.5);
+    expect(secondsPerLine).toBeLessThan(3);
+
+    const linesOfPoem = poem.lyrics!.split("\n");
+    const heartPhones = textToPhrases(linesOfPoem[1]).flatMap((phrase) => phrase.segments.map((segment) => segment.ipa));
+    expect(heartPhones.slice(-2)).toEqual(["l", "a"]);
+
+    const noseLine = linesOfPoem.find((line) => line.startsWith("شَمِمْتُهَا"))!;
+    const nosePhones = textToPhrases(noseLine).flatMap((phrase) => phrase.segments.map((segment) => segment.ipa));
+    expect(nosePhones.slice(-7)).toEqual(["b", "i", "ʔ", "a", "n", "f", "i"]);
+  });
+
+  test("a long Arabic word keeps every syllable", () => {
+    const syllables = lyricsToSyllables("كَتَبَ");
+    const fitted = fitSong(TUNES[0], syllables);
+
+    expect(syllables).toHaveLength(3);
+    expect(sung(fitted.notes)).toEqual(texts(syllables));
+    expect(fitted.from.map((i) => syllables[i].nucleus.ipa)).toEqual(fitted.notes.map((note) => note.syl.nucleus.ipa));
+  });
+
+  test("Arabic words retain their syllable order", () => {
+    const one = fitSong(TUNES[0], lyricsToSyllables("بَ"));
+    const two = fitSong(TUNES[0], lyricsToSyllables("سَلَام"));
+
+    expect(one.from.map((i) => lyricsToSyllables("بَ")[i].nucleus.ipa)).toEqual(one.notes.map((note) => note.syl.nucleus.ipa));
+    expect(two.from.map((i) => lyricsToSyllables("سَلَام")[i].nucleus.ipa)).toEqual(two.notes.map((note) => note.syl.nucleus.ipa));
+  });
+
+  test("a held Arabic word stays within its two-pitch contour", () => {
+    const syllables = lyricsToSyllables("كَتَبَ -");
+    const fitted = fitSong(TUNES[0], syllables);
+
+    expect(sung(fitted.notes)).toEqual(texts(syllables.filter((s) => !s.melisma)));
+    expect(fitted.from.length).toBeGreaterThan(0);
   });
 });
 

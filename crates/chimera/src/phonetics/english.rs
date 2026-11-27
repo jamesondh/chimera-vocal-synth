@@ -266,7 +266,7 @@ pub fn arpabet_to_segments(phones: &str) -> Vec<Segment> {
 }
 
 /// American English allophones: flapping and velarised coda /l/ (in place).
-fn apply_allophones(segs: &mut [Segment]) {
+pub(super) fn apply_allophones(segs: &mut [Segment]) {
     for i in 1..segs.len().saturating_sub(1) {
         let (prev, next) = (&segs[i - 1], &segs[i + 1]);
         let pv = is_vowel(&prev.ipa) || prev.ipa == "ɹ";
@@ -321,7 +321,7 @@ fn js_integer_to_string(n: f64) -> String {
     }
     format!("{n:e}").replacen('e', "e+", 1)
 }
-fn expand_numbers(t: &str) -> String {
+pub(crate) fn expand_numbers(t: &str) -> String {
     let mut out = String::with_capacity(t.len());
     let mut digits = String::new();
     let emit = |digits: &mut String, out: &mut String| {

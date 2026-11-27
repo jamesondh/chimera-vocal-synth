@@ -248,6 +248,18 @@ describe("Sing mode, live keys", () => {
       expect(sing().at).toBe(n % sing().syllables.length);
       stopSinging();
     }
+    const sawt = songs.find((song) => song.id === "sawt-safir-al-bulbul")!;
+    sing().setTune(sawt.id);
+    expect(sing().lang).toBe("ar");
+    expect(await playTune(sawt.id, MALE, () => Promise.resolve())).toBe(true);
+    const firstPhraseEnd = 0.35 + sawt.phrases[0].reduce((n, [, beats]) => n + beats, 0) * 60 / sawt.bpm;
+    expect(Math.max(...voice.score().map((g) => g.t1))).toBeGreaterThan(firstPhraseEnd);
+    const planEnd = Math.max(...voice.score().map((g) => g.t1));
+    planned({ type: "planned", id: 1, t0: voice.clock - planEnd - 0.01, end: 0 });
+    tickSinging();
+    expect(sing().at).toBe(sing().syllables.length - 1);
+    stopSinging();
+    sing().setLang("en");
     sing().setTune("joyful");
     expect(sing().lyrics).toBe("my own words");
     // edited words are fitted to the song like any tune's
@@ -265,6 +277,7 @@ describe("Sing mode, live keys", () => {
     const { DEFAULT_LYRICS } = await import("../src/ui/singing.ts");
     voice = new WasmVoice(FS);
     const sing = useSing.getState;
+    sing().setLang("en");
     sing().setTune("joyful");
     sing().setLyrics(DEFAULT_LYRICS);
     // the opening words give way to Turkish's, and Turkish letters are read

@@ -8,7 +8,7 @@ import { gunzipSync } from "node:zlib";
 import { initEngine } from "./harness.ts";
 
 await initEngine();
-const { EnglishG2P, planPhrases, tokenizeIpa } = await import("../src/wasm/engine.ts");
+const { EnglishG2P, planPhrases, textToPhrases, tokenizeIpa } = await import("../src/wasm/engine.ts");
 const { wordSpans } = await import("../src/ui/words.ts");
 const { advanceTrail } = await import("../src/ui/mouthWords.ts");
 const g2p = new EnglishG2P();
@@ -27,6 +27,18 @@ describe("word spans", () => {
     expect(words[1].t0).toBe(plan.segments.find((s) => s.ipa === "b")!.t0);
     expect(words[4].t1).toBe(plan.segments[plan.segments.length - 1].t1);
     for (let i = 1; i < words.length; i++) expect(words[i].t0).toBeGreaterThanOrEqual(words[i - 1].t1 - 1e-9);
+  });
+
+  test("Arabic speech displays whole words and keeps their phonemes contiguous", () => {
+    const phrases = textToPhrases("كَتَبَ كِتَابًا");
+    const plan = planPhrases(phrases, { body: male, t0: 0 });
+    const words = wordSpans(phrases, plan);
+
+    expect(phrases).toHaveLength(1);
+    expect(words.map((word) => word.text)).toEqual(["كَتَبَ", "كِتَابًا"]);
+    for (let i = 1; i < plan.segments.length; i++) {
+      expect(plan.segments[i].t0).toBeCloseTo(plan.segments[i - 1].t1, 10);
+    }
   });
 
   test("phrases follow one another, and IPA input is shown as IPA", () => {

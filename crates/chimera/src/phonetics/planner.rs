@@ -275,6 +275,7 @@ pub struct TimedSegment<'a> {
     pub vot: Option<f64>,
     pub nasalized: Option<bool>,
     pub palatalized: Option<bool>,
+    pub pharyngealized: Option<bool>,
     pub breathy: Option<bool>,
     pub glide: Option<f64>,
 }
@@ -300,6 +301,7 @@ struct Seg<'a> {
     vot: Option<f64>,
     nasalized: Option<bool>,
     palatalized: Option<bool>,
+    pharyngealized: Option<bool>,
     breathy: Option<bool>,
     /// a glide off the vowel before it, reached over this long (s): see `Segment::glide`
     glide: Option<f64>,
@@ -307,6 +309,7 @@ struct Seg<'a> {
 
 /// glottal abduction of breathy voice: /ɦ/'s, a gap the folds still vibrate across
 const BREATHY_ABDUCTION: f64 = 0.1;
+const EMPHATIC_SPREAD: f64 = 0.35;
 /// how long past its release a breathy-voiced stop's folds stay apart (s), at most to the end of
 /// the next segment
 const BREATHY_RELEASE: f64 = 0.08;
@@ -368,6 +371,7 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         vot: s.vot,
         nasalized: s.nasalized,
         palatalized: s.palatalized,
+        pharyngealized: s.pharyngealized,
         breathy: s.breathy,
         glide: s.glide,
     });
@@ -398,16 +402,23 @@ pub fn plan_timed<'a>(input: impl Iterator<Item = TimedSegment<'a>>, o: &PlanOpt
             };
             for (i, p) in parts.iter().enumerate() {
                 let dur = base * shares.get(i).copied().unwrap_or(1.0);
-                segs.push(Seg { ipa: p, dur, stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, nasalized: s.nasalized, palatalized: None, breathy: s.breathy, glide: None });
+                segs.push(Seg { ipa: p, dur, stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, nasalized: s.nasalized, palatalized: None, pharyngealized: s.pharyngealized, breathy: s.breathy, glide: None });
             }
         } else {
-            segs.push(Seg { ipa: s.ipa, dur: s.dur, stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, nasalized: s.nasalized, palatalized: s.palatalized, breathy: s.breathy, glide: s.glide });
+            segs.push(Seg { ipa: s.ipa, dur: s.dur, stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, nasalized: s.nasalized, palatalized: s.palatalized, pharyngealized: s.pharyngealized, breathy: s.breathy, glide: s.glide });
         }
     }
     for s in segs.iter_mut() {
-        let v = vowel_artic(s.ipa, body);
-        if v.is_some() {
-            s.vowel = v;
+        if let Some(mut v) = vowel_artic(s.ipa, body) {
+            if s.pharyngealized == Some(true) {
+                let emphatic = phoneme("sˤ", body).expect("Arabic emphatic targets are in the phoneme inventory").targets;
+                for key in [ArticKey::Root, ArticKey::TbX, ArticKey::TbY] {
+                    if let (Some(base), Some(target)) = (v.get(key), emphatic.get(key)) {
+                        v.set(key, base + EMPHATIC_SPREAD * (target - base));
+                    }
+                }
+            }
+            s.vowel = Some(v);
         } else {
             s.def = phoneme(s.ipa, body);
         }

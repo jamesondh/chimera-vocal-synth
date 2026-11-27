@@ -20,6 +20,7 @@ import { inPlugin } from "../../audio/pluginBridge.ts";
 const EXAMPLES: Record<Lang, string[]> = {
   en: ["Hello. Can you hear me?", "She sells sea shells by the sea shore.", "Every sound here is air moving through a throat.", "The quick brown fox jumps over the lazy dog."],
   tr: ["Merhaba, nasılsın?", "Bugün hava çok güzel.", "Türkçe konuşabiliyor musun?", "Şu köşe yaz köşesi, şu köşe kış köşesi."],
+  ar: ["صَوْتٌ وَاضِحٌ يَتَحَرَّكُ فِي الْهَوَاءِ."],
 };
 
 // IPA pulmonic consonant chart (rows = manner, columns = place); empty cells are null
@@ -163,6 +164,8 @@ export function SpeakRight() {
   // one language for Speak and Sing, kept with Sing's words
   const lang = useSing((s) => s.lang);
   const setLang = useSing((s) => s.setLang);
+  const arabicDialect = useSing((s) => s.arabicDialect);
+  const setArabicDialect = useSing((s) => s.setArabicDialect);
   // kept in a store, so the plugin saves them with the project and reads them on the audio thread
   const { text, ipa, rate, edit } = useSpeech();
   const setText = (v: string) => edit({ text: v });
@@ -190,7 +193,7 @@ export function SpeakRight() {
       await start();
       // the audio didn't start (the error shows on the bar): speaking would only light Stop
       if (!useStore.getState().started) return;
-      await speakText(text, { ipa, lang, body, rate, f0 });
+      await speakText(text, { ipa, lang, dialect: arabicDialect, body, rate, f0 });
     } finally {
       setBusy(false);
     }
@@ -228,7 +231,7 @@ export function SpeakRight() {
           <Slider label="Rate" value={rate} min={0.5} max={1.8} onChange={setRate} format={(v) => `${v.toFixed(2)}×`} />
         </div>
         {/* the plugin reads Latin script as English (other scripts by their own front ends) */}
-        {!inPlugin && <LangPick value={lang} onChange={pickLang} off={ipa} />}
+        {!inPlugin && <LangPick value={lang} onChange={pickLang} off={ipa} arabicDialect={arabicDialect} onArabicDialect={setArabicDialect} />}
         <Chip on={ipa} onClick={() => setIpa(!ipa)}>
           Text is IPA
         </Chip>

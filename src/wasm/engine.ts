@@ -8,7 +8,7 @@ import { call } from "./chimera.ts";
 import { CREATURE_VISUALS } from "../ui/creatureVisuals.ts";
 import type {
   ArticKey, ArticSpec, BeatPreset, BodyMix, BeatSound, BeatStep, CreatureDef, CreatureTelemetry, DemoSong, Gesture, HumanArtic, HumanBody,
-  HumanFrame, Lang, Phrase, Plan, Segment, SkippedIpa, SungNote, Syllable, VoiceSource, VowelRef,
+  HumanFrame, Lang, ArabicDialect, Phrase, Plan, Segment, SkippedIpa, SungNote, Syllable, VoiceSource, VowelRef,
 } from "./types.ts";
 
 export type * from "./types.ts";
@@ -157,8 +157,8 @@ export class MandarinLexicon {
  * (`lang`: English through the page's dictionary, see EnglishG2P, or Turkish), Korean, Russian,
  * and Mandarin once its lexicon is loaded.
  */
-export function lyricsToSyllables(text: string, lang: Lang = "en"): Syllable[] {
-  return call("lyricsToSyllables", { text, lang });
+export function lyricsToSyllables(text: string, lang: Lang = "en", dialect: ArabicDialect = "msa"): Syllable[] {
+  return call("lyricsToSyllables", { text, lang, dialect });
 }
 
 /**
@@ -167,6 +167,11 @@ export function lyricsToSyllables(text: string, lang: Lang = "en"): Syllable[] {
  */
 export function turkishPhrases(text: string): Phrase[] {
   return call("trPhrases", { text });
+}
+
+/** Mixed-script speech: Arabic script is routed to the Arabic front end automatically. */
+export function textToPhrases(text: string, dialect: ArabicDialect = "msa"): Phrase[] {
+  return call("arPhrases", { text, dialect });
 }
 
 // ------------------------------------------------------------------ planning

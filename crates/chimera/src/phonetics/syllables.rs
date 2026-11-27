@@ -13,6 +13,7 @@
 //! "~") holds the previous vowel onto the next note (melisma), as in vocaloid editors.
 
 use crate::anatomy::human::BodyMix;
+use super::arabic::{ArabicDialect, ArabicFrontEnd};
 use super::english::js_is_space;
 use super::japanese::Japanese;
 use super::korean::Korean;
@@ -171,7 +172,7 @@ impl<F: Fn(&str, bool) -> Vec<Segment>> WordSource for F {
 fn is_lyric_punct(c: char) -> bool {
     // ASCII, the full-width forms Chinese and Japanese lyrics use, and the half-width ､ ｡ typed
     // with half-width katakana
-    matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '\n' | '，' | '。' | '！' | '？' | '；' | '：' | '、' | '\u{FF64}' | '\u{FF61}')
+    matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '،' | '؛' | '؟' | '\n' | '，' | '。' | '！' | '？' | '；' | '：' | '、' | '\u{FF64}' | '\u{FF61}')
 }
 
 /// A language front end: claims the words written in its script and turns each into sung syllables
@@ -318,7 +319,7 @@ pub fn read_lyrics(text: &str, front_ends: &[&dyn FrontEnd]) -> Vec<Syllable> {
 /// dictionary: every built-in front end but Mandarin's characters (they need its lexicon; see
 /// [`lyrics_to_syllables_with`]).
 pub fn lyrics_to_syllables(text: &str, g2p: &impl WordSource) -> Vec<Syllable> {
-    lyrics_to_syllables_with(text, g2p, &MandarinLexicon::new())
+    lyrics_in(text, g2p, &MandarinLexicon::new(), Lang::En)
 }
 
 /// Lyrics → sung syllables through every built-in front end: pinyin (only words with tones; before
@@ -337,6 +338,7 @@ pub enum Lang {
     #[default]
     En,
     Tr,
+    Ar,
 }
 
 /// Lyrics → sung syllables through every built-in front end, with Latin script read as `lang`:
@@ -345,8 +347,22 @@ pub enum Lang {
 /// (empty: Han characters are skipped). The one list the app, the wasm engine and the CLI all read
 /// lyrics through, so a new front end can't be missing from one of them.
 pub fn lyrics_in(text: &str, g2p: &impl WordSource, zh: &MandarinLexicon, lang: Lang) -> Vec<Syllable> {
-    match lang {
-        Lang::En => read_lyrics(text, &[&Pinyin, &English(g2p), &Korean, &Russian, &Japanese, &Mandarin(zh)]),
-        Lang::Tr => read_lyrics(text, &[&Pinyin, &Turkish, &Korean, &Russian, &Japanese, &Mandarin(zh)]),
-    }
+    lyrics_in_with_dialect(text, g2p, zh, lang, ArabicDialect::default())
+}
+
+pub fn lyrics_in_with_dialect(
+    text: &str,
+    g2p: &impl WordSource,
+    zh: &MandarinLexicon,
+    lang: Lang,
+    dialect: ArabicDialect,
+) -> Vec<Syllable> {
+    let arabic = ArabicFrontEnd(dialect);
+    let english = English(g2p);
+    let latin: &dyn FrontEnd = match lang {
+        Lang::Tr => &Turkish,
+        Lang::En | Lang::Ar => &english,
+    };
+    let front_ends: [&dyn FrontEnd; 7] = [&Pinyin, latin, &Korean, &Russian, &Japanese, &Mandarin(zh), &arabic];
+    read_lyrics(text, &front_ends)
 }

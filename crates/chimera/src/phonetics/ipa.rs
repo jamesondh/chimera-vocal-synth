@@ -197,6 +197,26 @@ fn tokenize(input: &str, gaps: &mut Gaps) -> Vec<Segment> {
             i += 1;
             continue;
         }
+        // pharyngealized consonants used for Arabic emphatics, e.g. /sˤ/
+        if ch == 'ˤ' {
+            if let Some(last) = out.last_mut() {
+                let mut emphatic = last.ipa.clone();
+                emphatic.push(ch);
+                let separated_by_whitespace = i > 0 && s[i - 1].is_whitespace();
+                if last.word_end != Some(true)
+                    && !separated_by_whitespace
+                    && consonant(&emphatic).is_some()
+                {
+                    last.ipa = emphatic;
+                } else {
+                    gaps.ignore(Some(last), ch);
+                }
+            } else {
+                gaps.ignore(None, ch);
+            }
+            i += 1;
+            continue;
+        }
         // palatalization, on a consonant made with a mouth gesture (not a glottal one)
         if ch == 'ʲ' {
             match out.last_mut().filter(|l| consonant(&l.ipa).is_some_and(|c| c.manner != Manner::Glottal)) {

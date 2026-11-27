@@ -355,6 +355,8 @@ its listener chose the melody as written (above).
 
 ## Adding a language
 
+Arabic vowel marks are needed for a good reading; unvowelled text uses a conservative short-/a/ fallback.
+
 1. **Map its sounds onto the inventory.** Add missing ones between their neighbours, as
    `ɕ ʑ tɕ dʑ tʂ dʐ ɥ` were, and let `chimera calibrate consonants` set a fricative's constriction:
    it appends new entries and leaves existing ones alone.

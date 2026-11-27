@@ -43,7 +43,7 @@ fn consonants(segs: &[Segment], body: BodyMix, k: f64) -> Vec<Segment> {
 /// A sung vowel (or one half of a diphthong) at the note's pitch, with the sound marks of the
 /// syllable's nucleus.
 fn nucleus_part(ipa: &str, dur: f64, hz: f64, nucleus: &Segment) -> Segment {
-    Segment { ipa: ipa.to_string(), dur: Some(dur), f0: Some(hz), stress: Some(1), nasalized: nucleus.nasalized, breathy: nucleus.breathy, ..Default::default() }
+    Segment { ipa: ipa.to_string(), dur: Some(dur), f0: Some(hz), stress: Some(1), nasalized: nucleus.nasalized, pharyngealized: nucleus.pharyngealized, breathy: nucleus.breathy, ..Default::default() }
 }
 
 /// Sung consonants at their note's pitch: an onset consonant moves the pitch to the new note
@@ -497,6 +497,7 @@ pub struct LiveSyllable {
     pub nucleus: Label,
     /// the nucleus's marks, as [`Segment`]'s
     pub nasalized: Option<bool>,
+    pub pharyngealized: Option<bool>,
     pub breathy: Option<bool>,
     pub coda: Cluster,
     /// continue the previous syllable's vowel at a new pitch
@@ -506,7 +507,7 @@ pub struct LiveSyllable {
 impl LiveSyllable {
     /// Sung when the lyrics are empty.
     pub fn ah() -> LiveSyllable {
-        LiveSyllable { onset: Cluster::default(), nucleus: Label::new("ɑ"), nasalized: None, breathy: None, coda: Cluster::default(), melisma: false }
+        LiveSyllable { onset: Cluster::default(), nucleus: Label::new("ɑ"), nasalized: None, pharyngealized: None, breathy: None, coda: Cluster::default(), melisma: false }
     }
 }
 
@@ -516,6 +517,7 @@ impl From<&Syllable> for LiveSyllable {
             onset: Cluster::from_segments(&s.onset),
             nucleus: Label::new(&s.nucleus.ipa),
             nasalized: s.nucleus.nasalized,
+            pharyngealized: s.nucleus.pharyngealized,
             breathy: s.nucleus.breathy,
             coda: Cluster::from_segments(&s.coda),
             melisma: s.melisma == Some(true),
@@ -548,7 +550,7 @@ fn push_consonants<'a>(out: &mut LiveSegments<'a>, c: &'a Cluster, body: BodyMix
 /// A sung vowel (or one part of a nucleus) at the note's pitch, with the nucleus's marks, as
 /// [`nucleus_part`].
 fn live_nucleus_part<'a>(ipa: &'a str, dur: f64, hz: f64, syl: &LiveSyllable) -> TimedSegment<'a> {
-    TimedSegment { ipa, dur, stress: Some(1), f0: Some(hz), nasalized: syl.nasalized, breathy: syl.breathy, ..Default::default() }
+    TimedSegment { ipa, dur, stress: Some(1), f0: Some(hz), nasalized: syl.nasalized, pharyngealized: syl.pharyngealized, breathy: syl.breathy, ..Default::default() }
 }
 
 /// What follows a held vowel: a falling diphthong's (or a triphthong's) glide at the note's pitch
