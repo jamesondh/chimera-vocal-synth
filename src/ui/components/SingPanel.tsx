@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { inPlugin } from "../../audio/pluginBridge.ts";
 import { useStore } from "../store.ts";
-import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary } from "../singing.ts";
+import { useSing, playTune, stopSinging, soundingSyllable, sungNow, TUNES, ensureDictionary, LIVE_TUNE, onSingNoteOn } from "../singing.ts";
 import { engine } from "../../audio/AudioEngine.ts";
-import { canRecord, Clip } from "../../song/record.ts";
+import { canRecord, Clip, recording as clipRecording } from "../../song/record.ts";
 import { mouthWords } from "../mouthWords.ts";
 import { V } from "../colors.ts";
 import { Keys, MidiButton } from "./Keys.tsx";
@@ -143,10 +143,13 @@ function SongControls() {
   );
 }
 
+type LiveRec = "idle" | "arming" | "armed" | "recording";
+
 /**
  * Sing's main button: sing the lyrics to the chosen tune, or stop. A song getting ready (audio
  * starting, the dictionary loading) counts as playing: Stop cancels it, and choosing another tune
  * replaces it. Record video sings it again into a clip of the face screen (Share and Save once it's done).
+ * Choosing Live turns the main button into live video recording for on-screen keys, computer keys, or MIDI.
  */
 function SingActions() {
   const start = useStore((s) => s.start);
@@ -155,22 +158,36 @@ function SingActions() {
   const setTune = useSing((s) => s.setTune);
   const [pending, setPending] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [liveRec, setLiveRecState] = useState<LiveRec>("idle");
+  const liveRecRef = useRef<LiveRec>("idle");
+  const setLiveRec = (next: LiveRec) => {
+    liveRecRef.current = next;
+    setLiveRecState(next);
+  };
   const [clip, setClip] = useState<{ file: File; url: string } | null>(null);
   /** bumped by every start and stop: a start still waiting no longer counts */
   const request = useRef(0);
   /** bumped by every Record video: a clip still being finished for an earlier one isn't offered */
   const take = useRef(0);
+  /** take number belonging to the active live recording */
+  const liveTake = useRef(0);
   /** the clip recording now, if any (one at a time) */
   const recorder = useRef<Clip | null>(null);
+
+  const liveMode = tune === LIVE_TUNE;
+  const tuneOptions = [{ value: LIVE_TUNE, label: "Live" }, ...TUNES.map((t) => ({ value: t.id, label: t.name }))];
+
   // the audio must be running: if it failed to start, nothing is planned and the error shows
   const ready = async () => {
     await start();
     if (!useStore.getState().started) throw new Error("no audio");
   };
   const drop = () => {
+    clipRecording.armed = false;
     recorder.current?.cancel();
     recorder.current = null;
     setRecording(false);
+    setLiveRec("idle");
   };
   // the clip's life is the tune's run: it starts as the tune is sent (never for a start that was
   // cancelled), is saved when it's sung to the end, and goes when it's stopped from anywhere
@@ -216,35 +233,162 @@ function SingActions() {
     stopSinging(); // its run's onStop drops the clip
     drop();
   };
+  const armLive = () => {
+    if (!canRecord()) return;
+    const n = ++request.current;
+    const k = ++take.current;
+    liveTake.current = k;
+    drop();
+    stopSinging();
+    useSing.getState().setCursor(0);
+    setClip(null);
+    ensureDictionary();
+    if (useStore.getState().started && engine.level() < 0.003 && engine.recordStream()) {
+      clipRecording.armed = true;
+      setLiveRec("armed");
+      return;
+    }
+    setLiveRec("arming");
+    void (async () => {
+      try {
+        await ready();
+        if (engine.level() >= 0.003) await engine.quiet();
+      } catch {
+        if (request.current === n) drop();
+        return;
+      }
+      if (request.current !== n) return;
+      if (!engine.recordStream()) {
+        drop();
+        return;
+      }
+      clipRecording.armed = true;
+      setLiveRec("armed");
+    })();
+  };
+  const startLiveClip = () => {
+    const state = liveRecRef.current;
+    if (state !== "armed" && !(state === "arming" && useStore.getState().started)) return;
+    if (state === "arming") request.current++;
+    const face = () => document.querySelector<HTMLCanvasElement>(".screen.left canvas");
+    const audio = engine.recordStream();
+    if (!face() || !audio) {
+      drop();
+      return;
+    }
+    const k = liveTake.current;
+    // disarm synchronously before constructing Clip so chord notes cannot spawn two recorders
+    liveRecRef.current = "recording";
+    let c: Clip;
+    try {
+      c = new Clip(face, audio, () => {
+        if (recorder.current === c) {
+          recorder.current = null;
+          setLiveRec("idle");
+        }
+      });
+    } catch (e) {
+      console.warn("Record video:", e);
+      drop();
+      return;
+    } finally {
+      clipRecording.armed = false;
+    }
+    if (liveTake.current !== k) {
+      c.cancel();
+      return;
+    }
+    recorder.current = c;
+    setLiveRec("recording");
+  };
+  const finishLive = () => {
+    const c = recorder.current;
+    if (!c || liveRecRef.current !== "recording") return;
+    const k = liveTake.current;
+    request.current++;
+    recorder.current = null;
+    setLiveRec("idle");
+    stopSinging();
+    c.stop("chimera-live")
+      .then((file) => take.current === k && setClip({ file, url: URL.createObjectURL(file) }))
+      .catch((e) => console.warn("Record video:", e));
+  };
+  const cancelLive = () => {
+    request.current++;
+    take.current++;
+    drop();
+  };
+  useEffect(() => onSingNoteOn(() => startLiveClip()), []);
+  useEffect(
+    () =>
+      engine.onRebuilt(() => {
+        if (liveRecRef.current !== "idle") cancelLive();
+      }),
+    [],
+  );
   useEffect(() => () => void (clip && URL.revokeObjectURL(clip.url)), [clip]);
   // leaving Sing: nothing still starting may begin a clip, and one recording goes
   useEffect(
     () => () => {
       request.current++;
       take.current++;
+      clipRecording.armed = false;
+      liveRecRef.current = "idle";
       recorder.current?.cancel();
       recorder.current = null;
     },
     [],
   );
-  const press = () => (playing || pending ? stop() : sing(tune));
+  const liveWaiting = liveRec === "arming" || liveRec === "armed";
+  const liveRecording = liveRec === "recording";
+  const press = () => {
+    if (liveMode) {
+      if (liveRecording) finishLive();
+      else if (liveRec === "idle") armLive();
+      return;
+    }
+    if (playing || pending) stop();
+    else sing(tune);
+  };
   const share = clip && typeof navigator.canShare === "function" && navigator.canShare({ files: [clip.file] });
   return (
     <ActionBar label="Song" onSpace={press}>
-      <PrimaryButton label="Sing" playing={(!!playing || pending) && !recording} busy={recording ? "Recording…" : null} onClick={press} />
+      {liveMode ? (
+        <PrimaryButton
+          label="Record video"
+          icon="breath"
+          playing={liveRecording}
+          busy={!canRecord() ? "Live" : liveWaiting ? "Play a note…" : null}
+          title={liveRecording ? "Stop and finish this video clip" : "Wait for your first note, then record the face into a video"}
+          onClick={press}
+        />
+      ) : (
+        <PrimaryButton label="Sing" playing={(!!playing || pending) && !recording} busy={recording ? "Recording…" : null} onClick={press} />
+      )}
       <Menu
         label="Tune"
         icon="note"
         value={tune}
-        options={TUNES.map((t) => ({ value: t.id, label: t.name }))}
+        options={tuneOptions}
         onChange={(id) => {
+          if (id === LIVE_TUNE) {
+            stop();
+            setTune(id);
+            return;
+          }
+          if (liveRecRef.current !== "idle") cancelLive();
           setTune(id);
           if ((playing || pending) && !recording) sing(id);
         }}
       />
-      {canRecord() && (
+      {!liveMode && canRecord() && (
         <Chip toggle={false} onClick={() => (recording ? stop() : sing(tune, true))} title="Sing it again and record the face into a video">
           {recording ? "Cancel" : "Record video"}
+        </Chip>
+      )}
+      {liveMode && (liveWaiting || liveRecording) && (
+        <Chip toggle={false} onClick={cancelLive} title="Discard this recording">
+          Cancel
         </Chip>
       )}
       {clip && share && (

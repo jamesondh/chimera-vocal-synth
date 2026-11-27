@@ -42,7 +42,7 @@ const engineStub = new Proxy(
   { get: (t, k) => (k in t ? t[k as string] : () => {}), set: (t, k, v) => ((t[k as string] = v), true) },
 );
 mock.module("../src/audio/AudioEngine.ts", () => ({ engine: engineStub }));
-const { useSing, singNoteOn, singNoteOff, playTune, stopSinging, tickSinging } = await import("../src/ui/singing.ts");
+const { useSing, singNoteOn, singNoteOff, playTune, stopSinging, tickSinging, LIVE_TUNE, onSingNoteOn } = await import("../src/ui/singing.ts");
 const gesturesOf = () => voice.score();
 /** breath the score is giving now (strength-weighted activation of breath gestures) */
 const breathNow = () => {
@@ -338,6 +338,50 @@ describe("Sing mode, live keys", () => {
     stopSinging();
     run(0.08);
     expect(breathNow()).toBeLessThan(0.01);
+  });
+
+  test("Live tune never plays a built-in melody, preserves lyrics, and onSingNoteOn only fires on live notes", async () => {
+    const { TUNES } = await import("../src/song/tunes.ts");
+    voice = new WasmVoice(FS);
+    const sing = useSing.getState;
+    let scheduled = 0;
+    const schedule = engineStub.schedule as typeof fakeEngine.schedule;
+    engineStub.schedule = (plan: { gestures: Gesture[] }) => (scheduled++, schedule(plan));
+
+    sing().setTune("joyful");
+    sing().setLang("tr");
+    sing().setLyrics("kendi sözlerim");
+    const song = TUNES.find((t) => t.lyrics !== undefined && /^[ -~\s]*$/.test(t.lyrics))!;
+    sing().setTune(song.id);
+    expect(sing().lyrics).toBe(song.lyrics!);
+
+    // choosing Live gives back the player's own lyrics and language, and playTune refuses it
+    sing().setTune(LIVE_TUNE);
+    expect(sing().tune).toBe(LIVE_TUNE);
+    expect(sing().lang).toBe("tr");
+    expect(sing().lyrics).toBe("kendi sözlerim");
+    expect(await playTune(LIVE_TUNE, MALE, () => Promise.resolve())).toBe(false);
+    expect(scheduled).toBe(0);
+    expect(sing().playing).toBeNull();
+
+    // onSingNoteOn fires synchronously for live notes only, and stops when unsubscribed
+    const seen: [number, number][] = [];
+    const off = onSingNoteOn((m, v) => seen.push([m, v]));
+    await playTune("joyful", MALE, () => Promise.resolve());
+    expect(seen).toEqual([]);
+    stopSinging();
+    singNoteOn(57, 100, MALE);
+    expect(seen).toEqual([[57, 100]]);
+    singNoteOff(57, MALE);
+    off();
+    singNoteOn(59, 80, MALE);
+    expect(seen).toEqual([[57, 100]]);
+    singNoteOff(59, MALE);
+
+    engineStub.schedule = schedule;
+    sing().setLang("en");
+    sing().setTune("dreamy");
+    sing().setLyrics("Hello there");
   });
 });
 

@@ -24,8 +24,10 @@ function pickType(): string | null {
  */
 export const recording = {
   owner: null as Clip | null,
+  /** armed for a live take: the face is already clean before the first note lands */
+  armed: false,
   get on(): boolean {
-    return this.owner !== null;
+    return this.owner !== null || this.armed;
   },
 };
 
@@ -44,13 +46,17 @@ export class Clip {
   private ended!: Promise<void>;
   /** the recorder reported an error: what it holds isn't a whole clip */
   private failed = false;
+  /** true once stop() or cancel() initiated shutdown (so onFail only fires on unexpected stops) */
+  private stopping = false;
+  private onFail?: () => void;
 
   /**
    * Starts recording `source()`, read every frame (the face's canvas changes when 2D/3D is
    * toggled); throws (having let go of everything it took) if the browser can't.
    */
-  constructor(source: () => HTMLCanvasElement | null, audio: MediaStream) {
+  constructor(source: () => HTMLCanvasElement | null, audio: MediaStream, onFail?: () => void) {
     this.type = pickType()!;
+    this.onFail = onFail;
     recording.owner = this;
     try {
       this.begin(source, audio);
@@ -89,6 +95,7 @@ export class Clip {
       this.rec.onstop = () => {
         this.release();
         resolve();
+        if (!this.stopping) this.onFail?.();
       };
     });
     this.rec.start(500);
@@ -96,7 +103,9 @@ export class Clip {
 
   /** Finish: the clip as a file named `name` (the extension is added); rejects if the recorder failed. */
   async stop(name: string): Promise<File> {
+    this.stopping = true;
     cancelAnimationFrame(this.raf);
+    this.raf = 0;
     // the face screens show their measurements again now, not when the browser hands the file over
     if (recording.owner === this) recording.owner = null;
     if (this.rec.state !== "inactive") this.rec.stop();
@@ -108,6 +117,7 @@ export class Clip {
 
   /** Throw it away. */
   cancel(): void {
+    this.stopping = true;
     if (this.rec.state !== "inactive") this.rec.stop();
     this.release();
   }
@@ -115,6 +125,7 @@ export class Clip {
   private release(): void {
     if (recording.owner === this) recording.owner = null;
     cancelAnimationFrame(this.raf);
+    this.raf = 0;
     for (const t of this.video) t.stop();
   }
 }

@@ -681,6 +681,213 @@ for (const slowAt of ["48000", "any", "48000-gesture"]) {
   await page.close();
 }
 
+const installLiveRecSpy = () => {
+  const w = window as unknown as {
+    __recorders: MediaRecorder[];
+    __texts: string[];
+  };
+  w.__recorders = [];
+  w.__texts = [];
+  const Rec = window.MediaRecorder;
+  window.MediaRecorder = class extends Rec {
+    constructor(...a: ConstructorParameters<typeof Rec>) {
+      super(...a);
+      w.__recorders.push(this);
+    }
+  };
+  const fill = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (this: CanvasRenderingContext2D, t: string, ...a: [number, number]) {
+    if (w.__texts.length < 5000) w.__texts.push(t);
+    return fill.call(this, t, ...a);
+  };
+};
+
+const installMidiMock = () => {
+  const w = window as unknown as {
+    __midiTest: {
+      noteOn: (m: number, v?: number) => void;
+      noteOff: (m: number) => void;
+    };
+  };
+  const input: { id: string; name: string; state: "connected" | "disconnected"; onmidimessage: ((e: { data: Uint8Array }) => void) | null } = {
+    id: "dev-1",
+    name: "Test Keys",
+    state: "connected",
+    onmidimessage: null,
+  };
+  const inputs = new Map([["dev-1", input]]);
+  const access: { inputs: typeof inputs; onstatechange: (() => void) | null } = { inputs, onstatechange: null };
+  (navigator as unknown as { requestMIDIAccess: () => Promise<typeof access> }).requestMIDIAccess = async () => access;
+  w.__midiTest = {
+    noteOn: (m: number, v = 96) => input.onmidimessage?.({ data: new Uint8Array([0x90, m, v]) }),
+    noteOff: (m: number) => input.onmidimessage?.({ data: new Uint8Array([0x80, m, 0]) }),
+  };
+};
+
+// Sing with Live selected on a phone (no MIDI): Live is always in the Tune menu, Sing stays the
+// main button until Live is picked, Record video arms silently with a clean face, starts on the
+// first on-screen key press, and Stop mid-take exports the clip via Save.
+{
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
+  page.on("console", (m) => m.type() === "error" && errors.push(`[live-video] ${m.text()}`));
+  page.on("pageerror", (e) => errors.push(`[live-video] pageerror: ${e.message}`));
+  await page.addInitScript(installLiveRecSpy);
+  await page.goto(url, { waitUntil: "networkidle" });
+  const tuneSelect = page.getByRole("combobox", { name: "Tune" });
+  if ((await tuneSelect.locator("option", { hasText: "Live" }).count()) !== 1) errors.push("[live-video] Live option missing from Tune menu");
+  if ((await tuneSelect.inputValue()) === "live") errors.push("[live-video] Live should not be selected by default");
+  if ((await page.getByRole("button", { name: /^Sing$/ }).count()) !== 1) errors.push("[live-video] Sing main button missing before picking Live");
+  await tuneSelect.selectOption("live");
+  if ((await page.getByRole("button", { name: /^Sing$/ }).count()) !== 0) errors.push("[live-video] Sing button still shown in Live mode");
+  await page.locator(".lyrics textarea").fill("one two three");
+  await page.locator(".lyrics .syl").nth(1).click();
+  if ((await page.locator(".lyrics .syl.next").textContent())?.trim() !== "two") errors.push("[live-video] clicking second syllable did not move cursor");
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Play a note…$/ }).waitFor({ timeout: 10000 });
+  if ((await page.locator(".lyrics .syl.next").textContent())?.trim() !== "one") errors.push("[live-video] Record video did not reset lyrics cursor to start");
+  await page.getByRole("button", { name: /^Cancel$/ }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(500);
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(250);
+  const armed = await page.evaluate(() => {
+    const w = window as unknown as { __recorders: MediaRecorder[]; __texts: string[]; __chimeraEngine: { level(): number } };
+    return { recorders: w.__recorders.length, rms: w.__chimeraEngine.level(), readouts: w.__texts.some((t) => /^RING O/.test(t)) };
+  });
+  if (armed.recorders !== 0) errors.push(`[live-video] made ${armed.recorders} recorders while waiting for a note`);
+  if (armed.rms >= 0.003) errors.push(`[live-video] built-in sound played while armed (rms ${armed.rms})`);
+  if (armed.readouts) errors.push("[live-video] face readouts stayed visible while armed");
+
+  const pressKey = async (idx: number, holdMs: number) => {
+    const key = page.locator(".keys .key.white").nth(idx);
+    await key.scrollIntoViewIfNeeded();
+    const box = (await key.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.75);
+    await page.mouse.down();
+    await page.waitForTimeout(holdMs);
+    await page.mouse.up();
+  };
+
+  const firstKey = page.locator(".keys .key.white").nth(2);
+  await firstKey.scrollIntoViewIfNeeded();
+  const firstBox = (await firstKey.boundingBox())!;
+  await page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height * 0.75);
+  await page.mouse.down();
+  await page.getByRole("button", { name: /^Stop$/ }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(450);
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: `${outDir}/live-video-recording.png` });
+  const recState = await page.evaluate(() => {
+    const w = window as unknown as { __recorders: MediaRecorder[]; __texts: string[]; __chimeraEngine: { level(): number } };
+    return { recorders: w.__recorders.length, state: w.__recorders[0]?.state ?? null, rms: w.__chimeraEngine.level(), readouts: w.__texts.some((t) => /^RING O/.test(t)) };
+  });
+  await page.mouse.up();
+  if (recState.recorders !== 1 || recState.state !== "recording") errors.push(`[live-video] bad recorder state on first note: ${JSON.stringify(recState)}`);
+  if (recState.rms <= 0.005) errors.push(`[live-video] on-screen key made no sound while recording (rms ${recState.rms})`);
+  if (recState.readouts) errors.push("[live-video] face readouts stayed visible while recording");
+
+  await pressKey(4, 450);
+  await page.getByRole("button", { name: /^Stop$/ }).click();
+  const save = page.getByRole("link", { name: /^Save$/ });
+  const saved = await save.waitFor({ timeout: 15000 }).then(() => true, () => false);
+  if (!saved) errors.push("[live-video] Stop never offered a clip to save");
+  else {
+    const [dl] = await Promise.all([page.waitForEvent("download"), save.click()]);
+    const size = (await (await dl.createReadStream()).toArray()).reduce((n, b: Buffer) => n + b.length, 0);
+    logs.push(`[live-video] clip ${dl.suggestedFilename()}: ${size} bytes`);
+    if (!/^chimera-live\.(mp4|webm)$/.test(dl.suggestedFilename())) errors.push(`[live-video] unexpected filename ${dl.suggestedFilename()}`);
+    if (size < 10000) errors.push(`[live-video] clip nearly empty (${size} bytes)`);
+  }
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(350);
+  const readoutsBack = await page.evaluate(() => (window as unknown as { __texts: string[] }).__texts.some((t) => /^RING O/.test(t)));
+  if (!readoutsBack) errors.push("[live-video] face readouts never came back after Stop");
+  await page.close();
+}
+
+// Live video edge cases (with MIDI connected): connecting MIDI does not auto-switch away from Sing,
+// Cancel while waiting, simultaneous chord starts one recorder + Stop mid-take, and Cancel while recording.
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
+  page.on("console", (m) => m.type() === "error" && errors.push(`[live-video-edge] ${m.text()}`));
+  page.on("pageerror", (e) => errors.push(`[live-video-edge] pageerror: ${e.message}`));
+  await page.addInitScript(installLiveRecSpy);
+  await page.addInitScript(installMidiMock);
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /^MIDI$/ }).click();
+  await page.getByRole("button", { name: /^MIDI: Test Keys$/ }).waitFor({ timeout: 5000 });
+  const tuneSelect = page.getByRole("combobox", { name: "Tune" });
+  if ((await tuneSelect.inputValue()) === "live") errors.push("[live-video-edge] connecting MIDI auto-switched to Live");
+  if ((await page.getByRole("button", { name: /^Sing$/ }).count()) !== 1) errors.push("[live-video-edge] Sing button disappeared when MIDI connected");
+  await tuneSelect.selectOption("live");
+
+  // 1. Cancel while waiting
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Play a note…$/ }).waitFor({ timeout: 10000 });
+  await page.getByRole("button", { name: /^Cancel$/ }).click();
+  await page.getByRole("button", { name: /^Record video$/ }).waitFor({ timeout: 5000 });
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(350);
+  const afterCancelArm = await page.evaluate(() => {
+    const w = window as unknown as { __recorders: MediaRecorder[]; __texts: string[] };
+    return { recorders: w.__recorders.length, readouts: w.__texts.some((t) => /^RING O/.test(t)) };
+  });
+  if (afterCancelArm.recorders !== 0) errors.push(`[live-video-edge] cancelling while waiting left ${afterCancelArm.recorders} recorders`);
+  if (!afterCancelArm.readouts) errors.push("[live-video-edge] readouts did not return after cancelling while waiting");
+  if ((await page.getByRole("link", { name: /^Save$/ }).count()) !== 0) errors.push("[live-video-edge] Save appeared after cancelling while waiting");
+
+  // 2. Simultaneous chord starts one recorder, and Stop mid-take saves a clip
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Play a note…$/ }).waitFor({ timeout: 10000 });
+  await page.evaluate(() => {
+    const t = (window as unknown as { __midiTest: { noteOn(m: number, v?: number): void } }).__midiTest;
+    t.noteOn(60, 96);
+    t.noteOn(64, 96);
+  });
+  await page.getByRole("button", { name: /^Stop$/ }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(450);
+  const chordRecs = await page.evaluate(() => (window as unknown as { __recorders: MediaRecorder[] }).__recorders.length);
+  if (chordRecs !== 1) errors.push(`[live-video-edge] chord started ${chordRecs} recorders (want 1)`);
+  // Stop mid-take while notes are still held
+  await page.getByRole("button", { name: /^Stop$/ }).click();
+  await page.evaluate(() => {
+    const t = (window as unknown as { __midiTest: { noteOff(m: number): void } }).__midiTest;
+    t.noteOff(60);
+    t.noteOff(64);
+  });
+  const chordSave = page.getByRole("link", { name: /^Save$/ });
+  const chordSaved = await chordSave.waitFor({ timeout: 15000 }).then(() => true, () => false);
+  if (!chordSaved) errors.push("[live-video-edge] stopping mid-take offered no clip");
+  else {
+    const [dl] = await Promise.all([page.waitForEvent("download"), chordSave.click()]);
+    const size = (await (await dl.createReadStream()).toArray()).reduce((n, b: Buffer) => n + b.length, 0);
+    logs.push(`[live-video-edge] chord + stop mid-take: ${size} bytes`);
+    if (size < 10000) errors.push(`[live-video-edge] mid-take clip nearly empty (${size} bytes)`);
+  }
+
+  // 3. Cancel while recording drops capture tracks, hides Save, restores readouts
+  await page.getByRole("button", { name: /^Record video$/ }).click();
+  await page.getByRole("button", { name: /^Play a note…$/ }).waitFor({ timeout: 10000 });
+  await page.evaluate(() => (window as unknown as { __midiTest: { noteOn(m: number, v?: number): void } }).__midiTest.noteOn(62, 96));
+  await page.getByRole("button", { name: /^Stop$/ }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => (window as unknown as { __midiTest: { noteOff(m: number): void } }).__midiTest.noteOff(62));
+  await page.getByRole("button", { name: /^Cancel$/ }).click();
+  await page.getByRole("button", { name: /^Record video$/ }).waitFor({ timeout: 5000 });
+  await page.evaluate(() => ((window as unknown as { __texts: string[] }).__texts = []));
+  await page.waitForTimeout(350);
+  const afterCancelRec = await page.evaluate(() => {
+    const w = window as unknown as { __recorders: MediaRecorder[]; __texts: string[] };
+    const tracks = w.__recorders[1]?.stream.getVideoTracks() ?? [];
+    return { live: tracks.filter((t) => t.readyState === "live").length, readouts: w.__texts.some((t) => /^RING O/.test(t)) };
+  });
+  if (afterCancelRec.live !== 0) errors.push(`[live-video-edge] ${afterCancelRec.live} live capture track(s) after Cancel`);
+  if (!afterCancelRec.readouts) errors.push("[live-video-edge] readouts did not return after Cancel while recording");
+  if ((await page.getByRole("link", { name: /^Save$/ }).count()) !== 0) errors.push("[live-video-edge] Save shown after Cancel while recording");
+  logs.push("[live-video-edge] all live video edge cases passed");
+  await page.close();
+}
+
 /**
  * Play before any audio (upstream issue 89): grabbing the tongue starts the audio and breathes, and
  * the engine keeps the tongue in the mouth. Since 704ed2c took away the start overlay over the face,
