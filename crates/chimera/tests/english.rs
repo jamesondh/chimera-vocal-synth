@@ -67,3 +67,30 @@ fn words_that_are_also_object_property_names_do_not_break_the_front_end() {
     assert!(!EnglishG2P::new().is_loaded());
     assert!(EnglishG2P::new().to_phrases("constructor")[0].segments.len() > 3); // no dictionary
 }
+
+#[test]
+fn inflected_dictionary_stems_do_not_fall_back_to_rules() {
+    let g = g2p();
+    // Possessives and plurals missing from CMUdict previously fell through to letter_to_sound
+    // ("silicon's" → saɪlaɪkɑns, "memory's" → mɛmɔɹaɪs).
+    assert_eq!(ipa(&g.word("silicon's", false)), "sɪləkənz");
+    assert_eq!(ipa(&g.word("memory's", false)), "mɛmɚiz");
+    assert_eq!(ipa(&g.word("silicons", false)), "sɪləkənz");
+    assert_eq!(ipa(&g.word("siliconed", false)), "sɪləkoʊnd");
+
+    // All three -s/'s voicing allomorphs (/ɪz/, /s/, /z/) and -ies
+    assert_eq!(ipa(&g.word("quartz's", false)), "kwɔɹtsɪz");
+    assert_eq!(ipa(&g.word("cobalt's", false)), "koʊbɔlts");
+    assert_eq!(ipa(&g.word("soliloquies", false)), "səlɪləkwiz");
+
+    // All three -ed voicing allomorphs (/t/, /d/, /ɪd/), silent-e, doubled consonant, and hyphenated compounds
+    assert_eq!(ipa(&g.word("nuked", false)), "nukt");
+    assert_eq!(ipa(&g.word("glitched", false)), "glɪtʃt");
+    assert_eq!(ipa(&g.word("spammed", false)), "spæmd");
+    assert_eq!(ipa(&g.word("blogged", false)), "blɔgd");
+    assert_eq!(ipa(&g.word("cobaltted", false)), "koʊbɔltɪd");
+    assert_eq!(ipa(&g.word("silicon-born's", false)), "sɪləkənbɔɹnz");
+
+    // Without a loaded dictionary, rule fallback stays unchanged
+    assert_eq!(ipa(&EnglishG2P::new().word("silicon's", false)), "saɪlaɪkɑns");
+}
