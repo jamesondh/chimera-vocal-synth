@@ -146,7 +146,8 @@ impl CreatureVoice {
     /// A voice at output rate `fs_out`. `initial` sets parameters by index (a later entry for the
     /// same index wins; non-finite values are ignored, as missing keys were in TS).
     pub fn new(def: &'static CreatureDef, fs_out: f64, initial: &[(usize, f64)]) -> Self {
-        let m = js_max(1.0, js_round(def.oversample as f64 * if fs_out > 60000.0 { 0.5 } else { 1.0 })) as usize;
+        let m = js_max(1.0, js_round(def.oversample as f64 * if fs_out > 60000.0 { 0.5 } else { 1.0 }));
+        let m = def.min_rate.map_or(m, |r| js_max(m, (r / fs_out).ceil())) as usize;
         let fs = fs_out * m as f64;
         let sim = def.create(fs);
         let ctrl_every = 64 * m;

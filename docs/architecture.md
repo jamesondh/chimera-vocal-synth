@@ -9,8 +9,8 @@ ambitious. Sophisticated throat, lips, tongue modeling. Different animals: human
 etc. Tonal and percussive (beatboxing). Beautiful visuals/diagrams, dynamic animations based on
 params."
 
-**Not built (yet):** the design's wider bestiary (only songbird, seal, alligator and elephant
-exist), the two-mass vocal folds, an IPA chart mode, the app-side EQ/reverb/limiter chain and
+**Not built (yet):** the design's wider bestiary (only songbird, seal, alligator, elephant and
+cat exist), the two-mass vocal folds, an IPA chart mode, the app-side EQ/reverb/limiter chain and
 in-app WAV export (the CLI renders WAVs; the app has a close-mic chain in WebAudio). Treat the
 code as the truth where this file disagrees.
 
@@ -217,6 +217,27 @@ Rayleigh–Plesset oscillators behind some creature sounds.
 - **The glottal area pulse** (`sources/glottis.rs`): parametric, with no published pulse model
   cited.
 - **The creatures' anatomy** (seal, alligator, elephant, songbird tract): no source recorded.
+- **The cat** (`creatures/cat.rs`). Measured: glottis to lips 80 mm (five cats; Weissengruber et
+  al. 2002, *J Anat*), the trachea 125 mm long with an 8.9 × 8.0 mm lumen (CT of 15 cats;
+  Zimmermann et al. 2023, *J Feline Med Surg*), the folds' 7.5 mm length (Herbst et al. 2023), the
+  jaw-shaped front 2.8–3.3 cm (five cats; Ekström et al. 2024, VIHAR). The tract matches Ekström et
+  al.'s tube model (narrowed F1/F2/F3 629/2707/5165 Hz against 602/2675/5105; open F1 1303 against
+  1305), and their 2 cm² area is an assumption there as here. The calls follow measured values:
+  meows 400–1200 Hz (Nicastro 2004), purr breaths of 585 ms out and 652 ms in at about 25 Hz with
+  the in-breath about 2 dB quieter (four cats; Schötz & Eklund 2011), growls 100–225 Hz over about
+  2.5 s, snarls 301–521 Hz, hisses 0.7 s centred near 1.1 kHz (Schötz 2015). Not measured: the
+  cross-sections, the nose (no cat nasal tract is described well enough to model), the purr's
+  glottal opening and cycle shape (no glottal imaging of purring exists), the breath pressures,
+  and the trill. The purr follows Remmers & Gautier (1972): the glottis shuts once a cycle and the
+  sound comes as it snaps open. Herbst et al. showed that excised cat larynges purr with no nerve
+  input, which this model doesn't include.
+- **The airway's turbulence noise** (`airway/network.rs`, `compute_noise`) is scaled by
+  √(96000/fs), which looks inverted for keeping noise power per Hz constant (that needs
+  √(fs/96000)); in theory that makes noise 1.5× louder in amplitude at a 64 kHz internal rate than
+  at 96 kHz. Measured on the cat's hiss (RMS amplitude): 0.034 at 64 kHz against 0.017 at 96 kHz,
+  2.0× (the noise feeds back on the flow's Reynolds number, so the response isn't linear); with the
+  cat's noise gains scaled by fs/96000, 0.0169 against 0.0167. The cat compensates on its own; the
+  network (shared with the human voice) is unchanged.
 - **Aalto University's speech modelling group.** Nothing in the code, docs or history mentions
   the group or its work, so we can't say CHIMERA builds on it. Physical vocal-tract models share
   a lot of ground, so the resemblance may not point to a borrowing.

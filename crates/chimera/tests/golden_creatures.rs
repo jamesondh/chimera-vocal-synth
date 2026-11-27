@@ -192,13 +192,20 @@ fn preview_telemetry_serialises_like_typescript() {
         assert_key_order(name, &text, &params);
         seen += 1;
     }
-    assert_eq!(seen, CREATURES.len());
+    // every creature the TS engine had (the cat came after it: tests/cat.rs)
+    assert_eq!(seen, CREATURES.len() - AFTER_TS.len());
 }
+
+/// Creatures added after the TypeScript engine was retired: not in the fixtures, so these tests
+/// check the creatures before them, and each one's own behaviour test covers it.
+const AFTER_TS: [&str; 1] = ["cat"];
 
 #[test]
 fn defs_serialise_like_typescript() {
     let u = load("creature-units");
-    let text = serde_json::to_string(&*CREATURES).unwrap();
+    let ts: Vec<_> = CREATURES.iter().filter(|c| !AFTER_TS.contains(&c.id)).collect();
+    assert_eq!(ts.len() + AFTER_TS.len(), CREATURES.len(), "every creature added after TS is registered");
+    let text = serde_json::to_string(&ts).unwrap();
     let got: Value = serde_json::from_str(&text).unwrap();
     assert!(same_json(&got, &u["defs"]), "defs differ\n{got}\n{}", u["defs"]);
     assert_key_order("def", &text, &["id", "name", "latin", "group", "blurb", "role", "oversample"]);

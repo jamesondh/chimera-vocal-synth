@@ -190,6 +190,12 @@ fn the_alligator_dies_to_zero() {
 
 #[cfg(target_arch = "x86_64")]
 #[test]
+fn the_cat_dies_to_zero() {
+    assert_creature_dies_to_zero("cat");
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
 fn the_elephant_dies_to_zero() {
     assert_creature_dies_to_zero("elephant");
 }

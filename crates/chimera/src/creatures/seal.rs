@@ -93,6 +93,7 @@ pub fn def() -> CreatureDef {
         blurb: "Laryngeal calls with an extreme range: trills glide down for seconds while their pulses slow.",
         role: "Downlifters, laser zaps, acid-style sweeping leads",
         oversample: 2,
+        min_rate: None,
         gate_times: Some(GateTimes { attack: 0.006, release: 0.03 }),
         params: vec![
             ParamDef::new("pitch", "Pitch", 40.0, 6000.0, 900.0).unit("Hz").log().smooth(0.01).pitch(),

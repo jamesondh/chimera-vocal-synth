@@ -160,6 +160,7 @@ pub fn def() -> CreatureDef {
         blurb: "Two independent labial pairs in the syrinx, one per bronchus, each with its own pitch; a throat cavity tracks the note.",
         role: "Shimmering two-note leads, arpeggio trills, glitchy chirps",
         oversample: 4,
+        min_rate: None,
         gate_times: Some(GateTimes { attack: 0.004, release: 0.012 }),
         params: vec![
             ParamDef::new("pitch", "Pitch, left voice", 400.0, 9000.0, 2600.0).unit("Hz").log().smooth(0.008).pitch(),
