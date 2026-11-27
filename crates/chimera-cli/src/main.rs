@@ -108,6 +108,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 "speech" => render::speech(&ctx, rest),
                 "text" => render::text(&ctx, rest),
                 "turkish" => render::turkish(&ctx, rest),
+                "finnish" => render::finnish(&ctx, rest),
                 "song" => render::song(&ctx, rest),
                 "notes" => render::notes(&ctx, rest),
                 "beatbox" => render::beatbox(&ctx, rest),
@@ -123,7 +124,8 @@ fn run(args: Vec<String>) -> Result<(), String> {
             let lang = match args.get(2).map(String::as_str) {
                 None | Some("en") => Lang::En,
                 Some("tr") => Lang::Tr,
-                Some(l) => return Err(format!("no front end for {l}: en or tr")),
+                Some("fi") => Lang::Fi,
+                Some(l) => return Err(format!("no front end for {l}: en, tr or fi")),
             };
             render::sung_lyrics(text, lang).and_then(|s| serde_json::to_string(&s).map_err(|e| e.to_string())).map(|j| println!("{j}"))
         }

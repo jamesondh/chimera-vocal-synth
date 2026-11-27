@@ -24,6 +24,7 @@ use chimera::phonetics::sing::{
 use chimera::phonetics::songs::{DEMO_SONGS, DemoSong};
 use chimera::phonetics::mandarin::{MandarinLexicon, is_han};
 use chimera::phonetics::syllables::{Lang, lyrics_in, lyrics_to_syllables};
+use chimera::phonetics::finnish;
 use chimera::phonetics::turkish;
 use chimera::phonetics::{Intonation, Plan, Syllable};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
@@ -263,6 +264,20 @@ pub fn text(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         fixed(s.out.len() as f64 / FS, 2),
         fixed(ms, 0)
     );
+    Ok(())
+}
+
+/// Finnish text through its spelling rules and the phrase planner.
+/// `render finnish <out> ["Suomenkielinen teksti."] [body]`
+pub fn finnish(ctx: &Ctx, a: &[String]) -> Result<(), String> {
+    let name = arg(a, 0, "out/finnish");
+    let text = arg(a, 1, "Revontulet leiskuvat talven yllä.");
+    let body_name = arg(a, 2, "female");
+    let s = say_phrases(&finnish::to_phrases(text), body_name)?;
+    println!("{}", s.shown);
+    let file = wav_name(name);
+    ctx.write_wav(&file, &s.out)?;
+    println!("wrote {file}  {} s", fixed(s.out.len() as f64 / FS, 2));
     Ok(())
 }
 

@@ -84,4 +84,10 @@ pub static VOWELS: &[VowelRef] = &[
     // (F1 / F2 / F3 Hz): male 422 / 765 / 2345, female 513 / 972 / 2859, child 555 / 1004 / 3360: F1 and F2 within
     // 5 % on every body (F3, weighted least in the fit, -14 to -19 % for the adults).
     vref("ʊ̠", "Mandarin ong (back ʊ)", [441.0, 730.0, 2881.0], Some([533.0, 945.0, 3314.0]), None, true, 0.2, 1.0),
+    // Finnish /æ/ (ä) is an open front unrounded vowel [æ̞] (Iivonen & Laukkanen 1993; Suomi,
+    // Toivanen & Ylitalo 2008: F1 as open as /ɑ/, F2 clearly front). Hillenbrand's Michigan /æ/
+    // ("had") is raised in female/child speakers (F1 669/717 Hz, closer than /ɛ/ 731/749 Hz),
+    // making Finnish "täh" sound like "teh". The key is æ + U+031E (lowered), leaving English /æ/
+    // untouched.
+    vref("æ̞", "Finnish ä (open front)", [760.0, 1720.0, 2550.0], None, None, false, 0.95, 0.15),
 ];

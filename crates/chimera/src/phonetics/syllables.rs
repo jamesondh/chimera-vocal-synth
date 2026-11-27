@@ -18,6 +18,7 @@ use super::japanese::Japanese;
 use super::korean::Korean;
 use super::mandarin::{Mandarin, MandarinLexicon, Pinyin};
 use super::russian::Russian;
+use super::finnish::Finnish;
 use super::turkish::Turkish;
 use super::planner::is_vowel;
 use super::{Segment, Syllable};
@@ -337,16 +338,22 @@ pub enum Lang {
     #[default]
     En,
     Tr,
+    Fi,
 }
 
 /// Lyrics → sung syllables through every built-in front end, with Latin script read as `lang`:
 /// pinyin (only words with tones; before the Latin-script language, which shares its alphabet),
-/// English (`g2p`) or Turkish, Korean, Russian, Japanese kana, and Mandarin with its lexicon
-/// (empty: Han characters are skipped). The one list the app, the wasm engine and the CLI all read
-/// lyrics through, so a new front end can't be missing from one of them.
+/// English (`g2p`), Turkish or Finnish, Korean, Russian, Japanese kana, and Mandarin with its
+/// lexicon (empty: Han characters are skipped). The one list the app, the wasm engine and the CLI
+/// all read lyrics through, so a new front end can't be missing from one of them.
 pub fn lyrics_in(text: &str, g2p: &impl WordSource, zh: &MandarinLexicon, lang: Lang) -> Vec<Syllable> {
     match lang {
         Lang::En => read_lyrics(text, &[&Pinyin, &English(g2p), &Korean, &Russian, &Japanese, &Mandarin(zh)]),
         Lang::Tr => read_lyrics(text, &[&Pinyin, &Turkish, &Korean, &Russian, &Japanese, &Mandarin(zh)]),
+        Lang::Fi => {
+            let mut out = read_lyrics(text, &[&Pinyin, &Finnish, &Korean, &Russian, &Japanese, &Mandarin(zh)]);
+            super::finnish::adjust_boundaries(&mut out);
+            out
+        }
     }
 }

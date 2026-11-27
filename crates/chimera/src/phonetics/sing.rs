@@ -327,8 +327,9 @@ pub fn plan_song(notes: &[SungNote], o: &SongOptions) -> Plan {
                     segs.push(Segment { glide: Some(half), ..nucleus_part(b, half, hz, &n.syl.nucleus) });
                 }
                 (Some(b), None) => {
-                    segs.push(nucleus_part(held_vowel(nuc), rest * (1.0 - OFFGLIDE), hz, &n.syl.nucleus));
-                    segs.push(nucleus_part(b, rest * OFFGLIDE, hz, &n.syl.nucleus));
+                    let share = n.syl.offglide_share.unwrap_or(OFFGLIDE);
+                    segs.push(nucleus_part(held_vowel(nuc), rest * (1.0 - share), hz, &n.syl.nucleus));
+                    segs.push(nucleus_part(b, rest * share, hz, &n.syl.nucleus));
                 }
                 (None, _) => segs.push(nucleus_part(held_vowel(nuc), rest, hz, &n.syl.nucleus)),
             }
