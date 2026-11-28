@@ -38,9 +38,12 @@ pub struct Segment {
     /// word boundary after this segment
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub word_end: Option<bool>,
-    /// a voiceless stop or affricate's aspiration, as its front end decides it (Mandarin and Korean
-    /// contrast it); None: the planner's default, English's rule (aspirated syllable-initially
-    /// before a vowel, not after /s/)
+    /// Keep the front end's timing free of English's stop-conditioned speech rules.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub non_english: bool,
+    /// A voiceless stop or affricate's aspiration, as its front end decides it (Mandarin and Korean
+    /// contrast it). Without a mark, English speech aspirates stops in a word-initial onset or
+    /// before a stressed vowel, except after /s/.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aspirated: Option<bool>,
     /// how long an aspirated stop or affricate aspirates (voice onset time, s), as its front end

@@ -359,17 +359,30 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         let d = phoneme(&s.ipa, body);
         SegInfo { vowel: false, manner: d.map(|d| d.manner), voiced: Some(d.is_some_and(|d| d.voicing == Voicing::Voiced)), dur: d.map(|d| d.dur) }
     });
-    let timed = input.iter().zip(&durs).map(|(s, d)| TimedSegment {
-        ipa: &s.ipa,
-        dur: *d,
-        stress: s.stress,
-        f0: s.f0,
-        aspirated: s.aspirated,
-        vot: s.vot,
-        nasalized: s.nasalized,
-        palatalized: s.palatalized,
-        breathy: s.breathy,
-        glide: s.glide,
+    let timed = input.iter().zip(&durs).enumerate().map(|(i, (s, d))| {
+        // Resolve English's contextual default before expanding diphthongs. Timed singing
+        // and live notes keep their existing release rule, as do front ends with their own timing.
+        let aspirated = s.aspirated.or_else(|| {
+            if o.sung == Some(true) || o.open_end == Some(true) || s.non_english || s.vot.is_some() {
+                return None;
+            }
+            let stop = phoneme(&s.ipa, body).is_some_and(|p| p.manner == Manner::Stop && p.voicing == Voicing::Voiceless);
+            let word_initial = i == 0 || input[i - 1].word_end == Some(true) || input[i - 1].ipa == "_";
+            let next_stressed = input.get(i + 1).is_some_and(|n| n.stress.unwrap_or(0) > 0);
+            (stop && (s.word_end == Some(true) || !(word_initial || next_stressed))).then_some(false)
+        });
+        TimedSegment {
+            ipa: &s.ipa,
+            dur: *d,
+            stress: s.stress,
+            f0: s.f0,
+            aspirated,
+            vot: s.vot,
+            nasalized: s.nasalized,
+            palatalized: s.palatalized,
+            breathy: s.breathy,
+            glide: s.glide,
+        }
     });
     let mut gestures = Vec::new();
     let mut segments = Vec::with_capacity(input.len());
@@ -557,8 +570,8 @@ pub fn plan_timed<'a>(input: impl Iterator<Item = TimedSegment<'a>>, o: &PlanOpt
                 voiced_again = g.end();
                 gestures.push(g);
             } else if def.manner == Manner::Stop || def.manner == Manner::Affricate {
-                // as the front end says; by default English's rule: aspirated when syllable-initial
-                // before a vowel and not after /s/
+                // as the front end or speech planner says; the remaining default is aspiration
+                // before a vowel except after /s/
                 let aspirated = s.aspirated.unwrap_or_else(|| next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s"));
                 // the folds stay apart past the release by 40% of the default 50 ms (the ramps
                 // make up the rest of the aspiration); a front end's longer or shorter `vot` moves

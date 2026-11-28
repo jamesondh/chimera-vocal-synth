@@ -11,6 +11,10 @@ use super::inventory::Manner;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Floor (ms) for an English unstressed vowel between a voiceless stop or affricate and
+/// the next stop or affricate. The release and early closure both cut into the nucleus.
+const BETWEEN_STOPS_MIN_MS: f64 = 100.0;
+
 /// Klatt's inherent / minimum durations (ms).
 fn table(ipa: &str) -> Option<(f64, f64)> {
     Some(match ipa {
@@ -191,6 +195,13 @@ pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> 
                 let pv = if i > 0 { Some(inf[i - 1]) } else { None };
                 if stress > 0 && pv.is_some_and(|pv| pv.manner == Some(Manner::Stop) && pv.voiced != Some(true)) {
                     d += 20.0;
+                }
+                // Leave a short English nucleus room to voice between the preceding release
+                // and the early closure of the next stop.
+                let after_voiceless_stop = pv.is_some_and(|pv| matches!(pv.manner, Some(Manner::Stop | Manner::Affricate)) && pv.voiced != Some(true));
+                let before_stop = i + 1 < n && matches!(inf[i + 1].manner, Some(Manner::Stop | Manner::Affricate));
+                if !s.non_english && stress == 0 && after_voiceless_stop && before_stop {
+                    d = d.max(BETWEEN_STOPS_MIN_MS);
                 }
                 return d / 1000.0;
             }

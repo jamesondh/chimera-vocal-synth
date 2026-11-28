@@ -159,6 +159,8 @@ export interface Segment {
   stress?: number;
   f0?: number;
   wordEnd?: boolean;
+  /** keep English-specific stop timing out of this segment */
+  nonEnglish?: boolean;
   /** a voiceless stop or affricate's aspiration as its front end decides it (unset: English's rule) */
   aspirated?: boolean;
   /** how long an aspirated stop aspirates (s); unset: 50 ms */

@@ -243,6 +243,9 @@ pub fn word_before(input: &str, next: Option<&str>, reduce: bool) -> Vec<Segment
             out[i].ipa = s.to_owned();
         }
     }
+    for s in &mut out {
+        s.non_english = true;
+    }
     out
 }
 

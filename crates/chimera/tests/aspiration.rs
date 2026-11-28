@@ -40,3 +40,46 @@ fn sung_onsets_keep_the_flag() {
     assert_eq!(sing(None), 0.36);
     assert_eq!(sing(Some(false)), 0.22);
 }
+
+fn aspir_abd_on(ipa: &str, stop_index: usize) -> f64 {
+    let plan = plan_utterance(&tokenize_ipa(ipa), &PlanOptions { body: BodyMix::MALE, ..Default::default() });
+    let stop = plan.gestures.iter().filter(|g| g.label_str() == "aspiration").nth(stop_index).unwrap();
+    stop.targets.get(ControlKey::ABDUCTION).unwrap()
+}
+
+#[test]
+fn english_skips_aspiration_before_unstressed_medial_vowel() {
+    // word-initial onset still aspirates (even before an unmarked/unstressed vowel)
+    assert_eq!(aspir_abd_on("pa", 0), 0.36);
+    assert_eq!(aspir_abd_on("aɪ pa", 0), 0.36);
+    // coda / medial stop before unstressed ʌ: unaspirated (abd 0.22)
+    assert_eq!(aspir_abd_on("ˈæt.ʌˌtʰɔn", 0), 0.22);
+    assert_eq!(aspir_abd_on("ˈætʌˌtʰɔn", 0), 0.22);
+    // explicit ʰ on the stressed onset still aspirates
+    assert_eq!(aspir_abd_on("ˈæt.ʌˌtʰɔn", 1), 0.36);
+    assert_eq!(aspir_abd_on("ˈætʰ.ʌˌtɔn", 0), 0.36);
+    // before a stressed vowel, English aspirates
+    assert_eq!(aspir_abd_on("ˈætˈʌ", 0), 0.36);
+    // A marked VOT keeps the front end on the original aspiration path.
+    let mut segs = tokenize_ipa("ˈætʌ");
+    segs[1].vot = Some(0.08);
+    assert_eq!(say(segs), 0.36);
+}
+
+/// The planned nucleus leaves time after the first stop's aspiration ramp and before the
+/// next stop starts to close.
+#[test]
+fn unstressed_vowel_between_stops_keeps_a_nucleus() {
+    let plan = plan_utterance(&tokenize_ipa("ˈæt.ʌˌtʰɔn"), &PlanOptions { body: BodyMix::FEMALE, ..Default::default() });
+    let v = plan.segments.iter().find(|s| s.ipa == "ʌ").expect("ʌ");
+    let dur = v.t1 - v.t0;
+    assert!((dur - 0.1).abs() < 1e-9, "ʌ duration {:.2} ms", 1000.0 * dur);
+
+    let release = plan.gestures.iter().find(|g| g.label_str() == "aspiration").unwrap().end();
+    let next_closure = plan.gestures.iter()
+        .filter(|g| g.label_str() == "t" && g.t0 > v.t0 && g.t0 < v.t1)
+        .map(|g| g.t0)
+        .min_by(f64::total_cmp)
+        .expect("the second stop closes into the vowel");
+    assert!(next_closure - release >= 0.04, "less than 40 ms between aspiration and closure");
+}
