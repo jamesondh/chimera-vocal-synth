@@ -161,6 +161,7 @@ fn base() -> Vec<PhonemeDef> {
         c("p", "voiceless bilabial stop", M::Stop, Voiceless, "bilabial", t(BILABIAL), &LIPS, 0.085),
         c("b", "voiced bilabial stop", M::Stop, Voiced, "bilabial", t(BILABIAL), &LIPS, 0.07),
         c("t", "voiceless alveolar stop", M::Stop, Voiceless, "alveolar", t(ALV_STOP), &TIP, 0.075),
+        c("t̪", "voiceless dental stop", M::Stop, Voiceless, "dental", t(DENT_STOP), &TIP, 0.075),
         c("d", "voiced alveolar stop", M::Stop, Voiced, "alveolar", t(ALV_STOP), &TIP, 0.06),
         c("ʈ", "voiceless retroflex stop", M::Stop, Voiceless, "retroflex", t(RETRO_STOP), TIP_CURL, 0.075),
         c("ɖ", "voiced retroflex stop", M::Stop, Voiced, "retroflex", t(RETRO_STOP), TIP_CURL, 0.065),
@@ -228,6 +229,10 @@ fn base() -> Vec<PhonemeDef> {
         c("ɥ", "labial-palatal approximant", M::Approximant, Voiced, "labial-palatal", t(&[(TbX, 3.8), (TbY, 7.95), (Jaw, 0.25), (LipAp, 0.28), (LipProt, 1.0), (LipWidth, 0.05)]), &[TbX, TbY, Jaw, LipAp, LipProt, LipWidth], 0.055),
         c("ɰ", "velar approximant", M::Approximant, Voiced, "velar", t(&[(TbX, 2.35), (TbY, 7.45)]), &BODY, 0.06),
         c("l", "alveolar lateral approximant", M::Lateral, Voiced, "alveolar", tg(ALV_STOP, &[(Lateral, 1.0)]), &[TtX, TtY, Lateral], 0.065),
+        // Clear lateral with soft secondary tongue-body anchor (Finnish /l/): midline alveolar
+        // seal with smooth (strength 2.2) dorsum stabilization so u̠→l→i ("tuli", "tulli")
+        // doesn't sweep through [j] and u̠→l→u̠ ("laulu") doesn't jerk at strength 40.
+        c("l̪", "clear anchored lateral approximant", M::Lateral, Voiced, "dental", tg(ALV_STOP, &[(Lateral, 1.0), (TbX, 2.35), (TbY, 6.7)]), &[TtX, TtY, Lateral], 0.075),
         c("ɫ", "velarised lateral", M::Lateral, Voiced, "alveolar", tg(ALV_STOP, &[(Lateral, 1.0), (TbX, 1.9), (TbY, 6.8)]), &[TtX, TtY, Lateral, TbX, TbY], 0.075),
         c("ɭ", "retroflex lateral", M::Lateral, Voiced, "retroflex", tg(RETRO_STOP, &[(Lateral, 1.0)]), &[TtX, TtY, TtCurl, Lateral], 0.065),
         c("ʎ", "palatal lateral", M::Lateral, Voiced, "palatal", tg(PAL_STOP, &[(Lateral, 1.0)]), &[TbX, TbY, Lateral], 0.07),

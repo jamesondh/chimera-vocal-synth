@@ -80,6 +80,26 @@ pub fn expand(ipa: &str) -> Option<&'static [&'static str]> {
         "ɔɪ" => &["ɔ", "ɪ"],
         "eɪ" => &["e", "i"],
         "oʊ" => &["o", "u"],
+        // Finnish opening diphthongs (non-rising: both halves sing inside the note, targeting
+        // mid-open [ɛ ɔ œ] so the jaw visibly opens from [i u̝ y]; `ʊɔ` avoids Mandarin's rising `uɔ`)
+        "ie" => &["i", "ɛ"],
+        "ʊɔ" => &["u̝", "ɔ"],
+        "yœ" => &["y", "œ"],
+        // Finnish closing/front diphthongs with calibrated Finnish endpoints
+        "ɑ̠i" => &["ɑ̠", "i"],
+        "ɑ̠u̝" => &["ɑ̠", "u̝"],
+        "oi" => &["o", "i"],
+        "ou̝" => &["o", "u̝"],
+        "æ̞i" => &["æ̞", "i"],
+        "œi" => &["œ", "i"],
+        "u̝i" => &["u̝", "i"],
+        "yi" => &["y", "i"],
+        "æ̞y" => &["æ̞", "y"],
+        "œy" => &["œ", "y"],
+        "eu̝" => &["e", "u̝"],
+        "iu̝" => &["i", "u̝"],
+        "ey" => &["e", "y"],
+        "iy" => &["i", "y"],
         "ɚ" => &["ɝ"],
         // rising diphthongs: a short close glide into the main vowel (Mandarin's medials: 话 ua,
         // 天 iɛ, 学 yɛ), written as one nucleus so the glide sings on the beat, inside the note
@@ -563,12 +583,21 @@ pub fn plan_timed<'a>(input: impl Iterator<Item = TimedSegment<'a>>, o: &PlanOpt
                 // the folds stay apart past the release by 40% of the default 50 ms (the ramps
                 // make up the rest of the aspiration); a front end's longer or shorter `vot` moves
                 // that by the whole difference, so the voice onset time it asks for is what it gets
+                let ramp_vot = 0.6 * DEFAULT_VOT; // 30 ms accounted for by the 45 ms default ramp-out
                 let past = match (aspirated, s.vot) {
                     (true, None) => DEFAULT_VOT / rate * 0.4, // as before, to the bit
                     (true, Some(v)) => js_max(0.0, 0.4 * DEFAULT_VOT + v - DEFAULT_VOT) / rate,
                     (false, _) => 0.012 * 0.4,
                 };
-                let g = Gesture::new(t0 + 0.25 * dur, t1 + past, 0.035, if aspirated { 0.045 } else { 0.02 }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration");
+                // A short explicit VOT (< 30 ms) also tightens the glottal closing ramp so the
+                // folds open cleanly during closure (0.36, no [d] bleed) and snap shut right on
+                // release without an English [tʰ] breathy tail.
+                let (open_frac, ramp_out) = match (aspirated, s.vot) {
+                    (true, Some(v)) if v < ramp_vot => (0.10, js_max(0.010, 0.045 * (v / ramp_vot))),
+                    (true, _) => (0.25, 0.045),
+                    (false, _) => (0.25, 0.02),
+                };
+                let g = Gesture::new(t0 + open_frac * dur, t1 + past, 0.035, ramp_out, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration");
                 voiced_again = g.end();
                 gestures.push(g);
             } else {

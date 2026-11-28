@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub mod beatbox;
 pub mod durations;
 pub mod english;
+pub mod finnish;
 pub mod inventory;
 pub mod ipa;
 pub mod japanese;
@@ -155,6 +156,11 @@ pub struct Syllable {
     /// down to its floor
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub onset_share: Option<f64>,
+    /// share of a sung falling diphthong's vowel given to its second half (0..1); None: `OFFGLIDE`
+    /// (0.2, English's default). Finnish opening diphthongs (`ie`, `uo`, `yö`) spend more time on
+    /// their second, more open target (~0.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offglide_share: Option<f64>,
 }
 
 /// Which end of its sung vowel a pitch bend sits at.

@@ -169,6 +169,14 @@ export function turkishPhrases(text: string): Phrase[] {
   return call("trPhrases", { text });
 }
 
+/**
+ * Finnish text → phrases of segments. Its spelling rules are the G2P, so there is no dictionary to
+ * load (crates/chimera/src/phonetics/finnish.rs).
+ */
+export function finnishPhrases(text: string): Phrase[] {
+  return call("fiPhrases", { text });
+}
+
 // ------------------------------------------------------------------ planning
 
 export interface PlanOptions {

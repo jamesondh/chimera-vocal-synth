@@ -84,4 +84,20 @@ pub static VOWELS: &[VowelRef] = &[
     // (F1 / F2 / F3 Hz): male 422 / 765 / 2345, female 513 / 972 / 2859, child 555 / 1004 / 3360: F1 and F2 within
     // 5 % on every body (F3, weighted least in the fit, -14 to -19 % for the adults).
     vref("ʊ̠", "Mandarin ong (back ʊ)", [441.0, 730.0, 2881.0], Some([533.0, 945.0, 3314.0]), None, true, 0.2, 1.0),
+    // Finnish /æ/ (ä) is an open front unrounded vowel [æ̞] (Iivonen & Laukkanen 1993; Suomi,
+    // Toivanen & Ylitalo 2008: F1 as open as /ɑ/, F2 clearly front). Hillenbrand's Michigan /æ/
+    // ("had") is raised in female/child speakers (F1 669/717 Hz, closer than /ɛ/ 731/749 Hz),
+    // making Finnish "täh" sound like "teh". The key is æ + U+031E (lowered), leaving English /æ/
+    // untouched.
+    vref("æ̞", "Finnish ä (open front)", [760.0, 1720.0, 2550.0], None, None, false, 0.95, 0.15),
+    // Finnish /u/ (Kuronen 2000 Tabell 19 male 345/749/2258 Hz; FLEURS fi_fi female ~385/860/2570 Hz).
+    // English /u/ ("who'd") is fronted (F2 997/1107/1344 Hz, turning "kukka" into "kykka"), while
+    // Mandarin's u̠ asks for F3=3309 Hz on female which drops tbY to 5.15 and gives a hollow/umlaut
+    // transition in "kuule". Key is u + U+031D (raised), leaving English u and Mandarin u̠ untouched.
+    vref("u̝", "Finnish u (close back)", [345.0, 749.0, 2258.0], Some([385.0, 860.0, 2570.0]), None, true, 0.0, 1.0),
+    // Finnish /ɑ/ (a): open back unrounded (Wiik 1965 / Iivonen & Laukkanen 1993 male ~700/1180/2550 Hz;
+    // Google FLEURS fi_fi 40-sentence Praat median: male 699/1211/2565 Hz, female 755/1332/2694 Hz).
+    // Hillenbrand's American /ɑ/ ("hod") is much fronter (female F2=1552 Hz, +220 Hz too front).
+    // Key is ɑ + U+0320 (retracted), leaving English /ɑ/ untouched.
+    vref("ɑ̠", "Finnish a (open back)", [700.0, 1180.0, 2550.0], Some([790.0, 1340.0, 2700.0]), None, false, 1.0, 0.95),
 ];
