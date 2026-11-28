@@ -20,6 +20,7 @@ import { inPlugin } from "../../audio/pluginBridge.ts";
 const EXAMPLES: Record<Lang, string[]> = {
   en: ["Hello. Can you hear me?", "She sells sea shells by the sea shore.", "Every sound here is air moving through a throat.", "The quick brown fox jumps over the lazy dog."],
   tr: ["Merhaba, nasılsın?", "Bugün hava çok güzel.", "Türkçe konuşabiliyor musun?", "Şu köşe yaz köşesi, şu köşe kış köşesi."],
+  pt: ["Boa noite. O português do Brasil já fala.", "Cada som aqui é ar a mover-se numa garganta.", "A rápida raposa marrom salta sobre o cão preguiçoso.", "Feliz, comum, aqui: a vida no Brasil é calma."],
 };
 
 // IPA pulmonic consonant chart (rows = manner, columns = place); empty cells are null

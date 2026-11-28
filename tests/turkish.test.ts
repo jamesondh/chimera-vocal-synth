@@ -6,13 +6,13 @@ import { describe, expect, test } from "bun:test";
 import { initEngine } from "./harness.ts";
 
 await initEngine();
-const { turkishPhrases, lyricsToSyllables, planPhrases } = await import("../src/wasm/engine.ts");
+const { phrases: phrasesIn, lyricsToSyllables, planPhrases } = await import("../src/wasm/engine.ts");
 const { wordSpans } = await import("../src/ui/words.ts");
 const male = { female: 0, child: 0 };
 
 describe("Turkish", () => {
   test("text becomes phrases with Turkish sounds and stress", () => {
-    const phrases = turkishPhrases("Merhaba, nasılsın?");
+    const phrases = phrasesIn("Merhaba, nasılsın?", "tr");
     expect(phrases.length).toBe(2);
     expect(phrases[1].segments.map((s) => s.ipa).join("")).toBe("nasɯɫsɯn");
     expect(phrases[1].segments.find((s) => s.stress === 1)?.ipa).toBe("a");
@@ -20,13 +20,13 @@ describe("Turkish", () => {
   });
 
   test("a vowel before ğ is one long vowel", () => {
-    const segs = turkishPhrases("yağmur")[0].segments;
+    const segs = phrasesIn("yağmur", "tr")[0].segments;
     expect(segs.map((s) => s.ipa)).toEqual(["j", "a", "m", "u", "ɾ"]);
     expect(segs[1].length).toBe(1.7);
   });
 
   test("each word gets its span in the plan", () => {
-    const phrases = turkishPhrases("Bugün hava çok güzel.");
+    const phrases = phrasesIn("Bugün hava çok güzel.", "tr");
     const plan = planPhrases(phrases, { body: male, t0: 0 });
     const words = wordSpans(phrases, plan);
     expect(words.map((w) => w.text)).toEqual(["bugün", "hava", "çok", "güzel"]);

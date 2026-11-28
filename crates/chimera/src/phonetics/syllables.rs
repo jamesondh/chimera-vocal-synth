@@ -20,6 +20,7 @@ use super::mandarin::{Mandarin, MandarinLexicon, Pinyin};
 use super::russian::Russian;
 use super::turkish::Turkish;
 use super::planner::is_vowel;
+use super::portuguese::Portuguese;
 use super::{Segment, Syllable};
 use serde::{Deserialize, Serialize};
 
@@ -337,6 +338,7 @@ pub enum Lang {
     #[default]
     En,
     Tr,
+    Pt,
 }
 
 /// Lyrics → sung syllables through every built-in front end, with Latin script read as `lang`:
@@ -348,5 +350,6 @@ pub fn lyrics_in(text: &str, g2p: &impl WordSource, zh: &MandarinLexicon, lang: 
     match lang {
         Lang::En => read_lyrics(text, &[&Pinyin, &English(g2p), &Korean, &Russian, &Japanese, &Mandarin(zh)]),
         Lang::Tr => read_lyrics(text, &[&Pinyin, &Turkish, &Korean, &Russian, &Japanese, &Mandarin(zh)]),
+        Lang::Pt => read_lyrics(text, &[&Pinyin, &Portuguese, &Korean, &Russian, &Japanese, &Mandarin(zh)]),
     }
 }

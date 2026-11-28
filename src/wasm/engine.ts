@@ -162,11 +162,12 @@ export function lyricsToSyllables(text: string, lang: Lang = "en"): Syllable[] {
 }
 
 /**
- * Turkish text → phrases of segments. Its spelling rules are the G2P, so there is no dictionary to
- * load (crates/chimera/src/phonetics/turkish.rs).
+ * Text → phrases of segments, through the front end of `lang`: English (the page's dictionary),
+ * Turkish or Brazilian Portuguese, whose spelling rules are the G2P and need no dictionary to load
+ * (crates/chimera/src/phonetics/turkish.rs, .../portuguese.rs). One call for every language.
  */
-export function turkishPhrases(text: string): Phrase[] {
-  return call("trPhrases", { text });
+export function phrases(text: string, lang: Lang = "en"): Phrase[] {
+  return call("phrases", { text, lang }) as Phrase[];
 }
 
 // ------------------------------------------------------------------ planning

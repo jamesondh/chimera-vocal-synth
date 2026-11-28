@@ -14,12 +14,24 @@ pub mod japanese;
 pub mod korean;
 pub mod mandarin;
 pub mod planner;
+pub mod portuguese;
 pub mod russian;
 pub mod sing;
 pub mod songs;
 pub mod syllables;
 pub mod turkish;
 pub mod vowel_data;
+
+/// Text → phrases of segments, through the front end of `lang`: the English G2P (with the
+/// dictionary it was loaded with), or Turkish or Brazilian Portuguese, whose spelling rules are the
+/// G2P and need no dictionary. The language chooses the way in, the way `lyrics_in` does.
+pub fn phrases_in(text: &str, g2p: &english::EnglishG2P, lang: syllables::Lang) -> Vec<english::Phrase> {
+    match lang {
+        syllables::Lang::Tr => turkish::to_phrases(text),
+        syllables::Lang::Pt => portuguese::to_phrases(text),
+        _ => g2p.to_phrases(text),
+    }
+}
 
 /// One phoneme in an utterance.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

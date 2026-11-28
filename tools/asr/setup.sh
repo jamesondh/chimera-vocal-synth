@@ -5,6 +5,8 @@
 # - tools/asr/scramble.py: its own pinned env in scramble/.venv: SenseVoice-Small through
 #   sherpa-onnx, with pypinyin and zhconv to score Chinese. The model archive (1.05 GB; the int8
 #   model inside is 0.23 GB) is checked against its sha256 before it's unpacked.
+# - the same env judges Portuguese with Whisper (multilingual base; SenseVoice has no Portuguese
+#   model): another archive (0.21 GB), checked the same way.
 set -euo pipefail
 dir="$HOME/.cache/chimera-asr"
 mkdir -p "$dir/models"
@@ -27,5 +29,18 @@ if [ ! -f "$dir/models/$sv/model.int8.onnx" ]; then
   fi
   tar xjf "$tmp" -C "$dir/models" && rm -f "$tmp"
 fi
+wh=sherpa-onnx-whisper-base
+whsum=911b2083efd7c0dca2ac3b358b75222660dc09fb716d64fbfc417ba6c99ff3de
+if [ ! -f "$dir/models/$wh/base-encoder.int8.onnx" ]; then
+  tmp="$dir/models/$wh.tar.bz2.part"
+  curl -fsSL -o "$tmp" "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$wh.tar.bz2"
+  got=$( (command -v sha256sum >/dev/null && sha256sum "$tmp" || shasum -a 256 "$tmp") | cut -d' ' -f1)
+  if [ "$got" != "$whsum" ]; then
+    rm -f "$tmp"
+    echo "$wh.tar.bz2: sha256 $got, expected $whsum" >&2
+    exit 1
+  fi
+  tar xjf "$tmp" -C "$dir/models" && rm -f "$tmp"
+fi
 echo "run: $dir/.venv/bin/python tools/asr/speech_wer.py <outdir> [--against earlier/wer.json]"
-echo "     $sc/bin/python tools/asr/scramble.py <outdir> [--langs zh,ko,en] [--shuffles 8]"
+echo "     $sc/bin/python tools/asr/scramble.py <outdir> [--langs zh,ko,en,pt] [--shuffles 8]"

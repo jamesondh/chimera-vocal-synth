@@ -33,6 +33,7 @@ Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3), aspiration as the
 | Han | Mandarin | `public/data/mandarin.txt.gz` (208 KB, fetched when lyrics have Han characters) | `phonetics/mandarin.rs` |
 | Latin with tones | Mandarin as pinyin | nothing (checked against Mandarin's 411 syllables) | `phonetics/mandarin.rs` (`Pinyin`) |
 | Latin, when chosen | Turkish | nothing: spelling rules, stress by rule ([turkish.md](turkish.md)) | `phonetics/turkish.rs` |
+| Latin, when chosen | Brazilian Portuguese | nothing: spelling rules, stress by rule ([portuguese.md](portuguese.md)) | `phonetics/portuguese.rs` |
 
 The router (`read_lyrics` in `syllables.rs`) sends each word to the front end whose script it is
 in, so a line can mix them (`我爱你 hello 빵야 nǐhǎo`). It also handles what every language
@@ -375,7 +376,7 @@ its listener chose the melody as written (above).
 
 `tools/asr/scramble.py` (set up once with `tools/asr/setup.sh`) measures how intelligible a front
 end's singing is on sound alone. A recogniser that knows a lyric fills it in, so it also sings the
-same melody with the lyric's units shuffled (syllables for Chinese and Korean, words for English),
+same melody with the lyric's units shuffled (syllables for Chinese and Korean, words for English and Portuguese),
 leaving nothing to guess from.
 
 - **Material:** public-domain texts: two Tang poems (静夜思, 春晓), the folk song 아리랑, Harvard
@@ -385,13 +386,15 @@ leaving nothing to guess from.
   syllable on one generated tune, a breath between lines, in the male and female voices.
   A language whose script no front end reads yet is skipped.
 - **Judge:** SenseVoice-Small (sherpa-onnx), one sung line at a time. It's CTC, so it can't
-  hallucinate a loop.
+  hallucinate a loop. Portuguese has no SenseVoice model, so it is judged by Whisper
+  (sherpa-onnx, multilingual base, `language=pt`): not CTC, so it can complete a phrase it half
+  heard, and its numbers are read as the gap between the real and the scrambled lyric.
 - **Score:** syllable errors (Chinese as toneless pinyin, Korean as Hangul blocks) or word errors
-  (English), for the real lyric and the mean over the scrambles.
+  (English, Portuguese), for the real lyric and the mean over the scrambles.
 - **What goes wrong:** each line is aligned with what was heard and the errors split into a
   syllable's parts (Chinese: initial / final / tone; Korean: initial / vowel / final; English:
-  phonemes, wrong vs dropped), with the commonest confusions. `--analyze <run>/scramble.json`
-  re-reads a run.
+  phonemes, wrong vs dropped; Portuguese: words, wrong vs dropped), with the commonest
+  confusions. `--analyze <run>/scramble.json` re-reads a run.
 
 On this branch (8 scrambles × 2 voices):
 
@@ -399,6 +402,14 @@ On this branch (8 scrambles × 2 voices):
 |---|---|---|
 | Korean, 아리랑 (syllables) | 30.0 / 15.0% | 52.8 / 55.6% |
 | English, Harvard (words) | 48.8 / 53.7% | 68.6 / 75.0% |
+| Portuguese, our lines (words) | 73.7 / 81.6% | 107.2 / 107.6% |
+
+The Portuguese row is high, and the controls say why: English through the same judge and the same
+engine is 39.0 / 63.4% spoken, and Portuguese spoken (not sung) is 94.7 / 107.9% -- worse than
+singing it. So the bottleneck is the voice in Portuguese, not the front end's reading. Rendering
+the front end's own IPA through `render speech` instead of `render portuguese` is heard far better
+(whisper hears "para você, ... português" where the Portuguese path gives "avesso ... por tu gás"),
+which puts the loss in the phrase plan the Portuguese path uses, not in the segments it writes.
 
 The gap between the real and scrambled lyric is what the recogniser fills in from knowing the
 text; the scrambled number is the sound. Korean's commonest errors are ㄹ heard as ㄴ or ㄷ and a

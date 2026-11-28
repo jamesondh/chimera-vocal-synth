@@ -1,13 +1,18 @@
 """The scramble test: how intelligible a language front end's singing is on sound alone.
 
 A recogniser that knows a lyric fills it in, so the test that counts sings the same melody with the
-lyric's units shuffled (syllables for Chinese and Korean, words for English): nothing to guess from.
+lyric's units shuffled (syllables for Chinese and Korean, words for English and Portuguese): nothing
+to guess from.
 Each language's text goes through CHIMERA's own front end (`chimera render notes` with "lyrics"),
 on one generated tune, one note per syllable, a breath between lines, in the male and female voices.
-SenseVoice (sherpa-onnx, CTC: it can't hallucinate a loop) transcribes one sung line at a time.
-Score: syllable errors (Chinese: toneless pinyin; Korean: Hangul blocks) or word errors (English).
+SenseVoice (sherpa-onnx, CTC: it can't hallucinate a loop) transcribes one sung line at a time;
+Portuguese is judged by Whisper instead (multilingual, the base model), which is not CTC: it can
+complete a phrase it half heard, so its numbers are read as the gap between the real and the
+scrambled lyric, never as the intelligibility of the singing on their own.
+Score: syllable errors (Chinese: toneless pinyin; Korean: Hangul blocks) or word errors (English,
+Portuguese).
 
-usage: scramble.py <outdir> [--langs zh,ko,en] [--shuffles 3] [--bodies male,female]
+usage: scramble.py <outdir> [--langs zh,ko,en,pt] [--shuffles 3] [--bodies male,female]
                    [--text lang:file]   (your own lines for one language, one line per phrase)
                    [--melody '{"consonantScale": 1.0}']   (extra melody-file settings, for A/B)
        scramble.py --analyze <outdir>/scramble.json   (the confusions of an earlier run)
@@ -18,6 +23,7 @@ final, tone; Korean: initial, vowel, final), with the commonest confusions. That
 fix next; one error rate doesn't.
 Needs the release CLI (cargo build --release -p chimera-cli) and tools/asr/setup.sh.
 The texts are public domain: two Tang poems (静夜思, 春晓), the folk song 아리랑, Harvard sentences.
+The Portuguese lines are ours, dense in the contrasts its front end reads.
 """
 
 import json
@@ -34,11 +40,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.environ.get("CHIMERA_REPO", os.path.dirname(os.path.dirname(HERE)))
 CLI = os.environ.get("CHIMERA_CLI", os.path.join(REPO, "target", "release", "chimera"))
 MODEL = os.environ.get("SENSEVOICE_DIR", os.path.expanduser("~/.cache/chimera-asr/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"))
+WHISPER = os.environ.get("WHISPER_DIR", os.path.expanduser("~/.cache/chimera-asr/models/sherpa-onnx-whisper-base"))
 
 TEXTS = {
     "zh": ["床前明月光", "疑是地上霜", "举头望明月", "低头思故乡", "春眠不觉晓", "处处闻啼鸟", "夜来风雨声", "花落知多少"],
     "ko": ["아리랑 아리랑 아라리요", "아리랑 고개로 넘어간다", "나를 버리고 가시는 님은", "십리도 못 가서 발병 난다"],
     "en": ["The birch canoe slid on the smooth planks", "Glue the sheet to the dark blue background", "It's easy to tell the depth of a well", "These days a chicken leg is a rare dish", "Rice is often served in round bowls"],
+    "pt": ["A tia partiu de dia com o professor", "O calor chegou cedo e forte no Brasil", "As pessoas graves cantam os hinos novos", "Você fala português com todos os amigos", "O coração da mãe não descansa em paz"],
 }
 BPM, T0 = 100.0, 0.3
 TUNE = [0, 2, 4, 7, 9, 7, 4, 2, 0, -3, 0, 2]  # a pentatonic wander, from the voice's base note
@@ -48,11 +56,11 @@ MELODY_EXTRA = {}  # --melody: extra melody-file settings (sing-planner options)
 
 def units(lang, line):
     """The units the scramble shuffles: syllables (one per character) or words."""
-    return line.split() if lang == "en" else [c for c in line if not c.isspace()]
+    return line.split() if lang in ("en", "pt") else [c for c in line if not c.isspace()]
 
 
 def join(lang, us):
-    return " ".join(us) if lang == "en" else "".join(us)
+    return " ".join(us) if lang in ("en", "pt") else "".join(us)
 
 
 def scramble(lang, lines, seed):
@@ -66,17 +74,18 @@ def scramble(lang, lines, seed):
     return out
 
 
-def syllable_count(line):
-    out = subprocess.run([CLI, "syllables", line], capture_output=True, text=True, check=True).stdout
+def syllable_count(line, lang="en"):
+    cmd = [CLI, "syllables", line] + (["pt"] if lang == "pt" else [])
+    out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
     return sum(1 for s in json.loads(out) if not s.get("melisma"))
 
 
-def render(lines, body, stem):
+def render(lines, body, stem, lang="en"):
     """Render the lines on the tune; return each line's (start, end) in seconds."""
     beat = 60 / BPM
     notes, spans, t, k = [], [], T0, 0
     for ln in lines:
-        n = syllable_count(ln)
+        n = syllable_count(ln, lang)
         start = t
         for _ in range(n):
             notes.append([BASE[body] + TUNE[k % len(TUNE)], 1])
@@ -86,6 +95,8 @@ def render(lines, body, stem):
         notes.append([0, 1])  # a breath between lines
         t += beat
     melody = {"bpm": BPM, "t0": T0, "lyrics": "\n".join(lines), "notes": notes, **MELODY_EXTRA}
+    if lang in ("tr", "pt"):  # Latin script: the CLI needs to be told which front end reads it
+        melody["lang"] = lang
     with open(stem + ".json", "w") as f:
         json.dump(melody, f, ensure_ascii=False)
     subprocess.run([CLI, "render", "notes", stem + ".json", stem, body], check=True, capture_output=True)
@@ -125,7 +136,27 @@ def scorer(lang):
         return lambda s: lazy_pinyin(re.sub(r"[^一-鿿]", "", convert(s, "zh-cn")))
     if lang == "ko":
         return lambda s: re.findall(r"[가-힣]", s)
+    if lang == "pt":
+        return pt_words
     return lambda s: re.sub(r"[^a-z' ]+", " ", s.lower()).split()
+
+
+def pt_words(text):
+    """Portuguese words, lowercased, with the punctuation out and the accents in."""
+    return re.findall(r"[a-zà-ú']+", text.lower())
+
+
+def recognizer(lang):
+    """The judge for one language. Whisper for Portuguese -- SenseVoice has no Portuguese model --
+    and the SenseVoice model for the rest."""
+    import sherpa_onnx
+    if lang == "pt":
+        return sherpa_onnx.OfflineRecognizer.from_whisper(
+            encoder=f"{WHISPER}/base-encoder.int8.onnx", decoder=f"{WHISPER}/base-decoder.int8.onnx",
+            tokens=f"{WHISPER}/base-tokens.txt", language="pt", num_threads=8)
+    return sherpa_onnx.OfflineRecognizer.from_sense_voice(
+        model=f"{MODEL}/model.int8.onnx", tokens=f"{MODEL}/tokens.txt", language=lang,
+        use_itn=False, num_threads=8)
 
 
 # ---------------------------------------------------------------- confusions
@@ -284,10 +315,47 @@ def en_report(results, keep=lambda x: x["variant"] != "real"):
     print("  most often dropped: " + "  ".join(f"{p} ×{m}" for p, m in dropped.most_common(10)))
 
 
+def pt_report(results, keep=lambda x: x["variant"] != "real"):
+    """What the judge heard instead of the words, over the runs `keep` selects."""
+    from collections import Counter
+    t = Counter(); sub = Counter(); dropped = Counter(); wrong = Counter(); seen = Counter()
+    for x in results:
+        if x["lang"] != "pt" or not keep(x):
+            continue
+        for ref, hyp in zip(x["ref"], x["hyp"]):
+            r = pt_words(ref)
+            h = pt_words(hyp)[: 2 * len(r)]
+            for a, b in align(r, h, lambda a, b: a == b):
+                if a is None:
+                    t["inserted"] += 1
+                    continue
+                t["words"] += 1
+                seen[a] += 1
+                if b is None:
+                    t["deleted"] += 1
+                    dropped[a] += 1
+                    wrong[a] += 1
+                elif a != b:
+                    t["substituted"] += 1
+                    sub[(a, b)] += 1
+                    wrong[a] += 1
+    n = t["words"] or 1
+    errs = t["deleted"] + t["substituted"] + t["inserted"]
+    print(f"\npt scrambled, {n} words: word error {errs / n:.0%}; substituted {t['substituted'] / n:.0%}, "
+          f"deleted {t['deleted'] / n:.0%}, inserted {t['inserted'] / n:.0%}")
+    worst = sorted(((wrong[w] / seen[w], w, seen[w]) for w in seen if seen[w] >= 10), reverse=True)[:10]
+    print("  most often wrong:  " + "  ".join(f"{w} {r:.0%} (of {s})" for r, w, s in worst))
+    print("  top confusions:    " + "  ".join(f"{a}→{b} ×{m}" for (a, b), m in sub.most_common(10)))
+    print("  most often dropped: " + "  ".join(f"{w} ×{m}" for w, m in dropped.most_common(10)))
+
+
 def report(results, langs):
     for lang in langs:
         if lang == "en":
             en_report(results)
+            continue
+        if lang == "pt":
+            pt_report(results)
             continue
         c = confusions(results, lang)
         if not c:
@@ -327,20 +395,19 @@ def main():
         TEXTS[lang] = [ln.strip() for ln in open(path, encoding="utf-8") if ln.strip()]
         langs = [lang]
     os.makedirs(out, exist_ok=True)
-    import sherpa_onnx
     sv = {}
     results = []
     for lang in langs:
-        rec = sherpa_onnx.OfflineRecognizer.from_sense_voice(model=f"{MODEL}/model.int8.onnx", tokens=f"{MODEL}/tokens.txt", language=lang, use_itn=False, num_threads=8)
+        rec = recognizer(lang)
         units_of = scorer(lang)
-        if syllable_count(TEXTS[lang][0]) == 0:
+        if syllable_count(TEXTS[lang][0], lang) == 0:
             print(f"{lang}: the CLI's front ends read none of these lines (no front end for this script yet); skipped", flush=True)
             continue
         variants = [("real", TEXTS[lang])] + [(f"scramble{s}", scramble(lang, TEXTS[lang], 100 + s)) for s in range(shuffles)]
         for body in bodies:
             for name, lines in variants:
                 stem = os.path.join(out, f"{lang}_{body}_{name}")
-                spans = render(lines, body, stem)
+                spans = render(lines, body, stem, lang)
                 audio = load(stem + ".wav")
                 errs = total = 0
                 hyps = []
