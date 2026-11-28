@@ -168,7 +168,7 @@ const playedMeasures = new Set<number>();
   }
 }
 const skipped = measures.find((_, i) => !playedMeasures.has(i));
-if (skipped) fail(`measure ${skipped.number}: skipped while expanding repeats. Check the repeat counts and ending numbers.`);
+if (skipped) fail(`measure ${skipped.number}: skipped while expanding repeats. Check the repeat counts and ending numbers, or write out the repeats.`);
 const verses = new Set(attrs(body, "lyric").flatMap((a) => (a.number ? [a.number] : [])));
 const passes = Math.max(...order.map((m) => m.pass));
 if (verses.size > passes) console.error(`warning: the part has ${verses.size} lyric lines (${[...verses].join(", ")}) but is sung ${passes} time(s); each pass sings its own line, the rest are unused`);

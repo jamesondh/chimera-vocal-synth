@@ -72,6 +72,7 @@ describe("musicxml-to-notes", () => {
     expect(r.code).toBe(1);
     expect(r.out).toBe("");
     expect(r.err).toContain("measure 4: skipped while expanding repeats");
+    expect(r.err).toContain("or write out the repeats.");
   });
 
   test("a word the score splits is joined for the dictionary, and tied notes are one note", () => {
