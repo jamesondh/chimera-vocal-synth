@@ -177,8 +177,17 @@ and the commit history actually cite, and says where they cite nothing.
   calibrated to the men's, women's and children's means of Hillenbrand, Getty, Clark & Wheeler
   (1995). Mandarin's back u `u̠` and ong `ʊ̠` are calibrated to the means of Zee & Lee (2001), "An acoustical
   analysis of the vowels in Beijing Mandarin", Eurospeech 2001, doi 10.21437/Eurospeech.2001-169
-  (10 men and 10 women, 5 repetitions each, LPC at the vowel's midpoint). The other vowels use
-  "typical literature values" whose source isn't recorded.
+  (10 men and 10 women, 5 repetitions each, LPC at the vowel's midpoint). Finnish's `æ̞` (*ä*), `u̝`
+  (*u*) and `ɑ̠` (*a*) are calibrated to Kuronen (2000), *Vokaluttalets akustik i sverigesvenska,
+  finlandssvenska och finska* (Studia Philologica Jyväskyläensia 49, Univ. of Jyväskylä, ISBN
+  951-39-0645-0; Tabell 19 for male `/u/`, Fig. 91 for `V/V:` quantity ratio), Wiik (1965),
+  *Finnish and English Vowels* (Annales Universitatis Turkuensis B 94), Iivonen & Laukkanen (1993),
+  "Explanations of the qualitative variation of Finnish vowels" (*Studies in Logopedics and
+  Phonetics* 4, pp. 29–54, Univ. of Helsinki), Suomi, Toivanen & Ylitalo (2008), *Finnish Sound
+  Structure* (Studia Humaniora Ouluensia 9, Oulu University Press, ISBN 978-951-42-8984-2), and
+  Praat formant measurements on native Finnish speakers from Google FLEURS `fi_fi` (Conneau et al.,
+  IEEE SLT 2022, doi 10.1109/SLT54892.2023.10023141, CC BY 4.0; validation split, female `u̝` and
+  `ɑ̠`). The other vowels use "typical literature values" whose source isn't recorded.
 - **Segment durations** (`phonetics/durations.rs`): Klatt's (1979) duration rules as given for
   MITalk in Allen, Hunnicutt & Klatt (1987), ch. 9.
 - **Gestures** (`control/score.rs`, `control/articulators.rs`, `phonetics/planner.rs`): the code
@@ -229,7 +238,9 @@ aren't a source of the current sound.
 These judge the voice and aren't part of its sound: the Children's Song Dataset (Choi, Kim,
 Park, Yong & Nam, ISMIR 2020; [csd-comparison.md](csd-comparison.md)); the TSP speech database
 (P. Kabal, McGill University, 2018) aligned with the Montreal Forced Aligner (McAuliffe et al.,
-Interspeech 2017; [speech-comparison.md](speech-comparison.md)); Whisper (`small.en` through
+Interspeech 2017; [speech-comparison.md](speech-comparison.md)); Google FLEURS `fi_fi` (Conneau et
+al., IEEE SLT 2022, doi 10.1109/SLT54892.2023.10023141, CC BY 4.0) for Finnish formant
+cross-checks ([finnish.md](finnish.md)); Whisper (`small.en` through
 faster-whisper) on Harvard sentences (IEEE 1969); YIN pitch (de Cheveigné & Kawahara 2002);
 and in `chimera diagnose`, the nasality threshold of Bunton & Story (2011), the
 long-term average speech spectrum of Byrne et al. (1994) and Klatt's default formant
