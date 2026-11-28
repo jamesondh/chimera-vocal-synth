@@ -18,7 +18,7 @@ use nih_plug::params::internals::ParamPtr;
 use nih_plug::prelude::{GuiContext, Params};
 use serde::Deserialize;
 
-use crate::core::{MIN_SAMPLE_RATE, Mode, Shared, UiNote};
+use crate::core::{MAX_VOICES, MIN_SAMPLE_RATE, Mode, Shared, UiNote};
 use crate::speech::{plan_lines, plan_pad};
 use crate::{ChimeraParams, g2p};
 
@@ -30,10 +30,12 @@ const NOT_BUILT: &str = "<!doctype html><body style='background:#000;color:#fff;
 /// syllablesVersion, cursor, sung, note, noteSerial, busyNs, audioNs, loadPeak, faulted, playing, the
 /// telemetry's female, child, spokenSerial, spokenLine, spokenGeneration, spokenT0, linesGeneration,
 /// speechCursor, beatStep, beatRunning, beatFollowing, hostBpm, the number of output samples, and the
-/// number of telemetry values. Those follow (see
+/// number of telemetry values. Then `VOICES_HEADER` more: the voice the head shows, and each voice's
+/// note, syllable, press count, pitch (Hz) and voicing. The telemetry values follow (see
 /// `TELE_HEADER`), then the `TELE_LABELS` bytes of active labels if there was telemetry, then the
 /// samples as f32. Keep in step with `src/ui/pluginState.ts`.
 pub const POLL_HEADER: usize = 25;
+pub const VOICES_HEADER: usize = 1 + 5 * MAX_VOICES;
 
 /// The editor window's first size, and the limits of its grip (points).
 pub const WINDOW_DEFAULT: (u32, u32) = (1280, 800);
@@ -266,7 +268,7 @@ impl Bridge {
         let mut scope = s.scope.lock().unwrap_or_else(|e| e.into_inner());
         let mut frame = s.telemetry.lock().unwrap_or_else(|e| e.into_inner());
         let n = if frame.fresh { frame.block.len() } else { 0 };
-        let mut out = Vec::with_capacity(8 * (POLL_HEADER + n) + TELE_LABELS + 4 * scope.len());
+        let mut out = Vec::with_capacity(8 * (POLL_HEADER + VOICES_HEADER + n) + TELE_LABELS + 4 * scope.len());
         let header: [f64; POLL_HEADER] = [
             s.revision.load(Ordering::Relaxed) as f64,
             s.syllables_version.load(Ordering::Relaxed) as f64,
@@ -297,6 +299,15 @@ impl Bridge {
         ];
         for x in header {
             out.extend_from_slice(&x.to_le_bytes());
+        }
+        // each voice: its note, its syllable, its presses, its pitch and voicing (the page shows them all)
+        out.extend_from_slice(&(s.shown_voice.load(Ordering::Relaxed) as f64).to_le_bytes());
+        for v in 0..MAX_VOICES {
+            let bits = |a: &std::sync::atomic::AtomicU64| f64::from_bits(a.load(Ordering::Relaxed));
+            let voice = &s.voices[v];
+            for x in [voice.note.load(Ordering::Relaxed) as f64, voice.sung.load(Ordering::Relaxed) as f64, voice.serial.load(Ordering::Relaxed) as f64, bits(&voice.f0), bits(&voice.voicing)] {
+                out.extend_from_slice(&x.to_le_bytes());
+            }
         }
         if n > 0 {
             for x in &frame.block {

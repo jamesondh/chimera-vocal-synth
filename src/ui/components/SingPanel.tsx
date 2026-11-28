@@ -6,7 +6,7 @@ import { engine } from "../../audio/AudioEngine.ts";
 import { canRecord, Clip } from "../../song/record.ts";
 import { mouthWords } from "../mouthWords.ts";
 import { V } from "../colors.ts";
-import { Keys, MidiButton } from "./Keys.tsx";
+import { Keys, MidiButton, VoicesButton } from "./Keys.tsx";
 import { ActionBar, PrimaryButton } from "./ActionBar.tsx";
 import { Menu } from "./Controls.tsx";
 import { PianoRoll } from "./PianoRoll.tsx";
@@ -15,6 +15,7 @@ import { Chip, Screen } from "./Screen.tsx";
 import { LangPick } from "./LangPick.tsx";
 import { EncoderPages } from "./Encoder.tsx";
 import { noteName } from "./VoiceControls.tsx";
+import { voicedPitches } from "../voices.ts";
 import type { InfoFn } from "./AnatomyView.tsx";
 
 /** epilarynx narrowing for the singer's ring (measured: +3 to +12 dB at 2.4–3.6 kHz, adult male) */
@@ -33,7 +34,11 @@ export const singWords = mouthWords(sungNow, V.green);
 /** Sing mode's lines over the face: the note, the syllable, the ring */
 export const singInfo: InfoFn = (_m, _f, tele) => {
   const out: string[] = [];
-  if (tele && tele.t.voicing > 0.3) out.push(`Note ${noteName(tele.t.f0)} ${tele.t.f0.toFixed(0)} Hz`);
+  // a chord: the note of each voice that sings (the telemetry is of one voice, which may be
+  // on a voiceless consonant while another holds a vowel)
+  const notes = voicedPitches() ?? (tele && tele.t.voicing > 0.3 ? [tele.t.f0] : []);
+  if (notes.length > 1) out.push(`Notes ${notes.map(noteName).join(" ")}`);
+  else if (notes.length) out.push(`Note ${noteName(notes[0])} ${notes[0].toFixed(0)} Hz`);
   const syl = syllableNow();
   if (syl) out.push(`Syllable ${syl}`);
   out.push(useStore.getState().artic.epilarynx >= RING - 0.05 ? "Ring on" : "Ring off");
@@ -284,7 +289,12 @@ export function SingRight() {
       <Screen className="s-voice" title="Voice">
         <SongControls />
       </Screen>
-      <Screen className="s-keys" title="Keys" sub={next ? `Next: ${next}` : ""} tools={<MidiButton />}>
+      <Screen className="s-keys" title="Keys" sub={next ? `Next: ${next}` : ""} tools={
+          <>
+            <VoicesButton />
+            <MidiButton />
+          </>
+        }>
         <Keys />
       </Screen>
     </div>

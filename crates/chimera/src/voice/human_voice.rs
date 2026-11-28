@@ -355,6 +355,11 @@ impl HumanVoice {
         self.apply_source();
     }
 
+    /// The pitch the folds make now (Hz) and how voiced they are (0 to 1), as in the telemetry.
+    pub fn pitch(&self) -> (f64, f64) {
+        (self.glottis.f0_now, self.glottis.voicing)
+    }
+
     /// Add gestures (times on the voice clock).
     pub fn schedule(&mut self, gestures: &[Gesture]) {
         self.score.add_all(gestures);
@@ -368,6 +373,12 @@ impl HumanVoice {
     /// Cancel scheduled gestures (speech stops; the voice returns to the performer's posture).
     pub fn cancel_score(&mut self) {
         self.score.clear();
+    }
+
+    /// Put the pitch on its target now, with no glide: a voice that starts a note from silence,
+    /// as one of several, must not slide in from the last note it sang.
+    pub fn snap_pitch(&mut self) {
+        self.f0 = self.source.f0 * self.bend;
     }
 
     /// breath/voice on (1) or off (0); intermediate values scale the pressure

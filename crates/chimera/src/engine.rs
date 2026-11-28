@@ -142,6 +142,11 @@ impl Engine {
         self.voice.bend = ratio;
     }
 
+    /// Put the voice's pitch on its target now, with no glide (see [`HumanVoice::snap_pitch`]).
+    pub fn snap_pitch(&mut self) {
+        self.voice.snap_pitch();
+    }
+
     pub fn set_gate(&mut self, level: f64) {
         self.gate_level = level;
         self.voice.set_gate(level);
@@ -238,6 +243,19 @@ impl Engine {
     /// The voice clock (s): the time base of scheduled gestures.
     pub fn clock(&self) -> f64 {
         self.voice.clock
+    }
+
+    /// The pitch the folds make now (Hz) and how voiced they are (0 to 1), as in the telemetry.
+    pub fn pitch(&self) -> (f64, f64) {
+        self.voice.pitch()
+    }
+
+    /// Move the voice clock to `clock` (s), as a voice that rested while another sang takes that
+    /// one's time. For a voice with nothing to play: the beat keeps its phase, but gestures already
+    /// scheduled keep their times, so a jump forward goes past them.
+    pub fn set_clock(&mut self, clock: f64) {
+        self.beat.rebase(clock - self.voice.clock);
+        self.voice.clock = clock;
     }
 
     /// Render `out.len()` samples.

@@ -17,11 +17,18 @@ export type BodyName = "male" | "female" | "child";
 export type ToWorklet =
   | { type: "body"; body: BodyMix }
   | { type: "artic"; values: Partial<HumanArtic>; tipFree?: boolean }
-  | { type: "source"; values: Partial<VoiceSource> }
-  | { type: "gate"; level: number }
+  /** to every voice; with `voice`, to that voice only (a chord's note), `snap` putting its pitch
+   *  there at once (a voice that starts from silence) */
+  | { type: "source"; values: Partial<VoiceSource>; voice?: number; snap?: boolean }
+  /** voice 0's breath, or with `voice` that voice's */
+  | { type: "gate"; level: number; voice?: number }
+  /** how many voices play (1 to 8): a chord's notes, one voice each; voices taken away ring for 1 s */
+  | { type: "voices"; count: number }
+  /** the voice whose telemetry the head shows */
+  | { type: "show"; voice: number }
   | { type: "telemetry"; enabled: boolean }
   /** gestures planned on the main thread with times relative to "now" (the worklet adds its clock) */
-  | { type: "schedule"; gestures: Gesture[]; segments: PlannedSegment[]; end: number; id: number; replace: boolean; lead?: number }
+  | { type: "schedule"; gestures: Gesture[]; segments: PlannedSegment[]; end: number; id: number; replace: boolean; lead?: number; voice?: number }
   | { type: "stopSpeech" }
   /** switch the active voice: "human" or a creature id */
   | { type: "creature"; id: string; params?: Record<string, number> }
@@ -45,6 +52,9 @@ export interface TelemetryMessage {
   nOr: number;
   /** beatbox step under the playhead (−1 when the sequencer is stopped) */
   beatStep: number;
+  /** with more than one voice: each one's pitch, and the voice the telemetry is of */
+  voices?: { f0: number; voicing: number }[];
+  shown?: number;
 }
 
 export interface PlannedMessage {

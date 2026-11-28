@@ -42,7 +42,7 @@ impl ParamHost for FakeHost {
 
 fn voice_params(v: &HashMap<String, f32>) -> VoiceParams {
     let g = |id: &str| v.get(id).copied().unwrap_or(0.0);
-    VoiceParams { vibrato: g("vibrato"), vibrato_rate: g("vibrato_rate"), breath: g("breath"), pressed: g("pressed"), bright: g("bright"), breathy: g("breathy"), rough: g("rough"), fry: g("fry"), glide: g("glide"), ring: g("ring"), restart: g("restart") > 0.5, mpe: g("mpe") > 0.5 }
+    VoiceParams { vibrato: g("vibrato"), vibrato_rate: g("vibrato_rate"), breath: g("breath"), pressed: g("pressed"), bright: g("bright"), breathy: g("breathy"), rough: g("rough"), fry: g("fry"), glide: g("glide"), ring: g("ring"), restart: g("restart") > 0.5, mpe: g("mpe") > 0.5, voices: g("voices") as usize }
 }
 
 /// `seek`'s value when there's nothing to do (a negative f64's bits).

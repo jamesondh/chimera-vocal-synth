@@ -181,6 +181,43 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   if (!(singing > 0.01)) errors.push(`[${tag}] a sung key made no sound (${singing})`);
   if (!(after < 1e-3)) errors.push(`[${tag}] voice still sounding after the sung notes: ${after}`);
   if (sylBefore === sylAfter) errors.push(`[${tag}] the syllable cursor did not move (${sylBefore})`);
+  // a chord: Voices 2, two keys at once sing one syllable, a voice each at its pitch. (Two voices
+  // and a short hold, and back to 1 at once: every voice of the count renders, and a slow machine
+  // that held three and then stepped through 4 went over its load and rebuilt at the lighter
+  // rate, which stopped the song of the next step.)
+  const voicesChip = page.locator(".s-keys .voices-chip");
+  const chipTo = async (want: string) => {
+    for (let i = 0; i < 4 && (await voicesChip.textContent())?.trim() !== want; i++) await voicesChip.click();
+    return (await voicesChip.textContent())?.trim();
+  };
+  const chipText = await chipTo("Voices 2");
+  /** the place in the lyrics of the syllable that comes next */
+  const nextAt = () => page.locator(".syl").evaluateAll((els) => els.findIndex((e) => e.classList.contains("next")));
+  const chordAt = await nextAt();
+  const chordSylBefore = await nextSyl();
+  for (const k of ["a", "d"]) await page.keyboard.down(k);
+  await page.waitForTimeout(600);
+  const chordPitches = await page.evaluate(() => {
+    // @ts-expect-error debug handle
+    const vs = (window.__chimeraVoices?.voices ?? []) as { f0: number; voicing: number }[];
+    return vs.filter((v) => v.voicing > 0.3).map((v) => Math.round(69 + 12 * Math.log2(v.f0 / 440))).sort((a, b) => a - b);
+  });
+  const chordSylHeld = await nextSyl();
+  const chordMoved = (await nextAt()) - chordAt;
+  for (const k of ["a", "d"]) await page.keyboard.up(k);
+  // (a voice taken away renders for one more second, so the releases are still heard)
+  const chipBack = await chipTo("Voices 1");
+  await page.waitForTimeout(1500);
+  const chordAfter = await rms();
+  const chordRate = await page.evaluate(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.ctx?.sampleRate ?? 0;
+  });
+  logs.push(`[${tag}] chord: ${chipText}, pitches ${chordPitches.join(",")}, syllable ${chordSylBefore} -> ${chordSylHeld}, then rms ${chordAfter.toFixed(4)}, ${chipBack}, ${chordRate} Hz`);
+  if (chipText !== "Voices 2" || chipBack !== "Voices 1") errors.push(`[${tag}] the Voices chip read ${chipText}, then ${chipBack}`);
+  if (chordPitches.join(",") !== "48,52") errors.push(`[${tag}] a chord of C3 and E3 sang ${chordPitches.join(",")}`);
+  if (chordMoved !== 1) errors.push(`[${tag}] the chord's two keys moved the words on by ${chordMoved} syllables, not 1 (${chordSylBefore} -> ${chordSylHeld})`);
+  if (!(chordAfter < 1e-3)) errors.push(`[${tag}] a voice still sounding after the chord: ${chordAfter}`);
   // a menu isn't an instrument: a letter typed in it picks an entry, it doesn't play a note
   await page.getByRole("combobox", { name: "Tune" }).focus();
   await page.keyboard.down("d");
@@ -338,6 +375,30 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.keyboard.up("d");
   logs.push(`[first-key] sing before start: rms ${level.toFixed(4)}`);
   if (!(level > 0.01)) errors.push(`[first-key] the first sung key, pressed before audio started, made no sound (${level})`);
+  await page.close();
+}
+
+// a chord as the very first keys on Play, before audio has started: each voice at its own pitch
+// (the start once sent every voice the newest key's pitch: a unison)
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on("pageerror", (e) => errors.push(`[first-chord] pageerror: ${e.message}`));
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.getByRole("radio", { name: "Play" }).click();
+  const chip = page.locator(".s-keys .voices-chip");
+  for (let i = 0; i < 4 && (await chip.textContent())?.trim() !== "Voices 2"; i++) await chip.click();
+  await page.keyboard.down("a");
+  await page.keyboard.down("d");
+  await page.waitForTimeout(1200);
+  const pitches = await page.evaluate(() => {
+    // @ts-expect-error debug handle
+    const vs = (window.__chimeraVoices?.voices ?? []) as { f0: number; voicing: number }[];
+    return vs.filter((v) => v.voicing > 0.3).map((v) => Math.round(69 + 12 * Math.log2(v.f0 / 440))).sort((a, b) => a - b);
+  });
+  await page.keyboard.up("a");
+  await page.keyboard.up("d");
+  logs.push(`[first-chord] play before start: pitches ${pitches.join(",")}`);
+  if (pitches.join(",") !== "48,52") errors.push(`[first-chord] C3 and E3, pressed before audio started, played ${pitches.join(",") || "nothing"}`);
   await page.close();
 }
 
@@ -730,6 +791,6 @@ await run({ width: 1440, height: 980 }, "desktop");
 await run({ width: 390, height: 844 }, "mobile");
 await browser.close();
 console.log("console errors:", errors.length ? "\n" + errors.join("\n") : "none");
-console.log(logs.filter((l) => /load|rate|slow|warn|transcription|example|creature|held|back to|beatbox|silence|sing|octave|retry|tongue|song|video|arrow/i.test(l)).slice(0, 52).join("\n"));
+console.log(logs.filter((l) => /load|rate|slow|warn|transcription|example|creature|held|back to|beatbox|silence|sing|chord|octave|retry|tongue|song|video|arrow/i.test(l)).slice(0, 57).join("\n"));
 // a run that collected errors fails, so CI and agents can't read it as a pass
 if (errors.length) process.exit(1);

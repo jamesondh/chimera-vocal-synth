@@ -3,6 +3,7 @@ import { usePhosphor } from "../usePhosphor.ts";
 import { engine } from "../../audio/AudioEngine.ts";
 import { useStore } from "../store.ts";
 import { roll, tickSinging } from "../singing.ts";
+import { liveVoices } from "../voices.ts";
 import { TEXT, V } from "../colors.ts";
 import { beam, beamPts, label, LABEL_MIN, labelWidth, type Pt, seg } from "../render/vector.ts";
 import { nearestBody } from "../body.ts";
@@ -18,27 +19,40 @@ const NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A�
 const KEY_CENTRE: Record<string, number> = { male: 54, female: 66, child: 70 };
 
 const hzToMidi = (f: number) => 69 + 12 * Math.log2(f / 440);
+/** the telemetry's clock going back by more than this (s) is a new timeline */
+const CLOCK_SLACK = 0.05;
+
+type TracePoint = { t: number; m: number; v: number };
 
 /**
  * Scrolling piano roll for Sing mode: the notes asked for (green frames, with their syllables)
  * and the pitch the vocal folds actually produced (an amber trace with the onsets, glides and
- * vibrato), on the vector display.
+ * vibrato), on the vector display. Each voice of a chord has its own trace.
  */
 export function PianoRoll() {
-  const st = useRef({ centre: NaN, trace: [] as { t: number; m: number; v: number }[], lastClock: -1 });
+  const st = useRef({ centre: NaN, traces: [] as TracePoint[][], lastClock: -1, polls: -1 });
   const ref = usePhosphor(({ ctx, w, h, dt }) => {
     tickSinging();
     const s = st.current;
     const body = useStore.getState().body;
     const tele = engine.latest?.t;
     const clock = engine.voiceClock() ?? 0;
-    // sung pitch, sampled as telemetry arrives; a new voice's clock starts again, on a new timeline
-    if (tele && tele.clock < s.lastClock) s.trace.length = 0;
-    if (tele && tele.clock !== s.lastClock) {
-      s.lastClock = tele.clock;
-      s.trace.push({ t: tele.clock, m: tele.f0 > 20 ? hzToMidi(tele.f0) : NaN, v: tele.voicing });
-      const cut = tele.clock - (w * NOW_AT) / SPEED - 1;
-      while (s.trace.length && s.trace[0].t < cut) s.trace.shift();
+    // sung pitch, sampled as telemetry arrives (for a chord, each voice's as each poll or worklet
+    // message does); a new voice's clock starts again, on a new timeline. The telemetry is of one
+    // voice at a time, and the voices' clocks differ by under 1.5 ms
+    const chord = liveVoices.voices.length > 0;
+    const at = chord ? (liveVoices.polls !== s.polls ? liveVoices.clock : null) : tele ? tele.clock : null;
+    s.polls = liveVoices.polls;
+    if (at !== null && at < s.lastClock - CLOCK_SLACK) {
+      s.traces = [];
+      s.lastClock = -Infinity;
+    }
+    if (at !== null && at > s.lastClock) {
+      s.lastClock = at;
+      const pitches = chord ? liveVoices.voices : tele ? [tele] : [];
+      pitches.forEach((p, i) => (s.traces[i] ??= []).push({ t: at, m: p.f0 > 20 ? hzToMidi(p.f0) : NaN, v: p.voicing }));
+      const cut = at - (w * NOW_AT) / SPEED - 1;
+      for (const trace of s.traces) while (trace.length && trace[0].t < cut) trace.shift();
     }
     const left = 34;
     const tLeft = clock - ((w - left) * NOW_AT) / SPEED, tRight = clock + ((w - left) * (1 - NOW_AT)) / SPEED;
@@ -110,14 +124,16 @@ export function PianoRoll() {
       if (run.length > 1) beamPts(ctx, run, V.amber, 1.5, { hot: true });
       run = [];
     };
-    for (const p of s.trace) {
-      if (!(p.v > 0.3) || !Number.isFinite(p.m) || p.t < tLeft) {
-        flush();
-        continue;
+    for (const trace of s.traces) {
+      for (const p of trace) {
+        if (!(p.v > 0.3) || !Number.isFinite(p.m) || p.t < tLeft) {
+          flush();
+          continue;
+        }
+        run.push([x(p.t), y(p.m)]);
       }
-      run.push([x(p.t), y(p.m)]);
+      flush();
     }
-    flush();
 
     // now
     const xn = left + (w - left) * NOW_AT;

@@ -1,13 +1,15 @@
 import { create } from "zustand";
 import { engine } from "../audio/AudioEngine.ts";
-import { inPlugin } from "../audio/pluginBridge.ts";
+import { inPlugin, setParam } from "../audio/pluginBridge.ts";
 import { DEFAULT_SOURCE, type VoiceSource } from "../wasm/engine.ts";
 import { NEUTRAL, restTip, type HumanArtic } from "../wasm/engine.ts";
 import { defaultF0, PRESETS, sameBody, type BodyMix } from "./body.ts";
 import { creatureById } from "../wasm/engine.ts";
 import type { ParamDef } from "../wasm/types.ts";
 import { BEAT_PRESETS, BASS_NOTE, beatReady, parseBeat, type BeatStep } from "../wasm/engine.ts";
-import { singNoteOn, singNoteOff, stopSinging } from "./singing.ts";
+import { alloc, setVoiceCount, showFirstVoice, showNewestVoice, singNoteOn, singNoteOff, stopSinging } from "./singing.ts";
+import { MAX_VOICES } from "./voiceAlloc.ts";
+import { liveVoices } from "./voices.ts";
 import { stopSpeaking } from "./speech.ts";
 import { connectMidi, disconnectMidi, type MidiStatus } from "./midi.ts";
 
@@ -52,6 +54,11 @@ interface State {
   /** sustained breath (drone) independent of keys */
   hold: boolean;
   heldNotes: number[];
+  /** the notes a chord's voices sound now, for the keys and the Keys header (in the plugin the host's notes too) */
+  voiceNotes: number[];
+  /** how many voices Sing and Play have: a chord's notes, one voice each (1: one voice, legato) */
+  voices: number;
+  setVoices: (n: number) => void;
   view: ViewOptions;
   mode: Mode;
   setMode: (m: Mode) => void;
@@ -111,10 +118,47 @@ export function creatureKeyHz(midi: number, p: Pick<ParamDef, "min" | "max">): n
   return Math.min(p.max, f);
 }
 
+/** The most voices the web app offers: each costs about 15 % of a laptop's core (docs/plugin.md, "The web app's chords"). */
+export const WEB_MAX_VOICES = 4;
+
+/** The voices that play: a chord's in Sing and Play, one in the other tabs. */
+const playingVoices = (s: { mode: Mode; voices: number }) => (s.mode === "sing" || s.mode === "play" ? s.voices : 1);
+
+/** Play's chord: each voice's note for the pitch lines, the chord for the Keys header, the head on the newest. */
+function followPlayVoices(set: (p: Partial<State>) => void): void {
+  const notes = alloc.keys.slice(0, alloc.count).map((k) => (k.length ? k[k.length - 1] : -1));
+  liveVoices.notes = alloc.count > 1 ? notes : [];
+  set({ voiceNotes: alloc.count > 1 ? notes.filter((n) => n >= 0) : [] });
+  showNewestVoice();
+}
+
+/**
+ * The Pitch dial moved while a key had this voice of a Play chord: the voice takes the dial's
+ * pitch when its last key lifts, as in the plugin (Hold then breathes there).
+ */
+const dialF0: (number | undefined)[] = [];
+
+/** Play's keys let go, on every voice of a chord (a tab switch, a new count of voices, a new body, a rebuilt engine). */
+function releasePlayVoices(set: (p: Partial<State>) => void): void {
+  for (let v = 1; v < alloc.count; v++) engine.gate(0, v);
+  alloc.clear();
+  dialF0.length = 0;
+  showFirstVoice();
+  liveVoices.notes = [];
+  set({ voiceNotes: [] });
+}
+
 function updateGate(s: { hold: boolean; heldNotes: number[]; mode: Mode; keyCall: string | null }) {
   if (inPlugin) {
     // the keys' breath is Rust's, from whichever keys are down
     engine.pluginHold(s.hold);
+    return;
+  }
+  if (alloc.count > 1 && s.mode === "play") {
+    // each voice of a chord breathes while its key is down; Hold keeps the first one breathing,
+    // and with no key down that is the voice the head shows
+    for (let v = 0; v < alloc.count; v++) engine.gate((v === 0 && s.hold) || alloc.busy(v) ? 1 : 0, v);
+    if (s.hold && alloc.newest() === null) showFirstVoice();
     return;
   }
   // keys that trigger calls leave the breath to the call; sung notes breathe by themselves
@@ -132,6 +176,15 @@ function sendState(s: State) {
   if (s.mode === "beatbox") {
     engine.setMic(s.mic);
     engine.setBeat({ steps: s.beat.steps, bpm: s.beat.bpm, swing: s.beat.swing, playing: s.beat.playing });
+  }
+  setVoiceCount(playingVoices(s));
+  // a chord whose keys went down before the engine existed: each voice's own pitch, which the
+  // shared one above (the newest key's) has just written over
+  if (alloc.count > 1 && s.mode === "play") {
+    for (let v = 0; v < alloc.count; v++) {
+      const keys = alloc.keys[v];
+      if (keys.length) engine.voiceSource(v, { f0: midiToHz(keys[keys.length - 1]) }, true);
+    }
   }
   updateGate(s);
 }
@@ -172,6 +225,31 @@ export const useStore = create<State>((set, get) => ({
   volume: 0.8,
   hold: false,
   heldNotes: [],
+  voiceNotes: [],
+  voices: 1,
+  setVoices: (count) => {
+    const n = Math.max(1, Math.min(inPlugin ? MAX_VOICES : WEB_MAX_VOICES, Math.round(count)));
+    if (inPlugin) {
+      // the host's parameter: Rust deals the notes (docs/plugin.md, "Voices")
+      set({ voices: n });
+      setParam("voices", n);
+      return;
+    }
+    const s = get();
+    if (n === s.voices) return;
+    // notes held now end: the keys are dealt to the voices again from the next press (and a
+    // press still waiting for the audio to start is not sent when it does)
+    if (s.heldNotes.length) {
+      pressOf.clear();
+      if (s.mode === "sing") stopSinging();
+      if (s.mode === "play") releasePlayVoices(set);
+      if (s.mode === "sing" || s.mode === "play") set({ heldNotes: [] });
+    }
+    set({ voices: n });
+    // before the audio starts this goes nowhere, and the start sends it
+    setVoiceCount(playingVoices(get()));
+    updateGate(get());
+  },
   view: { pressure: true, particles: true, grid: false, calipers: true, threeD: false },
   // the app opens on Sing: hearing a song is the quickest way in (the plugin opens there too)
   mode: "sing",
@@ -210,6 +288,9 @@ export const useStore = create<State>((set, get) => ({
       poseBeforeBeat = null;
     }
     if (prev === "sing") stopSinging();
+    if (prev === "play") releasePlayVoices(set);
+    // a chord's voices are Sing's and Play's: the other tabs have one
+    if (playingVoices(get()) !== alloc.count) setVoiceCount(playingVoices(get()));
     // speech and song breathe by themselves: a held breath would drone under them
     if (m === "speak" || m === "sing") set({ hold: false });
     if (m === "beatbox") {
@@ -328,12 +409,30 @@ export const useStore = create<State>((set, get) => ({
     const f0 = defaultF0(b);
     // nor does speech carry over (and the new voice's clock starts again from zero)
     if (get().mode === "speak") stopSpeaking();
+    // a Play chord ends, as Sing's notes do and as in the plugin: the new body starts every voice
+    // at its own pitch, which would leave the chord's keys lit over a unison
+    const chord = get().mode === "play" && alloc.count > 1;
+    if (chord) {
+      releasePlayVoices(set);
+      set({ heldNotes: [] });
+    }
     set((s) => ({ body: b, source: { ...s.source, f0 } }));
     engine.setBody(b);
+    if (chord) updateGate(get());
   },
   previewBody: (b) => set({ body: b }),
   setSource: (v) => {
     set((s) => ({ source: { ...s.source, ...v } }));
+    if (!inPlugin && v.f0 !== undefined && alloc.count > 1 && get().mode === "play" && alloc.newest() !== null) {
+      // a chord's keys keep their pitches: the Pitch dial moves only the voices with no key down
+      const { f0, ...rest } = v;
+      if (Object.keys(rest).length) engine.setSource(rest);
+      for (let k = 0; k < alloc.count; k++) {
+        if (alloc.busy(k)) dialF0[k] = f0;
+        else engine.voiceSource(k, { f0 });
+      }
+      return;
+    }
     engine.setSource(v);
   },
   setArtic: (v, tipFree) => {
@@ -390,6 +489,16 @@ export const useStore = create<State>((set, get) => ({
       set({ bassNote: midi });
       if (held.length === 1) s.setArtic({ lipAp: -0.25, velum: 0.9 });
       s.setSource({ f0: midiToHz(midi) });
+    } else if (alloc.count > 1) {
+      // a chord: the key's own voice (src/ui/voiceAlloc.ts), from silence at its pitch with no glide
+      const v = alloc.pick(midi);
+      const fromSilence = !alloc.busy(v) && !(v === 0 && s.hold);
+      alloc.press(midi, v);
+      dialF0[v] = undefined;
+      engine.voiceSource(v, { f0: midiToHz(midi) }, fromSilence);
+      // the Pitch dial shows the newest note
+      set((st) => ({ source: { ...st.source, f0: midiToHz(midi) } }));
+      followPlayVoices(set);
     } else s.setSource({ f0: midiToHz(midi) });
     updateGate(get());
   },
@@ -407,6 +516,22 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
     if (s.mode === "beatbox" && !held.length) s.setArtic({ lipAp: beatReady(s.body).lipAp, velum: NEUTRAL.velum });
+    if (s.mode === "play" && alloc.count > 1) {
+      // a chord: the key's voice goes back to its older key still down, or falls silent
+      const lifted = alloc.lift(midi);
+      if (lifted && lifted.back !== null) engine.voiceSource(lifted.voice, { f0: midiToHz(lifted.back) });
+      else if (lifted && dialF0[lifted.voice] !== undefined) {
+        engine.voiceSource(lifted.voice, { f0: dialF0[lifted.voice] });
+        dialF0[lifted.voice] = undefined;
+      }
+      // the Pitch dial and the Keys header show the newest note still down (the dial, turned
+      // since, shows what it was turned to)
+      const newest = alloc.newest();
+      if (newest !== null && !dialF0.some((f) => f !== undefined)) set((st) => ({ source: { ...st.source, f0: midiToHz(alloc.keys[newest].at(-1)!) } }));
+      followPlayVoices(set);
+      updateGate(get());
+      return;
+    }
     if (held.length) {
       // fall back to the most recent note still held (legato)
       const last = held[held.length - 1];
@@ -450,6 +575,8 @@ engine.onRebuilt(() => {
   session++;
   stopSinging();
   stopSpeaking();
+  // (a Play chord's keys too: they would stay lit, and named in the Keys header, over silence)
+  releasePlayVoices((p) => useStore.setState(p));
   useStore.setState({ heldNotes: [] });
   sendState(useStore.getState());
 });

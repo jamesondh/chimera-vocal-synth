@@ -1,5 +1,5 @@
-//! The audio thread's whole path must not allocate or free: notes, every command from the editor, a
-//! body swap, new lyrics, telemetry, reset.
+//! The audio thread's whole path must not allocate or free: notes and chords, every command from the
+//! editor, a body swap, new lyrics, telemetry, reset.
 use chimera::anatomy::human::{ArticKey, ArticPatch, BodyMix};
 use chimera::engine::Engine;
 use chimera::phonetics::beatbox::{BeatStep, parse_beat};
@@ -36,7 +36,7 @@ unsafe impl GlobalAlloc for Counting {
 static A: Counting = Counting;
 
 fn params() -> VoiceParams {
-    VoiceParams { vibrato: 35.0, vibrato_rate: 6.0, breath: 8.0, pressed: 0.5, bright: 0.25, breathy: 0.15, rough: 0.1, fry: 0.0, glide: 0.06, ring: 0.0, restart: true, mpe: true }
+    VoiceParams { vibrato: 35.0, vibrato_rate: 6.0, breath: 8.0, pressed: 0.5, bright: 0.25, breathy: 0.15, rough: 0.1, fry: 0.0, glide: 0.06, ring: 0.0, restart: true, mpe: true, voices: 3 }
 }
 
 #[test]
@@ -118,7 +118,8 @@ fn the_audio_threads_path_does_not_allocate() {
         measured(&mut c, &params(), t, &mut buf, &[]);
         shared.ui_note(UiNote { midi: 60, velocity: 96.0, on: false });
         // a parameter moved
-        let moved = VoiceParams { breathy: 0.1 * round as f32, ring: 0.1 * round as f32, mpe: round % 2 == 0, ..params() };
+        // and a voice taken away or added while the keys of the page are down
+        let moved = VoiceParams { breathy: 0.1 * round as f32, ring: 0.1 * round as f32, mpe: round % 2 == 0, voices: 1 + round as usize % 4, ..params() };
         measured(&mut c, &moved, t, &mut buf, &[]);
         // Play mode and back
         shared.edit(|p| {

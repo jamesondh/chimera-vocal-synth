@@ -32,6 +32,7 @@ pub mod control {
 }
 
 pub mod voice {
+    pub mod chord_limiter;
     pub mod human_airway;
     pub mod human_voice;
 }

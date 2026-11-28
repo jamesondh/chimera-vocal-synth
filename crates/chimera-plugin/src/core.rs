@@ -1,6 +1,11 @@
 //! The instrument on the audio thread, with no plugin-API types in it, so it can be tested
 //! anywhere. [`Shared`] is everything it shares with the editor. See docs/plugin.md.
 //!
+//! It has [`MAX_VOICES`] voices, each a whole singer (an engine and the note it sings), and the Voices
+//! parameter says how many play. A note goes to a voice of its own while there is one, so a chord
+//! sounds, and each voice follows its own note's channel: bend, pressure, slide. The first voice is
+//! also the one that speaks and beatboxes.
+//!
 //! Real time: [`Core::begin_block`], [`Core::event`], [`Core::render`], [`Core::end_block`] and
 //! [`Core::reset`] don't block, allocate or free. The audio thread only `try_lock`s, and what it
 //! replaces it hands back through [`Pending`] for the main thread to free.
@@ -10,13 +15,14 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicU64, 
 
 use chimera::anatomy::human::{ArticKey, ArticPatch, BodyMix};
 use chimera::control::score::{Gesture, Label};
-use chimera::control::singer::{Singer, syllables_from};
+use chimera::control::singer::{Lyric, Singer, syllables_from};
 use chimera::engine::{Engine, SUB_BLOCK};
 use chimera::math::{exp, midi_to_hz, pow};
 use chimera::phonetics::Syllable;
 use chimera::phonetics::beatbox::{BEAT_PRESETS, BeatStep, parse_beat};
 use chimera::phonetics::sing::LiveSyllable;
 use chimera::phonetics::syllables::lyrics_to_syllables;
+use chimera::voice::chord_limiter::ChordLimiter;
 use chimera::voice::human_voice::{HumanVoice, SourcePatch, TELE_LABELS, VoiceTelemetry};
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +33,16 @@ use crate::speech::{SpeechSettings, SpokenLine, plan_lines};
 /// The lowest sample rate the engine is stable at (Hz): the airway gives NaN at 22.05 kHz.
 pub const MIN_SAMPLE_RATE: f64 = 32000.0;
 pub const DEFAULT_LYRICS: &str = "Hello there, I am a voice made of air.";
+/// The most voices the Voices parameter can ask for. All are built with the instrument, because the
+/// audio thread can't build one.
+pub const MAX_VOICES: usize = 8;
+/// A note that starts this soon after another (s), on a voice of its own, is part of the same chord:
+/// it sings the same syllable.
+const CHORD_WINDOW: f64 = 0.05;
+/// A voice the Voices parameter takes away is rendered this much longer (s), for its release.
+const VOICE_TAIL: f64 = 1.0;
+/// [`Core::key_voice`]: no voice has this key.
+const NO_VOICE: u8 = u8::MAX;
 /// Notes from the on-screen keys waiting for the audio thread.
 const MAX_UI_NOTES: usize = 256;
 /// Pitch bend range, each way (semitones).
@@ -189,6 +205,8 @@ pub struct VoiceParams {
     pub restart: bool,
     /// MIDI channels 1–15 are MPE note channels, each with its own bend and slide
     pub mpe: bool,
+    /// how many voices play (1 to [`MAX_VOICES`])
+    pub voices: usize,
 }
 
 /// What the host says about the transport this block.
@@ -210,7 +228,10 @@ pub enum Event {
     /// `velocity` in MIDI units (0–127)
     NoteOn { midi: u8, velocity: f64, channel: u8 },
     NoteOff { midi: u8 },
-    /// all notes off, all sound off, a choke
+    /// the host stops one note (0 to 127). With several voices in Sing or Play the note lifts and
+    /// the rest of the chord stays; otherwise everything stops, as it always did
+    Choke { midi: u8 },
+    /// all notes off, all sound off
     AllOff,
     /// 0..1, 0.5 centred
     Bend { channel: u8, value: f32 },
@@ -251,7 +272,8 @@ pub struct Pending {
     pub follow_host: Option<bool>,
     beat_steps: Option<Vec<Option<BeatStep>>>,
     hits: Vec<BeatStep>,
-    voice: Option<(Box<HumanVoice>, BodyMix)>,
+    /// a new body: one voice for each of the instrument's
+    voice: Option<(Vec<Box<HumanVoice>>, BodyMix)>,
     syllables: Option<Vec<LiveSyllable>>,
     speech: Option<NewSpeech>,
     pad: Option<(Vec<Gesture>, u32)>,
@@ -259,7 +281,7 @@ pub struct Pending {
     /// release every key the UI holds (the window closed, or notes were dropped)
     clear_ui_keys: bool,
     /// what the audio thread replaced, for the main thread to free
-    retired_voice: Option<Box<HumanVoice>>,
+    retired_voice: Option<Vec<Box<HumanVoice>>>,
     retired_syllables: Option<Vec<LiveSyllable>>,
     retired_speech: Option<Vec<Vec<Gesture>>>,
     retired_pad: Option<Vec<Gesture>>,
@@ -334,6 +356,34 @@ impl Default for TelemetryFrame {
     }
 }
 
+/// One voice, as the editor sees it.
+pub struct VoiceShared {
+    /// the MIDI note it sounds now and the syllable it sings (−1: none, and before the first block)
+    pub note: AtomicI32,
+    pub sung: AtomicI32,
+    /// bumped by each press it takes, so the editor can tell a new note from the same pitch held
+    pub serial: AtomicU32,
+    /// its pitch (Hz) and voicing (0 to 1) now, as f64 bits (a voice that isn't rendered: 0, 0)
+    pub f0: AtomicU64,
+    pub voicing: AtomicU64,
+}
+
+impl Default for VoiceShared {
+    fn default() -> Self {
+        VoiceShared { note: AtomicI32::new(-1), sung: AtomicI32::new(-1), serial: AtomicU32::new(0), f0: AtomicU64::new(0), voicing: AtomicU64::new(0) }
+    }
+}
+
+impl VoiceShared {
+    /// Nothing sounds (a restart: no block has said otherwise yet).
+    fn rest(&self) {
+        self.note.store(-1, Ordering::Relaxed);
+        self.sung.store(-1, Ordering::Relaxed);
+        self.f0.store(0, Ordering::Relaxed);
+        self.voicing.store(0, Ordering::Relaxed);
+    }
+}
+
 /// What the editor and the audio thread share.
 #[derive(Default)]
 pub struct Shared {
@@ -359,6 +409,9 @@ pub struct Shared {
     pub note: AtomicI32,
     /// bumped by every press, so the editor can tell a new note from the same pitch held
     pub note_serial: AtomicU32,
+    /// the voice the head shows, and each voice, for the keys, the roll and the pitch lines
+    pub shown_voice: AtomicI32,
+    pub voices: [VoiceShared; MAX_VOICES],
     pub speech: Mutex<SpeechDoc>,
     generations: AtomicU32,
     /// the line a note says next
@@ -429,12 +482,19 @@ impl Shared {
 
     /// Send a voice built off the audio thread. Dropped if it isn't for the current sample rate.
     pub fn send_voice(&self, voice: Box<HumanVoice>, body: BodyMix) {
+        // every voice of the instrument gets the body, whatever the Voices parameter says now. Each
+        // is built, not cloned: a clone keeps a buffer's contents but not the room it had reserved
+        let mut voices = Vec::with_capacity(MAX_VOICES);
+        for _ in 1..MAX_VOICES {
+            voices.push(Engine::prepare_voice(voice.fs_out, body));
+        }
+        voices.push(voice);
         let mut p = self.lock();
-        if voice.fs_out != p.sample_rate {
+        if voices[0].fs_out != p.sample_rate {
             drop(p);
             return;
         }
-        let freed = (p.retired_voice.take(), p.voice.replace((voice, body)));
+        let freed = (p.retired_voice.take(), p.voice.replace((voices, body)));
         self.dirty.store(true, Ordering::Release);
         drop(p);
         drop(freed); // outside the lock: the audio thread must not find it busy for this long
@@ -531,6 +591,10 @@ impl Shared {
         scope.reserve_exact(SCOPE_SAMPLES);
         drop(scope);
         self.sample_rate.store(sample_rate.to_bits(), Ordering::Relaxed);
+        self.voices.iter().for_each(VoiceShared::rest);
+        // and the shown voice's: a note left from before would set the page's Pitch dial
+        self.note.store(-1, Ordering::Relaxed);
+        self.sung.store(-1, Ordering::Relaxed);
         self.faulted.store(false, Ordering::Relaxed);
         self.revision.fetch_add(1, Ordering::Relaxed);
     }
@@ -569,15 +633,52 @@ impl Shared {
     }
 }
 
-pub struct Core {
+/// One singer: a body, and the note it is singing.
+struct Voice {
     engine: Engine,
+    /// its notes. The first voice's also holds the lyrics, for all of them
     singer: Singer,
-    mode: Mode,
-    params: VoiceParams,
-    /// the Hold breath toggle (Play)
-    hold: bool,
     /// keys down in Play, oldest first
     play_keys: Vec<u8>,
+    /// the note whose channel's expression moves this voice, and that channel
+    expr_note: Option<u8>,
+    expr_channel: u8,
+    /// the pressure and brightness its engine has now, gliding to `Core::expression`
+    expr_now: (f64, f64),
+    expr_moving: bool,
+    /// when the note it sounds started, or when its last key lifted if none is down (`Core::order`)
+    order: u64,
+    /// presses it has taken (see [`VoiceShared::serial`])
+    presses: u32,
+    /// the Pitch dial's value that came while a key had this voice (several voices, Play)
+    dial_f0: Option<f64>,
+}
+
+pub struct Core {
+    /// every voice the instrument can have: the first `count` play
+    voices: Vec<Voice>,
+    count: usize,
+    /// voices rendered: `count`, and for `tail_left` samples more the ones just taken away
+    rendered: usize,
+    tail_left: usize,
+    /// on the sum, while more than one voice is rendered
+    limiter: ChordLimiter,
+    /// the voice each key down is on (`NO_VOICE`: none), in Sing and Play, and when it went down
+    key_voice: [u8; 128],
+    key_order: [u64; 128],
+    /// counts the notes started and the voices freed
+    order: u64,
+    /// the voice that sang the last syllable taken from the lyrics: a melisma moves its vowel
+    lyric_voice: usize,
+    /// the voice with the newest note sounding: the one the editor shows
+    shown: usize,
+    /// the syllable the last note sang, and the samples left in which a note joins its chord
+    chord: Option<Lyric>,
+    chord_left: usize,
+    mode: Mode,
+    params: VoiceParams,
+    /// the Hold breath toggle (Play): the first voice breathes with no key down
+    hold: bool,
     /// keys down per owner, as bit masks: a pitch lifts when its last owner lets go
     host_keys: u128,
     ui_keys: u128,
@@ -617,14 +718,11 @@ pub struct Core {
     note_channel: [u8; 128],
     /// the last note started (Speak, Beatbox)
     last_on: Option<u8>,
-    /// the note whose channel's expression moves the voice, and that channel
-    expr_note: Option<u8>,
-    expr_channel: u8,
     /// each key's poly pressure
     key_pressure: [f32; 128],
-    /// the pressure and brightness the engine has now. They glide to `expression()`: a step every
-    /// `EXPR_STEP` samples (`expr_left` to the next), each `expr_coef` of the way left
-    expr_now: (f64, f64),
+    /// Each voice's pressure and brightness glide to its `expression()`: a step every `EXPR_STEP`
+    /// samples (`expr_left` to the next), each `expr_coef` of the way left. `expr_moving`: some
+    /// voice's are on their way
     expr_moving: bool,
     expr_left: usize,
     expr_coef: f64,
@@ -648,10 +746,10 @@ impl Core {
     /// Build the instrument from a project's state. Allocates: not on the audio thread.
     pub fn new(sample_rate: f64, settings: &Settings, prepared: &Prepared, params: VoiceParams, shared: &Shared) -> Core {
         // a new male engine is the largest airway at this rate, so telemetry sized for it fits any
-        let mut engine = Engine::new(sample_rate);
+        let engines: Vec<Engine> = (0..MAX_VOICES).map(|_| Engine::new(sample_rate)).collect();
         let mut tele = VoiceTelemetry::default();
         let mut block = Vec::new();
-        let info = engine.info();
+        let info = engines[0].info();
         tele.reserve(info.n_ph + info.n_or, &mut block);
         // the other buffer of the swap with the editor
         let mut frame = shared.telemetry.lock().unwrap_or_else(|e| e.into_inner());
@@ -659,18 +757,34 @@ impl Core {
         frame.fresh = false;
         drop(frame);
 
-        engine.set_body(settings.body);
-        let mut singer = Singer::new();
-        singer.body = settings.body;
-        let _ = singer.set_syllables(syllables_from(&prepared.syllables));
-        singer.set_cursor(settings.start_syllable);
+        let mut voices: Vec<Voice> = engines
+            .into_iter()
+            .map(|mut engine| {
+                engine.set_body(settings.body);
+                let mut singer = Singer::new();
+                singer.body = settings.body;
+                Voice { engine, singer, play_keys: Vec::with_capacity(128), expr_note: None, expr_channel: 0, expr_now: (0.0, 0.0), expr_moving: false, order: 0, presses: 0, dial_f0: None }
+            })
+            .collect();
+        let _ = voices[0].singer.set_syllables(syllables_from(&prepared.syllables));
+        voices[0].singer.set_cursor(settings.start_syllable);
+        let count = params.voices.clamp(1, MAX_VOICES);
         let mut core = Core {
-            engine,
-            singer,
+            voices,
+            count,
+            rendered: count,
+            tail_left: 0,
+            limiter: ChordLimiter::new(sample_rate),
+            key_voice: [NO_VOICE; 128],
+            key_order: [0; 128],
+            lyric_voice: 0,
+            order: 0,
+            shown: 0,
+            chord: None,
+            chord_left: 0,
             mode: settings.mode,
             params,
             hold: false,
-            play_keys: Vec::with_capacity(128),
             host_keys: 0,
             ui_keys: 0,
             start_syllable: settings.start_syllable,
@@ -698,10 +812,7 @@ impl Core {
             last_bend: 0.5,
             note_channel: [0; 128],
             last_on: None,
-            expr_note: None,
-            expr_channel: 0,
             key_pressure: [0.0; 128],
-            expr_now: (0.0, 0.0),
             expr_moving: false,
             expr_left: 0,
             expr_coef: 1.0 - exp(-(EXPR_STEP as f64 / sample_rate) / EXPR_GLIDE),
@@ -715,23 +826,43 @@ impl Core {
             tele_due: 0,
             tele_every: (sample_rate / TELEMETRY_RATE) as i64,
         };
-        core.engine.set_source(&SourcePatch { f0: Some(settings.f0), voiced: Some(settings.voiced), ..Default::default() });
-        core.engine.set_artic(&settings.artic, Some(settings.tip_free));
-        core.engine.set_beat_steps(&settings.beat.steps);
-        core.engine.set_beat_tempo(Some(settings.beat.bpm), Some(settings.beat.swing));
+        for voice in &mut core.voices {
+            voice.engine.set_source(&SourcePatch { f0: Some(settings.f0), voiced: Some(settings.voiced), ..Default::default() });
+            voice.engine.set_artic(&settings.artic, Some(settings.tip_free));
+        }
+        core.lead().set_beat_steps(&settings.beat.steps);
+        core.lead().set_beat_tempo(Some(settings.beat.bpm), Some(settings.beat.swing));
         core.apply_params();
         core.settle_expression();
         // a voice's first control step sizes some of its buffers: not on the audio thread
-        core.engine.render(&mut [0.0; SUB_BLOCK]);
+        for voice in &mut core.voices {
+            voice.engine.render(&mut [0.0; SUB_BLOCK]);
+        }
         core
     }
 
+    /// The first voice's engine: the one that also speaks and beatboxes.
     pub fn engine(&self) -> &Engine {
-        &self.engine
+        &self.voices[0].engine
     }
 
+    fn lead(&mut self) -> &mut Engine {
+        &mut self.voices[0].engine
+    }
+
+    /// The first voice's singer: the one with the lyrics.
     pub fn singer(&self) -> &Singer {
-        &self.singer
+        &self.voices[0].singer
+    }
+
+    /// One of the [`MAX_VOICES`] voices' engine and singer.
+    pub fn voice(&self, v: usize) -> (&Engine, &Singer) {
+        (&self.voices[v].engine, &self.voices[v].singer)
+    }
+
+    /// The voice the editor shows: the one with the newest note sounding.
+    pub fn shown(&self) -> usize {
+        self.shown
     }
 
     /// The line a note says next.
@@ -741,86 +872,170 @@ impl Core {
 
     /// The latency to report to the host: only Beatbox has any.
     pub fn latency_samples(&self) -> u32 {
-        if self.mode == Mode::Beatbox { (BEAT_LATENCY * self.engine.sample_rate).round() as u32 } else { 0 }
+        if self.mode == Mode::Beatbox { (BEAT_LATENCY * self.engine().sample_rate).round() as u32 } else { 0 }
     }
 
     fn apply_params(&mut self) {
         let p = self.params;
-        self.singer.vibrato = p.vibrato as f64;
+        let count = p.voices.clamp(1, MAX_VOICES);
+        if count != self.count {
+            self.set_count(count);
+        }
         // while singing, the notes' own gestures carry the vibrato: a base depth would shake the onset
         let depth = if self.mode == Mode::Play { p.vibrato as f64 } else { 0.0 };
-        // the Breath and Bright dials glide, with the pressure and slide on them (`render`)
-        self.engine.set_source(&SourcePatch {
-            vibrato_depth: Some(depth),
-            vibrato_rate: Some(p.vibrato_rate as f64),
-            tension: Some(p.pressed as f64),
-            breathiness: Some(p.breathy as f64),
-            roughness: Some(p.rough as f64),
-            fry: Some(p.fry as f64),
-            glide: Some(p.glide as f64),
-            ..Default::default()
-        });
-        self.engine.set_artic(&ArticPatch::default().with(ArticKey::Epilarynx, p.ring as f64), None);
-        self.glide_expression();
+        for voice in &mut self.voices {
+            voice.singer.vibrato = p.vibrato as f64;
+            // the Breath and Bright dials glide, with the pressure and slide on them (`render`)
+            voice.engine.set_source(&SourcePatch {
+                vibrato_depth: Some(depth),
+                vibrato_rate: Some(p.vibrato_rate as f64),
+                tension: Some(p.pressed as f64),
+                breathiness: Some(p.breathy as f64),
+                roughness: Some(p.rough as f64),
+                fry: Some(p.fry as f64),
+                glide: Some(p.glide as f64),
+                ..Default::default()
+            });
+            voice.engine.set_artic(&ArticPatch::default().with(ArticKey::Epilarynx, p.ring as f64), None);
+        }
+        self.glide_all();
         // the MPE switch changes which channels bend what
         self.update_bend();
     }
 
-    /// The engine's bend: the key's transposition, the wheel, and the sounding note's own bend.
+    /// The Voices parameter moved. A voice taken away stops its notes, and is rendered a little
+    /// longer for their release.
+    fn set_count(&mut self, count: usize) {
+        for voice in self.voices[..self.count].iter_mut().skip(count) {
+            voice.singer.stop_all(&mut voice.engine);
+            voice.play_keys.clear();
+        }
+        // their keys are up for both owners: a key left "held" would shut the other owner out of it
+        for (midi, v) in self.key_voice.iter_mut().enumerate() {
+            if *v != NO_VOICE && *v as usize >= count {
+                *v = NO_VOICE;
+                self.host_keys &= !(1u128 << midi);
+                self.ui_keys &= !(1u128 << midi);
+            }
+        }
+        if count < self.count {
+            self.tail_left = (VOICE_TAIL * self.engine().sample_rate) as usize;
+        }
+        // a voice that wasn't rendered starts on the first voice's clock: the editor puts every
+        // voice's notes on one timeline, and shows one voice's telemetry at a time
+        let clock = self.voices[0].engine.clock();
+        for voice in self.voices[..count].iter_mut().skip(self.rendered) {
+            voice.engine.set_clock(clock);
+        }
+        self.rendered = self.rendered.max(count);
+        self.count = count;
+        if self.shown >= count {
+            self.shown = 0;
+        }
+        // the voice a melisma would have continued is gone: with one voice left it is that one's
+        if self.lyric_voice >= count {
+            self.lyric_voice = 0;
+        }
+        self.update_gate();
+    }
+
+    /// Each engine's bend: the key's transposition, the wheel, and its sounding note's own bend.
     fn update_bend(&mut self) {
         let mpe = self.params.mpe;
         let wheel = if mpe { self.bend[0] } else { self.last_bend };
-        let ch = self.expr_channel as usize;
-        let note = if mpe && ch != 0 { pow(2.0, (self.bend[ch] as f64 - 0.5) * 2.0 * MPE_BEND_RANGE / 12.0) } else { 1.0 };
-        self.engine.set_bend(self.key_bend * pow(2.0, (wheel as f64 - 0.5) * 2.0 * BEND_RANGE / 12.0) * note);
+        for voice in &mut self.voices {
+            let ch = voice.expr_channel as usize;
+            let note = if mpe && ch != 0 { pow(2.0, (self.bend[ch] as f64 - 0.5) * 2.0 * MPE_BEND_RANGE / 12.0) } else { 1.0 };
+            voice.engine.set_bend(self.key_bend * pow(2.0, (wheel as f64 - 0.5) * 2.0 * BEND_RANGE / 12.0) * note);
+        }
     }
 
-    /// The lung pressure and brightness, with the sounding note's pressure and slide on the dials.
-    fn expression(&self) -> (f64, f64) {
-        let ch = self.expr_channel as usize;
-        let press = self.pressure[ch].max(self.expr_note.map_or(0.0, |note| self.key_pressure[note as usize])) as f64;
+    /// A voice's lung pressure and brightness, with its sounding note's pressure and slide on the dials.
+    fn expression(&self, voice: &Voice) -> (f64, f64) {
+        let ch = voice.expr_channel as usize;
+        let press = self.pressure[ch].max(voice.expr_note.map_or(0.0, |note| self.key_pressure[note as usize])) as f64;
         let breath = (self.params.breath as f64 * (1.0 + PRESSURE_DEPTH * press)).min(BREATH_MAX as f64);
         let slide = if self.params.mpe { (self.slide[ch] - self.slide_origin[ch]) as f64 * SLIDE_DEPTH } else { 0.0 };
         (breath, (self.params.bright as f64 + slide).clamp(0.0, 1.0))
     }
 
-    /// The pressure, the slide or their dials moved: glide there. Controllers come in steps (7-bit
+    /// A voice's pressure, slide or their dials moved: glide there. Controllers come in steps (7-bit
     /// ones, and through the VST3 layer once a block), which the voice would otherwise repeat.
-    fn glide_expression(&mut self) {
+    fn glide_expression(&mut self, v: usize) {
+        // a voice that isn't rendered has no steps to be heard: it goes there at once, and leaves
+        // the glide's timer to the voices that play. With one voice that is the first voice alone,
+        // so its step comes on the sample it always did
+        if v >= self.rendered {
+            self.arrive(v);
+            return;
+        }
         if !self.expr_moving {
             self.expr_moving = true;
             self.expr_left = 0;
         }
+        self.voices[v].expr_moving = true;
     }
 
-    /// One step of the glide.
-    fn step_expression(&mut self) {
-        let (pressure, brightness) = self.expression();
-        let (dp, db) = (pressure - self.expr_now.0, brightness - self.expr_now.1);
-        if dp.abs() < 0.01 && db.abs() < 0.001 {
-            self.expr_now = (pressure, brightness);
-            self.expr_moving = false;
-        } else {
-            self.expr_now.0 += dp * self.expr_coef;
-            self.expr_now.1 += db * self.expr_coef;
+    fn glide_all(&mut self) {
+        for v in 0..self.voices.len() {
+            self.glide_expression(v);
         }
-        self.engine.set_source(&SourcePatch { pressure: Some(self.expr_now.0), brightness: Some(self.expr_now.1), ..Default::default() });
     }
 
-    /// Put the pressure and brightness where they are going, at once.
-    fn settle_expression(&mut self) {
-        self.expr_now = self.expression();
+    /// Put one voice's pressure and brightness where they are going, at once.
+    fn arrive(&mut self, v: usize) {
+        let now = self.expression(&self.voices[v]);
+        let voice = &mut self.voices[v];
+        voice.expr_now = now;
+        voice.expr_moving = false;
+        voice.engine.set_source(&SourcePatch { pressure: Some(now.0), brightness: Some(now.1), ..Default::default() });
+    }
+
+    /// One step of the glide, for each voice on its way.
+    fn step_expression(&mut self) {
         self.expr_moving = false;
-        self.engine.set_source(&SourcePatch { pressure: Some(self.expr_now.0), brightness: Some(self.expr_now.1), ..Default::default() });
+        for v in 0..self.voices.len() {
+            if !self.voices[v].expr_moving {
+                continue;
+            }
+            // taken away since, and its release is over
+            if v >= self.rendered {
+                self.arrive(v);
+                continue;
+            }
+            let (pressure, brightness) = self.expression(&self.voices[v]);
+            let coef = self.expr_coef;
+            let voice = &mut self.voices[v];
+            let (dp, db) = (pressure - voice.expr_now.0, brightness - voice.expr_now.1);
+            if dp.abs() < 0.01 && db.abs() < 0.001 {
+                voice.expr_now = (pressure, brightness);
+                voice.expr_moving = false;
+            } else {
+                voice.expr_now.0 += dp * coef;
+                voice.expr_now.1 += db * coef;
+                self.expr_moving = true;
+            }
+            voice.engine.set_source(&SourcePatch { pressure: Some(voice.expr_now.0), brightness: Some(voice.expr_now.1), ..Default::default() });
+        }
     }
 
-    /// The note now sounding: its channel's expression moves the voice. With nothing sounding the
-    /// last one's channel stays, so a release tail keeps following it.
-    fn sounding(&self) -> Option<u8> {
+    /// Put each voice's pressure and brightness where they are going, at once.
+    fn settle_expression(&mut self) {
+        for v in 0..self.voices.len() {
+            self.arrive(v);
+        }
+        self.expr_moving = false;
+    }
+
+    /// The note now sounding on a voice: its channel's expression moves that voice. With nothing
+    /// sounding the last one's channel stays, so a release tail keeps following it.
+    fn sounding(&self, v: usize) -> Option<u8> {
+        let voice = &self.voices[v];
         match self.mode {
-            Mode::Sing => self.singer.sounding_note(),
-            Mode::Play => self.play_keys.last().copied(),
-            Mode::Speak | Mode::Beatbox => self.last_on,
+            Mode::Sing => voice.singer.sounding_note(),
+            Mode::Play => voice.play_keys.last().copied(),
+            Mode::Speak | Mode::Beatbox if v == 0 => self.last_on,
+            Mode::Speak | Mode::Beatbox => None,
         }
     }
 
@@ -835,14 +1050,24 @@ impl Core {
         self.last_on = Some(midi);
     }
 
-    /// A key went down or up: follow the note now sounding.
+    /// A key went down or up: each voice follows the note now sounding on it.
     fn follow_expression(&mut self) {
-        let Some(note) = self.sounding() else { return };
-        self.expr_note = Some(note);
-        self.expr_channel = self.note_channel[note as usize];
-        // the same key on the same channel still starts its slide over
-        self.update_bend();
-        self.glide_expression();
+        let mut newest = None;
+        for v in 0..self.voices.len() {
+            let Some(note) = self.sounding(v) else { continue };
+            let voice = &mut self.voices[v];
+            voice.expr_note = Some(note);
+            voice.expr_channel = self.note_channel[note as usize];
+            if newest.is_none_or(|(order, _)| voice.order >= order) {
+                newest = Some((voice.order, v));
+            }
+            // the same key on the same channel still starts its slide over
+            self.glide_expression(v);
+        }
+        if let Some((_, v)) = newest {
+            self.shown = v;
+            self.update_bend();
+        }
     }
 
     /// Every channel's bend, pressure and slide back to rest.
@@ -854,22 +1079,121 @@ impl Core {
         self.slide_origin = [0.5; 16];
         self.key_pressure = [0.0; 128];
         self.update_bend();
-        self.glide_expression();
+        self.glide_all();
     }
 
     fn update_gate(&mut self) {
-        let on = self.mode == Mode::Play && (self.hold || !self.play_keys.is_empty());
-        self.engine.set_gate(if on { 1.0 } else { 0.0 });
+        for (v, voice) in self.voices.iter_mut().enumerate() {
+            let on = self.mode == Mode::Play && ((self.hold && v == 0) || !voice.play_keys.is_empty());
+            voice.engine.set_gate(if on { 1.0 } else { 0.0 });
+        }
+        // Hold breathes on the first voice: with no key down that is the voice to show, not the
+        // silent one that had the last chord's newest note
+        if self.mode == Mode::Play && self.hold && self.voices.iter().all(|voice| voice.play_keys.is_empty()) {
+            self.shown = 0;
+        }
+    }
+
+    /// Whether a voice has a key down (Sing, Play).
+    fn busy(&self, v: usize) -> bool {
+        match self.mode {
+            Mode::Sing => self.voices[v].singer.any_key_down(),
+            _ => !self.voices[v].play_keys.is_empty(),
+        }
+    }
+
+    /// The voice a new note goes to, and whether it was free:
+    /// - the voice that has this key already (a repeat);
+    /// - or the free voice still following the note's channel, so one finger's notes stay on one
+    ///   voice and another voice's release doesn't hear this finger;
+    /// - or the voice free for the longest;
+    /// - or, with every voice busy, the one whose note is the oldest. It gets the note as a single
+    ///   voice gets a second key: legato, and back to the older key when this one lifts.
+    fn pick_voice(&self, midi: u8) -> usize {
+        let channel = self.note_channel[midi as usize];
+        let held = self.key_voice[midi as usize] as usize;
+        let oldest = |free: bool| (0..self.count).filter(|v| self.busy(*v) != free).min_by_key(|v| self.voices[*v].order);
+        if held < self.count {
+            held
+        } else if self.params.mpe && channel != 0 && let Some(v) = (0..self.count).find(|v| self.voices[*v].expr_channel == channel && !self.busy(*v)) {
+            v
+        } else {
+            oldest(true).or_else(|| oldest(false)).unwrap_or(0)
+        }
+    }
+
+    /// A voice gets a key. Returns whether the voice was free.
+    fn claim_voice(&mut self, v: usize, midi: u8) -> bool {
+        let free = !self.busy(v);
+        // this finger's channel may still move another voice's release (a melisma goes to the
+        // voice of its syllable, not to the one `pick_voice` keeps a channel on): that release
+        // follows the zone's own channel from here, and no finger
+        let channel = self.note_channel[midi as usize];
+        if self.params.mpe && channel != 0 {
+            for w in 0..self.count {
+                if w != v && !self.busy(w) && self.voices[w].expr_channel == channel {
+                    self.voices[w].expr_channel = 0;
+                }
+            }
+        }
+        self.key_voice[midi as usize] = v as u8;
+        self.order += 1;
+        self.key_order[midi as usize] = self.order;
+        self.voices[v].order = self.order;
+        self.voices[v].presses = self.voices[v].presses.wrapping_add(1);
+        free
+    }
+
+    fn take_voice(&mut self, midi: u8) -> (usize, bool) {
+        let v = self.pick_voice(midi);
+        (v, self.claim_voice(v, midi))
+    }
+
+    /// The chord's syllable is no longer the one before the cursor (new lyrics, a cursor moved,
+    /// everything stopped): the next note takes its syllable from the lyrics.
+    fn forget_chord(&mut self) {
+        self.chord = None;
+        self.chord_left = 0;
     }
 
     fn press(&mut self, midi: u8, velocity: f64) {
         self.presses = self.presses.wrapping_add(1);
         match self.mode {
-            Mode::Sing => self.singer.note_on(&mut self.engine, midi, velocity),
+            Mode::Sing => {
+                let mut v = self.pick_voice(midi);
+                // a chord sings one syllable: a note on a voice of its own, just after another
+                let chord = self.chord.filter(|_| !self.busy(v) && self.count > 1 && self.chord_left > 0);
+                // a melisma moves the vowel of the note before it: it goes to that note's voice,
+                // whether its key is still down (a glide) or not (the vowel again, with no onset)
+                if chord.is_none() && self.lyric_voice < self.count && self.voices[0].singer.next_is_melisma() {
+                    // a key pressed again while it is still down on another voice leaves that voice
+                    if v != self.lyric_voice && self.key_voice[midi as usize] as usize == v {
+                        self.lift(midi);
+                    }
+                    v = self.lyric_voice;
+                }
+                self.claim_voice(v, midi);
+                let lyric = chord.unwrap_or_else(|| self.voices[0].singer.next_lyric());
+                self.lyric_voice = v;
+                self.chord = Some(lyric);
+                self.chord_left = (CHORD_WINDOW * self.engine().sample_rate) as usize;
+                let voice = &mut self.voices[v];
+                voice.singer.sing(&mut voice.engine, &lyric, midi, velocity);
+            }
             Mode::Play => {
-                self.play_keys.retain(|&k| k != midi);
-                self.play_keys.push(midi);
-                self.engine.set_source(&SourcePatch::f0(midi_to_hz(midi as f64)));
+                let (v, free) = self.take_voice(midi);
+                let voice = &mut self.voices[v];
+                voice.play_keys.retain(|&k| k != midi);
+                voice.play_keys.push(midi);
+                voice.dial_f0 = None;
+                voice.engine.set_source(&SourcePatch::f0(midi_to_hz(midi as f64)));
+                // one of several voices starts from silence: at its pitch, with its own channel's
+                // bend, not sliding in from the last note it sang
+                if free && self.count > 1 && !(self.hold && v == 0) {
+                    voice.expr_channel = self.note_channel[midi as usize];
+                    self.update_bend();
+                    self.voices[v].engine.snap_pitch();
+                }
                 self.update_gate();
             }
             Mode::Speak => {
@@ -882,26 +1206,50 @@ impl Core {
     }
 
     fn lift(&mut self, midi: u8) {
-        match self.mode {
-            Mode::Sing => self.singer.note_off(&mut self.engine, midi),
-            // a line is a one-shot: it ends by itself, or when the next one cuts it
-            Mode::Speak => {}
-            Mode::Beatbox => {}
-            Mode::Play => {
-                self.play_keys.retain(|&k| k != midi);
-                // fall back to the most recent note still held (legato)
-                if let Some(&last) = self.play_keys.last() {
-                    self.engine.set_source(&SourcePatch::f0(midi_to_hz(last as f64)));
-                }
-                self.update_gate();
+        // a line is a one-shot: it ends by itself, or when the next one cuts it
+        if matches!(self.mode, Mode::Speak | Mode::Beatbox) {
+            return;
+        }
+        let v = self.key_voice[midi as usize] as usize;
+        if v >= self.voices.len() {
+            return;
+        }
+        self.key_voice[midi as usize] = NO_VOICE;
+        if self.mode == Mode::Sing {
+            // a melisma next continues the vowel of the last syllable's voice: only that voice
+            // holds its coda back for it
+            let melisma_next = v == self.lyric_voice && self.voices[0].singer.next_is_melisma();
+            let voice = &mut self.voices[v];
+            voice.singer.lift(&mut voice.engine, midi, melisma_next);
+        } else {
+            let voice = &mut self.voices[v];
+            voice.play_keys.retain(|&k| k != midi);
+            // fall back to the most recent note still held (legato)
+            if let Some(&last) = voice.play_keys.last() {
+                voice.engine.set_source(&SourcePatch::f0(midi_to_hz(last as f64)));
+            } else if let Some(f0) = voice.dial_f0.take() {
+                // the Pitch dial moved while a key had this voice: now it is the dial's
+                voice.engine.set_source(&SourcePatch::f0(f0));
             }
+            self.update_gate();
+        }
+        if !self.busy(v) {
+            self.order += 1;
+            self.voices[v].order = self.order;
+        } else if let Some(key) = self.sounding(v) {
+            // back on an older key: the voice is as old as that note, not as the one that left
+            self.voices[v].order = self.key_order[key as usize];
         }
     }
 
     /// Stop everything the keys are doing.
     fn stop_notes(&mut self) {
-        self.singer.stop_all(&mut self.engine);
-        self.play_keys.clear();
+        for voice in &mut self.voices {
+            voice.singer.stop_all(&mut voice.engine);
+            voice.play_keys.clear();
+        }
+        self.key_voice = [NO_VOICE; 128];
+        self.forget_chord();
         self.host_keys = 0;
         self.ui_keys = 0;
         if self.mode == Mode::Speak {
@@ -909,8 +1257,8 @@ impl Core {
         }
         if self.mode == Mode::Beatbox {
             self.hums.clear();
-            let now = self.engine.clock();
-            self.engine.release_at(HUM_TAG, now);
+            let now = self.engine().clock();
+            self.lead().release_at(HUM_TAG, now);
         }
         self.update_gate();
     }
@@ -918,22 +1266,22 @@ impl Core {
     /// When a sound asked for now should land: `BEAT_LATENCY` on, while the host's timeline is
     /// running and it compensates; otherwise as soon as the mouth can make it.
     fn beat_time(&mut self, id: &str) -> f64 {
-        let wait = if self.host_playing { BEAT_LATENCY } else { self.engine.beat_lead(id) };
-        self.engine.clock() + wait
+        let wait = if self.host_playing { BEAT_LATENCY } else { self.lead().beat_lead(id) };
+        self.engine().clock() + wait
     }
 
     /// A sound from a pad, or from a host note on the drum map.
     fn beat_hit(&mut self, step: BeatStep) {
         let hit = self.beat_time(step.id.as_str());
-        self.engine.beat_hit_at(&step, hit, BEAT_HIT_LEN, None);
+        self.voices[0].engine.beat_hit_at(&step, hit, BEAT_HIT_LEN, None);
     }
 
     /// Hum this key's pitch, in place of whatever was humming.
     fn start_hum(&mut self, hum: Hum) {
         let hit = self.beat_time(HUM);
-        self.engine.release_at(HUM_TAG, hit);
+        self.voices[0].engine.release_at(HUM_TAG, hit);
         let step = BeatStep { id: Label::new(HUM), note: Some(hum.pitch), accent: Some(hum.accent) };
-        self.engine.beat_hit_at(&step, hit, HUM_LEN, Some(HUM_TAG));
+        self.voices[0].engine.beat_hit_at(&step, hit, HUM_LEN, Some(HUM_TAG));
     }
 
     /// The hums changed: the newest key held hums, or nothing does. `top` is what was humming.
@@ -944,7 +1292,7 @@ impl Core {
             Some(_) => {}
             None if top.is_some() => {
                 let t = self.beat_time(HUM);
-                self.engine.release_at(HUM_TAG, t);
+                self.voices[0].engine.release_at(HUM_TAG, t);
             }
             None => {}
         }
@@ -986,11 +1334,11 @@ impl Core {
         match host {
             Some((beats, bpm)) => {
                 if !self.following {
-                    self.engine.set_beat_playing(false);
+                    self.voices[0].engine.set_beat_playing(false);
                     self.following = true;
                 }
-                let end = beats + t.samples as f64 / self.engine.sample_rate * bpm / 60.0;
-                self.engine.beat_follow(beats, end, bpm, BEAT_LATENCY);
+                let end = beats + t.samples as f64 / self.engine().sample_rate * bpm / 60.0;
+                self.voices[0].engine.beat_follow(beats, end, bpm, BEAT_LATENCY);
             }
             None if self.following => self.stop_following(),
             None => {}
@@ -999,8 +1347,8 @@ impl Core {
 
     fn stop_following(&mut self) {
         self.following = false;
-        self.engine.beat_stop_following();
-        self.engine.set_beat_tempo(Some(self.beat_bpm), None);
+        self.voices[0].engine.beat_stop_following();
+        self.voices[0].engine.set_beat_tempo(Some(self.beat_bpm), None);
         self.hum_again();
     }
 
@@ -1026,13 +1374,13 @@ impl Core {
         }
         self.key_bend = key_bend;
         self.update_bend();
-        let t0 = self.engine.schedule(&self.speech[self.speech_cursor], SPEECH_LEAD, true);
+        let t0 = self.voices[0].engine.schedule(&self.speech[self.speech_cursor], SPEECH_LEAD, true);
         self.mark_spoken(self.speech_cursor as i32, self.speech_generation, t0);
         self.speech_cursor = (self.speech_cursor + 1) % self.speech.len();
     }
 
     fn stop_speaking(&mut self) {
-        self.engine.stop_speech();
+        self.voices[0].engine.stop_speech();
         if self.spoken_line != NOT_SPEAKING {
             self.mark_spoken(NOT_SPEAKING, 0, 0.0);
         }
@@ -1064,16 +1412,23 @@ impl Core {
         }
         let Ok(mut p) = shared.pending.try_lock() else { return };
         shared.dirty.store(false, Ordering::Release);
-        if let Some((mut voice, body)) = p.voice.take() {
+        if let Some((mut bodies, body)) = p.voice.take() {
             // the new voice has no score: a sung note would hang, and its coda has nowhere to go
             self.stop_notes();
-            self.engine.install_voice(&mut voice, body);
-            self.singer.body = body;
-            p.retired_voice = Some(voice);
+            for (voice, new) in self.voices.iter_mut().zip(bodies.iter_mut()) {
+                voice.engine.install_voice(new, body);
+                voice.singer.body = body;
+            }
+            p.retired_voice = Some(bodies);
         }
         if let Some(syllables) = p.syllables.take() {
-            p.retired_syllables = Some(self.singer.set_syllables(syllables));
+            p.retired_syllables = Some(self.voices[0].singer.set_syllables(syllables));
             self.start_syllable = 0;
+            // the other voices sang from the old lyrics: their syllables' indexes are no longer in them
+            for voice in &mut self.voices[1..] {
+                voice.singer.forget_sung();
+            }
+            self.forget_chord();
         }
         if let Some(new) = p.speech.take() {
             p.retired_speech = Some(std::mem::replace(&mut self.speech, new.plans));
@@ -1088,21 +1443,34 @@ impl Core {
             self.stop_notes();
             if self.mode == Mode::Beatbox {
                 self.stop_following();
-                self.engine.set_beat_playing(false);
+                self.voices[0].engine.set_beat_playing(false);
                 // a pad's hit may still be on its way, with no sequencer to have cancelled it
-                self.engine.stop_speech();
+                self.voices[0].engine.stop_speech();
             }
             self.mode = mode;
+            // speech and the beat are the first voice's, with or without a note
+            self.shown = 0;
             self.hold = false;
             self.update_gate();
             self.apply_params();
         }
         if p.source != SourcePatch::default() {
-            self.engine.set_source(&p.source);
+            for voice in &mut self.voices {
+                // with several voices a key keeps its pitch: the Pitch dial moves the voices with
+                // no key down (with one voice it moves the note, as it always did)
+                let keyed = self.count > 1 && self.mode == Mode::Play && !voice.play_keys.is_empty();
+                if keyed {
+                    // kept for when its keys lift with no new one pressed (Hold then breathes there)
+                    voice.dial_f0 = p.source.f0.or(voice.dial_f0);
+                }
+                voice.engine.set_source(&if keyed { SourcePatch { f0: None, ..p.source } } else { p.source });
+            }
             p.source = SourcePatch::default();
         }
         if !p.artic.is_empty() || p.tip_free.is_some() {
-            self.engine.set_artic(&p.artic, p.tip_free);
+            for voice in &mut self.voices {
+                voice.engine.set_artic(&p.artic, p.tip_free);
+            }
             p.artic = ArticPatch::default();
             p.tip_free = None;
         }
@@ -1111,10 +1479,11 @@ impl Core {
             self.update_gate();
         }
         if let Some(i) = p.cursor.take() {
-            self.singer.set_cursor(i);
+            self.voices[0].singer.set_cursor(i);
+            self.forget_chord();
             // picked while stopped: that is where playing starts from
             if !self.transport.playing {
-                self.start_syllable = self.singer.cursor();
+                self.start_syllable = self.singer().cursor();
             }
         }
         if let Some(i) = p.speech_cursor.take() {
@@ -1129,17 +1498,17 @@ impl Core {
             if self.mode == Mode::Speak {
                 self.key_bend = 1.0;
                 self.update_bend();
-                let t0 = self.engine.schedule(&self.pad, SPEECH_LEAD, true);
+                let t0 = self.voices[0].engine.schedule(&self.pad, SPEECH_LEAD, true);
                 self.mark_spoken(SAYING_PAD, generation, t0);
             }
         }
         if let Some(steps) = p.beat_steps.take() {
-            self.engine.set_beat_steps(&steps);
+            self.voices[0].engine.set_beat_steps(&steps);
             p.retired_steps = Some(steps);
         }
         if p.beat_bpm.is_some() || p.beat_swing.is_some() {
             self.beat_bpm = p.beat_bpm.unwrap_or(self.beat_bpm);
-            self.engine.set_beat_tempo(p.beat_bpm.take(), p.beat_swing.take());
+            self.voices[0].engine.set_beat_tempo(p.beat_bpm.take(), p.beat_swing.take());
         }
         if let Some(on) = p.mic.take() {
             self.mic_on = on;
@@ -1151,8 +1520,8 @@ impl Core {
             && self.mode == Mode::Beatbox
             && !self.following
         {
-            let was = self.engine.beat().playing;
-            self.engine.set_beat_playing(on);
+            let was = self.voices[0].engine.beat().playing;
+            self.voices[0].engine.set_beat_playing(on);
             if was && !on {
                 self.hum_again();
             }
@@ -1208,7 +1577,8 @@ impl Core {
         let started = t.playing && !was.playing;
         let jumped = t.playing && was.playing && matches!((t.position, was.position), (Some(now), Some(last)) if now < last - 1e-3);
         if (started || jumped) && self.params.restart {
-            self.singer.set_cursor(self.start_syllable);
+            self.voices[0].singer.set_cursor(self.start_syllable);
+            self.forget_chord();
             self.speech_cursor = self.speech_start;
         }
         if was.playing && !t.playing {
@@ -1249,7 +1619,9 @@ impl Core {
                 }
                 self.follow_expression();
             }
-            Event::NoteOff { midi } => {
+            // Speak and Beatbox have one voice whatever the count, and a line doesn't end with its key
+            Event::Choke { .. } if self.count == 1 || matches!(self.mode, Mode::Speak | Mode::Beatbox) => self.stop_notes(),
+            Event::NoteOff { midi } | Event::Choke { midi } => {
                 let midi = midi & 127;
                 let bit = 1u128 << midi;
                 if self.mode == Mode::Beatbox {
@@ -1272,15 +1644,11 @@ impl Core {
             }
             Event::Pressure { channel, value } => {
                 self.pressure[(channel & 15) as usize] = value;
-                if channel & 15 == self.expr_channel {
-                    self.glide_expression();
-                }
+                self.glide_where(|voice| channel & 15 == voice.expr_channel);
             }
             Event::KeyPressure { midi, value } => {
                 self.key_pressure[(midi & 127) as usize] = value;
-                if Some(midi & 127) == self.expr_note {
-                    self.glide_expression();
-                }
+                self.glide_where(|voice| Some(midi & 127) == voice.expr_note);
             }
             Event::Slide { channel, value } => {
                 let ch = (channel & 15) as usize;
@@ -1288,8 +1656,57 @@ impl Core {
                 if self.slide_landing[ch] > 0 {
                     self.slide_origin[ch] = value;
                 }
-                if self.params.mpe && channel & 15 == self.expr_channel {
-                    self.glide_expression();
+                if self.params.mpe {
+                    self.glide_where(|voice| channel & 15 == voice.expr_channel);
+                }
+            }
+        }
+    }
+
+    /// Glide the expression of the voices this is true of.
+    fn glide_where(&mut self, moved: impl Fn(&Voice) -> bool) {
+        for v in 0..self.voices.len() {
+            if moved(&self.voices[v]) {
+                self.glide_expression(v);
+            }
+        }
+    }
+
+    /// The voices' sum, limited. Each renders in sub-blocks on its own count of samples, so the
+    /// chunks here don't show in the output. One voice by itself is that voice, untouched.
+    fn render_voices(&mut self, out: &mut [f32]) {
+        self.voices[0].engine.render(out);
+        if self.rendered == 1 {
+            return;
+        }
+        // a voice the Voices parameter took away: only what is left of its release
+        let tail = out.len().min(self.tail_left);
+        let mut part = [0.0f32; SUB_BLOCK];
+        for v in 1..self.rendered {
+            let len = if v < self.count { out.len() } else { tail };
+            for chunk in out[..len].chunks_mut(SUB_BLOCK) {
+                let part = &mut part[..chunk.len()];
+                self.voices[v].engine.render(part);
+                for (o, x) in chunk.iter_mut().zip(part.iter()) {
+                    *o += *x;
+                }
+            }
+        }
+        // to the sample the last of several voices stops at, whatever the host's blocks are
+        let len = if self.count > 1 { out.len() } else { tail };
+        self.limiter.process(&mut out[..len]);
+        if self.rendered > self.count {
+            self.tail_left -= tail;
+            if self.tail_left == 0 {
+                // the voices taken away leave the glide's timer with their last sample: a step of
+                // theirs still to come must not hold back the next one of a voice that plays
+                for v in self.count..self.rendered {
+                    self.arrive(v);
+                }
+                self.rendered = self.count;
+                self.expr_moving = self.voices[..self.count].iter().any(|voice| voice.expr_moving);
+                if self.count == 1 {
+                    self.limiter.reset();
                 }
             }
         }
@@ -1299,6 +1716,7 @@ impl Core {
         for left in &mut self.slide_landing {
             *left = left.saturating_sub(out.len());
         }
+        self.chord_left = self.chord_left.saturating_sub(out.len());
         let mut rest = &mut *out;
         while self.expr_moving && !rest.is_empty() {
             if self.expr_left == 0 {
@@ -1307,11 +1725,11 @@ impl Core {
             }
             let n = self.expr_left.min(rest.len());
             let (now, later) = std::mem::take(&mut rest).split_at_mut(n);
-            self.engine.render(now);
+            self.render_voices(now);
             self.expr_left -= n;
             rest = later;
         }
-        self.engine.render(rest);
+        self.render_voices(rest);
         if self.mode == Mode::Beatbox && self.mic_on {
             self.close_mic.process(out);
         }
@@ -1319,22 +1737,36 @@ impl Core {
 
     /// End of a block of `samples`: tell the editor where things are.
     pub fn end_block(&mut self, samples: usize, shared: &Shared) {
-        shared.cursor.store(self.singer.cursor() as i32, Ordering::Relaxed);
-        shared.sung.store(self.singer.sung().map_or(-1, |i| i as i32), Ordering::Relaxed);
-        let note = match self.mode {
-            Mode::Sing => self.singer.sounding_note().map_or(-1, |m| m as i32),
-            Mode::Play => self.play_keys.last().map_or(-1, |m| *m as i32),
+        // of the voice with the newest note sounding
+        let shown = &self.voices[self.shown];
+        shared.cursor.store(self.singer().cursor() as i32, Ordering::Relaxed);
+        shared.sung.store(shown.singer.sung().map_or(-1, |i| i as i32), Ordering::Relaxed);
+        let note_of = |voice: &Voice| match self.mode {
+            Mode::Sing => voice.singer.sounding_note().map_or(-1, |m| m as i32),
+            Mode::Play => voice.play_keys.last().map_or(-1, |m| *m as i32),
             Mode::Speak | Mode::Beatbox => -1,
         };
-        shared.note.store(note, Ordering::Relaxed);
+        shared.note.store(note_of(shown), Ordering::Relaxed);
         shared.note_serial.store(self.presses, Ordering::Relaxed);
+        shared.shown_voice.store(self.shown as i32, Ordering::Relaxed);
+        for (v, voice) in self.voices.iter().enumerate() {
+            let plays = v < self.count && !matches!(self.mode, Mode::Speak | Mode::Beatbox);
+            let (note, sung) = if plays { (note_of(voice), voice.singer.sung().map_or(-1, |i| i as i32)) } else { (-1, -1) };
+            let slot = &shared.voices[v];
+            slot.note.store(note, Ordering::Relaxed);
+            slot.sung.store(sung, Ordering::Relaxed);
+            slot.serial.store(voice.presses, Ordering::Relaxed);
+            let (f0, voicing) = if v < self.rendered { voice.engine.pitch() } else { (0.0, 0.0) };
+            slot.f0.store(f0.to_bits(), Ordering::Relaxed);
+            slot.voicing.store(voicing.to_bits(), Ordering::Relaxed);
+        }
         shared.speech_cursor.store(self.speech_cursor as i32, Ordering::Relaxed);
         shared.spoken_line.store(self.spoken_line, Ordering::Relaxed);
         shared.spoken_generation.store(self.spoken_generation, Ordering::Relaxed);
         shared.spoken_t0.store(self.spoken_t0.to_bits(), Ordering::Relaxed);
         shared.spoken_serial.store(self.spoken_serial, Ordering::Release);
-        shared.beat_step.store(self.engine.beat_step() as i32, Ordering::Relaxed);
-        shared.beat_running.store(self.following || self.engine.beat().playing, Ordering::Relaxed);
+        shared.beat_step.store(self.engine().beat_step() as i32, Ordering::Relaxed);
+        shared.beat_running.store(self.following || self.engine().beat().playing, Ordering::Relaxed);
         shared.beat_following.store(self.following, Ordering::Relaxed);
         shared.host_bpm.store(self.transport.tempo.unwrap_or(0.0).to_bits(), Ordering::Relaxed);
         let n = samples as i64;
@@ -1347,12 +1779,12 @@ impl Core {
             return;
         }
         self.tele_due = self.tele_every;
-        self.engine.telemetry(&mut self.tele);
+        self.voices[self.shown].engine.telemetry(&mut self.tele);
         self.tele.write_flat(&mut self.block, &mut self.labels);
         if let Ok(mut frame) = shared.telemetry.try_lock() {
             std::mem::swap(&mut frame.block, &mut self.block);
             frame.labels = self.labels;
-            frame.body = self.engine.info().body;
+            frame.body = self.engine().info().body;
             frame.fresh = true;
         }
     }
@@ -1362,11 +1794,11 @@ impl Core {
     pub fn reset(&mut self) {
         self.stop_notes();
         self.stop_following();
-        self.engine.set_beat_playing(false);
-        self.engine.stop_speech();
+        self.voices[0].engine.set_beat_playing(false);
+        self.voices[0].engine.stop_speech();
         self.key_bend = 1.0;
         self.clear_expression();
-        self.singer.set_cursor(self.start_syllable);
+        self.voices[0].singer.set_cursor(self.start_syllable);
         self.speech_cursor = self.speech_start;
         self.transport = Transport::default();
     }

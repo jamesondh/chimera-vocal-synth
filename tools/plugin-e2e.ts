@@ -150,6 +150,28 @@ try {
   await host("note", 60);
   await until("a repeated pitch is a new note on the roll", async () => (await rollNotes()).length === before2 + 1);
   await host("off", 60);
+  // ---- a chord on several voices: a note on the roll and a lit key for each
+  await host("param", "voices=3");
+  const voicesChip = page.locator(".s-keys .voices-chip");
+  await until("the Voices chip follows the host", async () => (await voicesChip.textContent())?.trim() === "Voices 3");
+  const chordFrom = (await rollNotes()).length;
+  for (const m of [60, 64, 67]) await host("note", m);
+  const held = async () => (await rollNotes()).slice(chordFrom).filter((n) => n.t1 === null).map((n) => n.midi).sort();
+  await until("each voice of a chord has its note on the roll", async () => (await held()).join() === "60,64,67");
+  check("all three sing the same syllable", new Set((await rollNotes()).slice(chordFrom).map((n) => n.text)).size === 1, (await rollNotes()).slice(chordFrom));
+  await until("the keys light every note of the chord", async () => (await page.locator(".key.down").count()) === 3);
+  // each voice's pitch, for its own line on the roll: C4, E4, G4 within vibrato
+  const pitches = () => page.evaluate(() => (window as never as { __chimeraVoices: { voices: { f0: number; voicing: number }[] } }).__chimeraVoices.voices.filter((v) => v.voicing > 0.3).map((v) => Math.round(12 * Math.log2(v.f0 / 440) + 69)).sort());
+  await until("the page has each voice's pitch", async () => (await pitches()).join() === "60,64,67");
+  for (const m of [60, 64, 67]) await host("off", m);
+  await until("the chord's notes end on the roll", async () => (await held()).length === 0);
+  await until("and its keys go dark", async () => (await page.locator(".key.down").count()) === 0);
+  await until("and no voice is voiced", async () => (await pitches()).length === 0);
+  // the chip moves the host's parameter: 3 goes on to 4
+  await voicesChip.click();
+  await until("the Voices chip moves the host parameter", async () => (await params()).voices === 4);
+  await host("param", "voices=1");
+  await until("and shows the host's value again", async () => (await voicesChip.textContent())?.trim() === "Voices 1");
   await page.locator(".lyrics textarea").fill("one two three");
   await until("back to three syllables", async () => (await page.locator(".syl").count()) === 3);
 

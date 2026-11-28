@@ -5,23 +5,14 @@
  * keyboards/channels end only when the last one lets go. (Tagged releases: crates/chimera/tests/live_control.rs.)
  */
 import { describe, expect, test } from "bun:test";
-import { wasmModule } from "./harness.ts";
+import { wasmModule, workletProcessor } from "./harness.ts";
 import { fromUtf8 } from "../src/wasm/wire.ts";
 
 describe("worklet ordering", () => {
   test("a note scheduled right after a body change plays on the new voice; a stop cancels what came before it", async () => {
-    type Proc = { port: { onmessage: ((e: { data: unknown }) => void) | null }; process: (i: unknown, o: Float32Array[][]) => boolean };
-    let Ctor: (new (o: unknown) => Proc) | null = null;
-    const posted: { type: string; body?: unknown; message?: string }[] = [];
-    const g = globalThis as Record<string, unknown>;
-    g.sampleRate = 48000;
-    g.AudioWorkletProcessor = class {
-      port = { onmessage: null as unknown, postMessage: (m: { type: string }) => posted.push(m) };
-    };
-    g.registerProcessor = (_name: string, ctor: typeof Ctor) => (Ctor = ctor);
-    await import("../src/worklet/processor.ts");
-    const p = new Ctor!({ processorOptions: { module: wasmModule } });
-    const send = (data: unknown) => p.port.onmessage!({ data });
+    const p = new (await workletProcessor())({ processorOptions: { module: wasmModule } });
+    const posted = p.posted as { type: string; body?: unknown; message?: string }[];
+    const send = (data: unknown) => p.port.onmessage({ data });
     const block = () => p.process([], [[new Float32Array(128)]]);
     // the processor's engine, for inspection
     const { x, h } = p as unknown as { x: Record<string, (...a: number[]) => number> & { memory: WebAssembly.Memory }; h: number };

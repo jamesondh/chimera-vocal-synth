@@ -73,3 +73,32 @@ export class WasmVoice {
     return JSON.parse(fromUtf8(new Uint8Array(this.x.memory.buffer, this.x.chimera_result_ptr(), this.x.chimera_result_len())));
   }
 }
+
+/** An instance of the AudioWorklet processor (src/worklet/processor.ts), and what it has posted. */
+export interface WorkletProcessor {
+  port: { onmessage: (e: { data: unknown }) => void };
+  posted: { type: string }[];
+  process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean;
+}
+let processor: Promise<new (options: unknown) => WorkletProcessor> | null = null;
+
+/**
+ * The processor's class, for a test to drive as the browser does: messages on its port, then
+ * process() a quantum at a time. Loaded once, in the worklet's global scope at `fs` Hz.
+ */
+export function workletProcessor(fs = 48000): Promise<new (options: unknown) => WorkletProcessor> {
+  processor ??= (async () => {
+    let ctor!: new (options: unknown) => WorkletProcessor;
+    Object.assign(globalThis, {
+      sampleRate: fs,
+      AudioWorkletProcessor: class {
+        posted: { type: string }[] = [];
+        port = { onmessage: null, postMessage: (m: { type: string }) => void this.posted.push(m) };
+      },
+      registerProcessor: (_name: string, c: typeof ctor) => (ctor = c),
+    });
+    await import("../src/worklet/processor.ts");
+    return ctor;
+  })();
+  return processor;
+}

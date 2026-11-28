@@ -8,7 +8,8 @@ import { Stroboscope } from "./components/Stroboscope.tsx";
 import { SpectrumView } from "./components/SpectrumView.tsx";
 import { VowelMap } from "./components/VowelMap.tsx";
 import { VoiceControls } from "./components/VoiceControls.tsx";
-import { Keys, MidiButton } from "./components/Keys.tsx";
+import { Keys, MidiButton, VoicesButton } from "./components/Keys.tsx";
+import { noteName } from "./components/VoiceControls.tsx";
 import { ActionBar, PrimaryButton } from "./components/ActionBar.tsx";
 import { Segmented, Toggle } from "./components/Controls.tsx";
 import { Chip, Screen } from "./components/Screen.tsx";
@@ -179,6 +180,9 @@ function PlayActions() {
 
 function PlayRight() {
   const f0 = useStore((s) => s.source.f0);
+  // a chord: its notes, lowest first
+  const chord = useStore((s) => s.voiceNotes);
+  const keysSub = chord.length > 1 ? [...chord].sort((a, b) => a - b).map((m) => noteName(440 * Math.pow(2, (m - 69) / 12))).join(" ") : `${Math.round(f0)} Hz`;
   return (
     <div className="right right-play">
       <PlayActions />
@@ -197,7 +201,12 @@ function PlayRight() {
       <Screen className="s-voice" title="Voice">
         <VoiceControls />
       </Screen>
-      <Screen className="s-keys" title="Keys" sub={`${Math.round(f0)} Hz`} tools={<MidiButton />}>
+      <Screen className="s-keys" title="Keys" sub={keysSub} tools={
+          <>
+            <VoicesButton />
+            <MidiButton />
+          </>
+        }>
         <Keys />
       </Screen>
     </div>

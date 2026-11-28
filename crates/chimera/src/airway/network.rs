@@ -248,6 +248,10 @@ pub struct AirwayNetwork {
     nbr_start: Vec<usize>,
     nbr_list: Vec<usize>,
     spill: Vec<f64>,
+    /// each node's raw −dV/dt this sample, and its area and minimum area before this sample's ramp
+    raw_src: Vec<f64>,
+    area_was: Vec<f64>,
+    amin_was: Vec<f64>,
     /// band-limited moving-wall volume source (2-pole low-pass state per node)
     vol_src1: Vec<f64>,
     vol_src2: Vec<f64>,
@@ -284,6 +288,16 @@ pub struct AirwayNetwork {
     wall_perim: Vec<f64>,
     wall_rad: Vec<f64>,
     has_wall: Vec<bool>,
+    /// the runs of consecutive nodes that have a wall: first node, one past the last
+    wall_runs: Vec<(usize, usize)>,
+    /// the runs of consecutive nodes whose pressure isn't fixed
+    free_runs: Vec<(usize, usize)>,
+    /// the nodes with three or more branches, and the nodes that radiate, each in node order
+    junctions: Vec<usize>,
+    rad_sorted: Vec<usize>,
+    /// each node's compliance and pressure step this sample
+    cap: Vec<f64>,
+    dp: Vec<f64>,
     pub wall_y: Vec<f64>,
     wall_v: Vec<f64>,
     /// per-node wall volume velocity (telemetry)
@@ -368,6 +382,9 @@ impl AirwayNetwork {
             nbr_start: Vec::new(),
             nbr_list: Vec::new(),
             spill: Vec::new(),
+            raw_src: Vec::new(),
+            area_was: Vec::new(),
+            amin_was: Vec::new(),
             vol_src1: Vec::new(),
             vol_src2: Vec::new(),
             vol_lp_coef: 0.0,
@@ -394,6 +411,12 @@ impl AirwayNetwork {
             wall_perim: Vec::new(),
             wall_rad: Vec::new(),
             has_wall: Vec::new(),
+            wall_runs: Vec::new(),
+            free_runs: Vec::new(),
+            junctions: Vec::new(),
+            rad_sorted: Vec::new(),
+            cap: Vec::new(),
+            dp: Vec::new(),
             wall_y: Vec::new(),
             wall_v: Vec::new(),
             wall_u: Vec::new(),
@@ -589,6 +612,9 @@ impl AirwayNetwork {
             fill_n[bb] += 1;
         }
         self.spill = zf(n);
+        self.raw_src = zf(n);
+        self.area_was = zf(n);
+        self.amin_was = zf(n);
         self.vol_src1 = zf(n);
         self.vol_src2 = zf(n);
         self.vol_lp_coef = 1.0 - exp((-2.0 * PI * self.volume_source_hz) / self.fs);
@@ -627,6 +653,24 @@ impl AirwayNetwork {
             self.vol[k] = a * self.dx[k];
             self.inv_a[k] = 1.0 / js_max(self.area[k], 1e-6);
         }
+        self.wall_runs.clear();
+        self.free_runs.clear();
+        let grow = |runs: &mut Vec<(usize, usize)>, k: usize| match runs.last_mut() {
+            Some(run) if run.1 == k => run.1 = k + 1,
+            _ => runs.push((k, k + 1)),
+        };
+        for k in 0..n {
+            if self.has_wall[k] {
+                grow(&mut self.wall_runs, k);
+            }
+            if !self.fixed[k] {
+                grow(&mut self.free_runs, k);
+            }
+        }
+        self.junctions = (0..n).filter(|k| self.is_junction[*k]).collect();
+        self.rad_sorted = (0..n).filter(|k| self.rad_of[*k] >= 0 && !self.fixed[*k]).collect();
+        self.cap = zf(n);
+        self.dp = zf(n);
         self.check_cfl();
     }
 
@@ -839,78 +883,109 @@ impl AirwayNetwork {
         //    the split keeps mass conserved.
         let sq = self.squeeze_area;
         let vol_on = self.enable_volume_source;
-        if vol_on {
-            self.spill.fill(0.0);
-        }
+        // The ramps and what follows from each node's own area, as one plain loop over the arrays:
+        // it has two divisions and a root a node and nothing that depends on another node, so the
+        // compiler can do two nodes at a time. The same operations in the same order as ever, so
+        // every value is the same to the bit.
+        let mut squeezed = false;
         {
-            let area = &mut self.area;
-            let amin = &mut self.amin;
-            let dx = &mut self.dx;
-            let inj = &mut self.spill; // the per-node raw injection accumulator
+            let (area, amin, dx) = (&mut self.area[..n], &mut self.amin[..n], &mut self.dx[..n]);
+            let (area_step, amin_step, dx_step) = (&self.area_step[..n], &self.amin_step[..n], &self.dx_step[..n]);
+            let (area_was, amin_was) = (&mut self.area_was[..n], &mut self.amin_was[..n]);
+            let (inv_a, inv_amin, sqrt_a) = (&mut self.inv_a[..n], &mut self.inv_amin[..n], &mut self.sqrt_a[..n]);
+            let (half_l, half_r) = (&mut self.half_l[..n], &mut self.half_r[..n]);
+            let (wall_perim, visc_f) = (&self.wall_perim[..n], &self.visc_f[..n]);
+            let (vol, raw_src, inj) = (&mut self.vol[..n], &mut self.raw_src[..n], &mut self.spill[..n]);
+            let (inv_lsum, flow_sum, ext_flow) = (&mut self.inv_lsum[..n], &mut self.flow_sum[..n], &mut self.ext_flow[..n]);
             for k in 0..n {
-                let mut a = area[k] + self.area_step[k];
+                area_was[k] = area[k];
+                amin_was[k] = amin[k];
+                let mut a = area[k] + area_step[k];
                 if a < 0.0 {
                     a = 0.0;
                 }
                 area[k] = a;
-                let mut am = amin[k] + self.amin_step[k];
+                let mut am = amin[k] + amin_step[k];
                 if am < 0.0 {
                     am = 0.0;
                 }
                 let amk = if am > a { a } else { am };
                 amin[k] = amk;
-                dx[k] += self.dx_step[k];
-                let d = dx[k];
+                let d = dx[k] + dx_step[k];
+                dx[k] = d;
                 let ia = 1.0 / (if a > 1e-6 { a } else { 1e-6 });
-                self.inv_a[k] = ia;
-                self.inv_amin[k] = 1.0 / (if amk > 1e-6 { amk } else { 1e-6 });
+                inv_a[k] = ia;
+                inv_amin[k] = 1.0 / (if amk > 1e-6 { amk } else { 1e-6 });
                 let sa = sqrt(a);
-                self.sqrt_a[k] = sa;
-                self.half_l[k] = d * ia;
-                self.half_r[k] = self.wall_perim[k] * d * sa * ia * ia * self.visc_f[k];
+                sqrt_a[k] = sa;
+                half_l[k] = d * ia;
+                half_r[k] = wall_perim[k] * d * sa * ia * ia * visc_f[k];
                 let v = (if a > min_a { a } else { min_a }) * d;
-                if vol_on {
-                    let raw = -(v - self.vol[k]) * inv_t;
-                    let ae = if amin[k] < a { amin[k] } else { a }; // a node sealed at its minimum cannot hold air either
-                    if raw != 0.0 && ae < sq {
-                        let tt = ae / sq;
-                        let keep = tt * tt * (3.0 - 2.0 * tt);
-                        inj[k] += raw * keep;
-                        let sp = raw * (1.0 - keep);
-                        let (s0, s1) = (self.nbr_start[k], self.nbr_start[k + 1]);
-                        let mut n_open = 0usize;
+                let raw = -(v - vol[k]) * inv_t;
+                raw_src[k] = raw;
+                // a node sealed at its minimum cannot hold air either
+                let ae = if amk < a { amk } else { a };
+                squeezed |= (raw != 0.0) & (ae < sq);
+                // the whole of it stays in the node, unless some node is squeezed (below)
+                inj[k] = 0.0 + raw;
+                vol[k] = v;
+                inv_lsum[k] = 0.0;
+                flow_sum[k] = ext_flow[k];
+                ext_flow[k] = 0.0;
+            }
+        }
+        // A nearly closed node is moving: its air goes to its open neighbours. The sums are taken
+        // in node order with each neighbour's area as it was when that order reached this node
+        // (ramped already below it, not yet above it), as when this was one loop.
+        if vol_on && squeezed {
+            let (area, amin) = (&self.area[..n], &self.amin[..n]);
+            let (area_was, amin_was) = (&self.area_was[..n], &self.amin_was[..n]);
+            let inj = &mut self.spill[..n];
+            inj.fill(0.0);
+            for k in 0..n {
+                let raw = self.raw_src[k];
+                let a = area[k];
+                let ae = if amin[k] < a { amin[k] } else { a };
+                if raw != 0.0 && ae < sq {
+                    let tt = ae / sq;
+                    let keep = tt * tt * (3.0 - 2.0 * tt);
+                    inj[k] += raw * keep;
+                    let sp = raw * (1.0 - keep);
+                    let (s0, s1) = (self.nbr_start[k], self.nbr_start[k + 1]);
+                    let open = |m: usize| {
+                        let (am, mm) = if m > k { (area_was[m], amin_was[m]) } else { (area[m], amin[m]) };
+                        js_min(am, mm) >= sq || self.amin_target[m] >= sq
+                    };
+                    let mut n_open = 0usize;
+                    for e in s0..s1 {
+                        if open(self.nbr_list[e]) {
+                            n_open += 1;
+                        }
+                    }
+                    if n_open > 0 {
+                        let share = sp / n_open as f64;
                         for e in s0..s1 {
                             let m = self.nbr_list[e];
-                            if js_min(area[m], amin[m]) >= sq || self.amin_target[m] >= sq {
-                                n_open += 1;
+                            if open(m) {
+                                inj[m] += share;
                             }
                         }
-                        if n_open > 0 {
-                            let share = sp / n_open as f64;
-                            for e in s0..s1 {
-                                let m = self.nbr_list[e];
-                                if js_min(area[m], amin[m]) >= sq || self.amin_target[m] >= sq {
-                                    inj[m] += share;
-                                }
-                            }
-                        } // else: fully sealed pocket, the squeezed air leaves laterally (absorbed)
-                    } else {
-                        inj[k] += raw;
-                    }
+                    } // else: fully sealed pocket, the squeezed air leaves laterally (absorbed)
+                } else {
+                    inj[k] += raw;
                 }
-                self.vol[k] = v;
-                self.inv_lsum[k] = 0.0;
-                self.flow_sum[k] = self.ext_flow[k];
-                self.ext_flow[k] = 0.0;
             }
         }
         if vol_on {
             let c = self.vol_lp_coef;
+            let (src1, src2) = (&mut self.vol_src1[..n], &mut self.vol_src2[..n]);
+            let (inj, flow_sum) = (&self.spill[..n], &mut self.flow_sum[..n]);
             for k in 0..n {
-                self.vol_src1[k] += c * (self.spill[k] - self.vol_src1[k]);
-                let s1 = self.vol_src1[k];
-                self.vol_src2[k] += c * (s1 - self.vol_src2[k]);
-                self.flow_sum[k] += self.vol_src2[k];
+                let s1 = src1[k] + c * (inj[k] - src1[k]);
+                src1[k] = s1;
+                let s2 = src2[k] + c * (s1 - src2[k]);
+                src2[k] = s2;
+                flow_sum[k] += s2;
             }
         }
 
@@ -1052,104 +1127,161 @@ impl AirwayNetwork {
 
         // 4) walls (velocity at half step from p(n), displacement integrates)
         let mut wall_rad_sum = 0.0;
-        for k in 0..n {
-            if !self.has_wall[k] {
-                continue;
+        {
+            // each run of nodes with a wall as a plain loop (a division a node), then what the
+            // walls radiate, summed in node order as before
+            let sqrt_min = sqrt(min_a);
+            for i in 0..self.wall_runs.len() {
+                let (k0, k1) = self.wall_runs[i];
+                let (wall_m, wall_r, wall_k, wall_perim) = (&self.wall_m[k0..k1], &self.wall_r[k0..k1], &self.wall_k[k0..k1], &self.wall_perim[k0..k1]);
+                let (wall_v, wall_y, wall_u) = (&mut self.wall_v[k0..k1], &mut self.wall_y[k0..k1], &mut self.wall_u[k0..k1]);
+                let (p, area, sqrt_a, dx) = (&self.p[k0..k1], &self.area[k0..k1], &self.sqrt_a[k0..k1], &self.dx[k0..k1]);
+                let flow_sum = &mut self.flow_sum[k0..k1];
+                for k in 0..k1 - k0 {
+                    let m = wall_m[k];
+                    let r = wall_r[k];
+                    let v = ((m * inv_t - 0.5 * r) * wall_v[k] + p[k] - wall_k[k] * wall_y[k]) / (m * inv_t + 0.5 * r);
+                    wall_v[k] = v;
+                    wall_y[k] += t * v;
+                    let sa = if area[k] > min_a { sqrt_a[k] } else { sqrt_min };
+                    let uw = wall_perim[k] * sa * dx[k] * v;
+                    wall_u[k] = uw;
+                    flow_sum[k] -= uw;
+                }
             }
-            let m = self.wall_m[k];
-            let r = self.wall_r[k];
-            let v = ((m * inv_t - 0.5 * r) * self.wall_v[k] + self.p[k] - self.wall_k[k] * self.wall_y[k]) / (m * inv_t + 0.5 * r);
-            self.wall_v[k] = v;
-            self.wall_y[k] += t * v;
-            let sa = if self.area[k] > min_a { self.sqrt_a[k] } else { sqrt(min_a) };
-            let uw = self.wall_perim[k] * sa * self.dx[k] * v;
-            self.wall_u[k] = uw;
-            self.flow_sum[k] -= uw;
-            wall_rad_sum += uw * self.wall_rad[k];
+            for k in 0..n {
+                if self.has_wall[k] {
+                    wall_rad_sum += self.wall_u[k] * self.wall_rad[k];
+                }
+            }
         }
 
         // 5) nodes (radiation loads handled semi-implicitly)
         let t2 = t * t;
         let mut rad_total = wall_rad_sum;
         let cl = self.closed_area;
-        for k in 0..n {
-            if self.fixed[k] {
-                continue;
+        {
+            // each node's compliance and the pressure step it gives, as plain loops: two divisions
+            // a node. A junction's stability floor is put in between (local breathing mode
+            // ω² ≈ ΣL⁻¹/C must satisfy T²ω² ≤ 2.4).
+            let (vol, cap) = (&self.vol[..n], &mut self.cap[..n]);
+            for k in 0..n {
+                cap[k] = vol[k] / RHO_C2;
             }
-            // sealed if the cell itself, or its narrowest point, is closed (then all its series
-            // branches are closed too, and compressing its remaining volume would trap pressure)
-            if self.area[k] < cl || self.amin[k] < cl {
-                let rr = self.rad_of[k];
-                if rr >= 0 {
-                    // sealed aperture: its outer face is the atmosphere, so it relaxes to 0 (tracking the
-                    // pressurised cavity behind would discharge as a radiated spike on reopening)
-                    self.p[k] *= 0.98;
-                } else {
-                    // sealed interior cell (tissue contact): no air of its own; follow open neighbours
-                    let mut sum = 0.0;
-                    let mut cnt = 0usize;
-                    for e in self.nbr_start[k]..self.nbr_start[k + 1] {
-                        let m = self.nbr_list[e];
-                        if self.area[m] >= cl && self.amin[m] >= cl {
-                            sum += self.p[m];
-                            cnt += 1;
+            if self.enable_junction_floor {
+                for i in 0..self.junctions.len() {
+                    let k = self.junctions[i];
+                    let c_min = (t2 * self.inv_lsum[k]) / 2.4;
+                    if self.cap[k] < c_min {
+                        self.cap[k] = c_min;
+                    }
+                }
+            }
+            let (cap, flow_sum, dp) = (&self.cap[..n], &self.flow_sum[..n], &mut self.dp[..n]);
+            for k in 0..n {
+                dp[k] = (t / cap[k]) * flow_sum[k];
+            }
+        }
+        // sealed if the cell itself, or its narrowest point, is closed (then all its series
+        // branches are closed too, and compressing its remaining volume would trap pressure)
+        let mut sealed = false;
+        for i in 0..self.free_runs.len() {
+            let (k0, k1) = self.free_runs[i];
+            let (area, amin) = (&self.area[k0..k1], &self.amin[k0..k1]);
+            for k in 0..k1 - k0 {
+                sealed |= (area[k] < cl) | (amin[k] < cl);
+            }
+        }
+        if !sealed {
+            // the usual sample: no node depends on another, and only the radiators' sum has an order
+            for i in 0..self.free_runs.len() {
+                let (k0, k1) = self.free_runs[i];
+                let (p, dp) = (&mut self.p[k0..k1], &self.dp[k0..k1]);
+                let rad_of = &self.rad_of[k0..k1];
+                for k in 0..k1 - k0 {
+                    p[k] = if rad_of[k] < 0 { p[k] + dp[k] } else { p[k] };
+                }
+            }
+            for r in 0..self.rad_sorted.len() {
+                let k = self.rad_sorted[r];
+                rad_total += self.radiate(k, self.rad_of[k] as usize, self.cap[k]);
+            }
+        } else {
+            for k in 0..n {
+                if self.fixed[k] {
+                    continue;
+                }
+                if self.area[k] < cl || self.amin[k] < cl {
+                    let rr = self.rad_of[k];
+                    if rr >= 0 {
+                        // sealed aperture: its outer face is the atmosphere, so it relaxes to 0 (tracking the
+                        // pressurised cavity behind would discharge as a radiated spike on reopening)
+                        self.p[k] *= 0.98;
+                    } else {
+                        // sealed interior cell (tissue contact): no air of its own; follow open neighbours
+                        let mut sum = 0.0;
+                        let mut cnt = 0usize;
+                        for e in self.nbr_start[k]..self.nbr_start[k + 1] {
+                            let m = self.nbr_list[e];
+                            if self.area[m] >= cl && self.amin[m] >= cl {
+                                sum += self.p[m];
+                                cnt += 1;
+                            }
+                        }
+                        if cnt > 0 {
+                            self.p[k] += 0.02 * (sum / cnt as f64 - self.p[k]);
                         }
                     }
-                    if cnt > 0 {
-                        self.p[k] += 0.02 * (sum / cnt as f64 - self.p[k]);
+                    if rr >= 0 {
+                        let rr = rr as usize;
+                        // sealed aperture: let the radiated flow die away smoothly (no derivative step)
+                        self.rad_ul[rr] *= 0.995;
+                        self.rad_u[rr] = self.rad_ul[rr];
+                        rad_total += self.rad_ul[rr];
                     }
+                    continue;
                 }
-                if rr >= 0 {
-                    let rr = rr as usize;
-                    // sealed aperture: let the radiated flow die away smoothly (no derivative step)
-                    self.rad_ul[rr] *= 0.995;
-                    self.rad_u[rr] = self.rad_ul[rr];
-                    rad_total += self.rad_ul[rr];
+                let r = self.rad_of[k];
+                if r < 0 {
+                    self.p[k] += self.dp[k];
+                } else {
+                    rad_total += self.radiate(k, r as usize, self.cap[k]);
                 }
-                continue;
-            }
-            let mut c = self.vol[k] / RHO_C2;
-            // junction stability: local breathing mode ω² ≈ ΣL⁻¹/C must satisfy T²ω² ≤ 2.4
-            if self.is_junction[k] && self.enable_junction_floor {
-                let c_min = (t2 * self.inv_lsum[k]) / 2.4;
-                if c < c_min {
-                    c = c_min;
-                }
-            }
-            let r = self.rad_of[k];
-            if r < 0 {
-                self.p[k] += (t / c) * self.flow_sum[k];
-            } else {
-                let r = r as usize;
-                let a = if self.area[k] > 1e-4 { self.area[k] } else { 1e-4 };
-                let lr = (8.0 * RHO) / (3.0 * PI * sqrt(PI * a));
-                let rr = (128.0 * RHO * C_SOUND) / (9.0 * PI * PI * a);
-                let p_old = self.p[k];
-                // energy-safe: when the radiation inertance grows (aperture closing) conserve momentum
-                let lp = self.rad_l_prev[r];
-                let mut ul_prev = self.rad_ul[r];
-                if lp > 0.0 && lr > lp {
-                    ul_prev *= lp / lr;
-                }
-                self.rad_l_prev[r] = lr;
-                // Crank–Nicolson coupling of the node and its parallel R–L load (A-stable, energy-
-                // conserving for the reactive part): Lr ∝ A^-½ against C ∝ A makes the explicit form
-                // unstable at small apertures. U_L lives at integer steps; the node sees its mean.
-                let h = t / (2.0 * lr);
-                let g = 0.5 / rr;
-                let p_new = (p_old * (c * inv_t - 0.5 * h - g) + self.flow_sum[k] - ul_prev) / (c * inv_t + 0.5 * h + g);
-                self.p[k] = p_new;
-                let ul = ul_prev + h * (p_old + p_new);
-                self.rad_ul[r] = ul;
-                let ur = 0.5 * (ul_prev + ul) + g * (p_new + p_old);
-                self.rad_u[r] = ur;
-                rad_total += ur;
             }
         }
         let out = (rad_total - self.rad_prev_total) * inv_t;
         self.rad_prev_total = rad_total;
         self.out = out;
         out
+    }
+
+    /// Step node `k` of compliance `c` with its radiation load `r`. Returns the radiated flow.
+    #[inline(always)]
+    fn radiate(&mut self, k: usize, r: usize, c: f64) -> f64 {
+        let (t, inv_t) = (self.t, self.inv_t);
+        let a = if self.area[k] > 1e-4 { self.area[k] } else { 1e-4 };
+        let lr = (8.0 * RHO) / (3.0 * PI * sqrt(PI * a));
+        let rr = (128.0 * RHO * C_SOUND) / (9.0 * PI * PI * a);
+        let p_old = self.p[k];
+        // energy-safe: when the radiation inertance grows (aperture closing) conserve momentum
+        let lp = self.rad_l_prev[r];
+        let mut ul_prev = self.rad_ul[r];
+        if lp > 0.0 && lr > lp {
+            ul_prev *= lp / lr;
+        }
+        self.rad_l_prev[r] = lr;
+        // Crank–Nicolson coupling of the node and its parallel R–L load (A-stable, energy-
+        // conserving for the reactive part): Lr ∝ A^-½ against C ∝ A makes the explicit form
+        // unstable at small apertures. U_L lives at integer steps; the node sees its mean.
+        let h = t / (2.0 * lr);
+        let g = 0.5 / rr;
+        let p_new = (p_old * (c * inv_t - 0.5 * h - g) + self.flow_sum[k] - ul_prev) / (c * inv_t + 0.5 * h + g);
+        self.p[k] = p_new;
+        let ul = ul_prev + h * (p_old + p_new);
+        self.rad_ul[r] = ul;
+        let ur = 0.5 * (ul_prev + ul) + g * (p_new + p_old);
+        self.rad_u[r] = ur;
+        ur
     }
 
     fn compute_noise(&mut self) {

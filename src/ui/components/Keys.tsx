@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useStore } from "../store.ts";
+import { useStore, WEB_MAX_VOICES } from "../store.ts";
+import { inPlugin } from "../../audio/pluginBridge.ts";
 import { midiSupported } from "../midi.ts";
 import { nearestBody, type BodyMix } from "../body.ts";
 import { Chip } from "./Screen.tsx";
@@ -12,7 +13,10 @@ const BASE = (b: BodyMix) => BASES[nearestBody(b)];
 
 export function Keys() {
   const body = useStore((s) => s.body);
-  const held = useStore((s) => s.heldNotes);
+  const pressed = useStore((s) => s.heldNotes);
+  const voiced = useStore((s) => s.voiceNotes);
+  // a key is down while it's held here, or while a voice of the plugin sounds it (a chord from the host)
+  const held = voiced.length ? [...pressed, ...voiced] : pressed;
   const noteOn = useStore((s) => s.noteOn);
   const noteOff = useStore((s) => s.noteOff);
   const start = useStore((s) => s.start);
@@ -107,6 +111,22 @@ export function Keys() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * How many voices the keys play: a chord's notes, one voice each (docs/plugin.md, "Voices"). In the
+ * plugin it is the host's Voices parameter. Each press goes on to the next count, and back to 1.
+ */
+export function VoicesButton() {
+  const voices = useStore((s) => s.voices);
+  const setVoices = useStore((s) => s.setVoices);
+  const steps = inPlugin ? [1, 2, 3, 4, 6, 8] : Array.from({ length: WEB_MAX_VOICES }, (_, i) => i + 1);
+  const next = steps.find((n) => n > voices) ?? 1;
+  return (
+    <Chip on={voices > 1} onClick={() => setVoices(next)} className="voices-chip" title={`${voices === 1 ? "One voice: a second key sings legato" : `${voices} voices: a chord, one voice for each key`}. Press for ${next}.`}>
+      Voices {voices}
+    </Chip>
   );
 }
 

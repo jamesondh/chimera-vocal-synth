@@ -23,7 +23,7 @@ mod editor;
 pub mod http;
 pub mod speech;
 
-use self::core::{BREATH_MAX, Core, Event, MIN_SAMPLE_RATE, Prepared, Settings, Shared, Transport, VoiceParams};
+use self::core::{BREATH_MAX, Core, Event, MAX_VOICES, MIN_SAMPLE_RATE, Prepared, Settings, Shared, Transport, VoiceParams};
 
 /// The pronouncing dictionary, parsed once (off the audio thread).
 pub fn g2p() -> &'static EnglishG2P {
@@ -91,6 +91,9 @@ pub struct ChimeraParams {
     /// MIDI channels 1–15 are MPE note channels (lower zone)
     #[id = "mpe"]
     pub mpe: BoolParam,
+    /// how many voices play at once: a chord needs one for each of its notes
+    #[id = "voices"]
+    pub voices: IntParam,
     #[persist = "settings"]
     pub settings: RwLock<Settings>,
     /// the editor window's size (points)
@@ -119,6 +122,7 @@ impl Default for ChimeraParams {
             ring: percent("Ring", 0.0),
             restart: BoolParam::new("Restart Lyrics On Play", true),
             mpe: BoolParam::new("MPE", true),
+            voices: IntParam::new("Voices", 1, IntRange::Linear { min: 1, max: MAX_VOICES as i32 }),
             settings: RwLock::new(Settings::default()),
             window: RwLock::new(bridge::WINDOW_DEFAULT),
         }
@@ -140,6 +144,7 @@ impl ChimeraParams {
             ring: self.ring.value(),
             restart: self.restart.value(),
             mpe: self.mpe.value(),
+            voices: self.voices.value() as usize,
         }
     }
 }
@@ -163,6 +168,8 @@ fn core_event(ev: &NoteEvent<()>) -> Option<Event> {
     Some(match *ev {
         NoteEvent::NoteOn { note, velocity, channel, .. } => Event::NoteOn { midi: note, velocity: (velocity * 127.0) as f64, channel },
         NoteEvent::NoteOff { note, .. } => Event::NoteOff { midi: note },
+        // a choke with no key of its own (CLAP's -1, which arrives as 255) stops every note
+        NoteEvent::Choke { note, .. } if note < 128 => Event::Choke { midi: note },
         NoteEvent::Choke { .. } | NoteEvent::MidiCC { cc: 120 | 123, .. } => Event::AllOff,
         NoteEvent::MidiPitchBend { channel, value, .. } => Event::Bend { channel, value },
         NoteEvent::MidiChannelPressure { channel, pressure, .. } => Event::Pressure { channel, value: pressure },
@@ -291,3 +298,19 @@ impl ClapPlugin for Chimera {
 nih_export_clap!(Chimera);
 clap_wrapper::export_vst3!();
 clap_wrapper::export_auv2!();
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A choke names one key, or none: CLAP's "every key" (-1) reaches nih-plug's `u8` as 255.
+    /// Masked to a key it would lift key 127 and leave the chord sounding.
+    #[test]
+    fn a_choke_with_no_key_stops_everything() {
+        let choke = |note| core_event(&NoteEvent::Choke { timing: 0, voice_id: None, channel: 0, note });
+        assert_eq!(choke(60), Some(Event::Choke { midi: 60 }));
+        assert_eq!(choke(127), Some(Event::Choke { midi: 127 }));
+        assert_eq!(choke(255), Some(Event::AllOff));
+    }
+}

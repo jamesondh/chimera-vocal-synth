@@ -5,7 +5,7 @@
  * own instance as in the worklet). The store's tab switches are tested here too, against the
  * same stand-in: a second file mocking the engine module would replace this one's mid-run.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { initEngine, WasmVoice } from "./harness.ts";
 import type { Gesture } from "../src/wasm/types.ts";
 const MALE = { female: 0, child: 0 };
@@ -16,33 +16,52 @@ const midiToHz = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
 const FS = 48000;
 let voice = new WasmVoice(FS);
+/** a chord's other voices (voice 0 is `voice`); empty while one voice plays */
+let others: WasmVoice[] = [];
+const voiceAt = (v: number) => (v ? others[v - 1] : voice);
+/** what the store sends a chord's voices in Play: [voice, f0, snap] and [voice, gate] */
+const voiceSources: [number, number, boolean][] = [];
+const gates: [number, number][] = [];
+/** the voice the head was told to show, and the counts of voices sent, in order */
+const shows: number[] = [];
+const counts: number[] = [];
 /** what the worklet answers when a scheduled plan starts (singing.ts registers one at import) */
 let planned: (m: { type: "planned"; id: number; t0: number; end: number }) => void = () => {};
 const fakeEngine = {
   latest: null,
   voiceClock: () => voice.clock,
   onPlanned: (f: typeof planned) => ((planned = f), () => {}),
-  scheduleGestures: (gs: Gesture[], lead = 0.006) => {
-    voice.schedule(gs, lead);
+  scheduleGestures: (gs: Gesture[], lead = 0.006, v = 0) => {
+    voiceAt(v).schedule(gs, lead);
   },
+  voiceSource: (v: number, values: { f0?: number }, snap = false) => {
+    if (values.f0 !== undefined) voiceSources.push([v, values.f0, snap]);
+  },
+  gate: (level: number, v = 0) => void gates.push([v, level]),
+  showVoice: (v: number) => void shows.push(v),
+  setVoices: (n: number) => void counts.push(n),
   schedule: (plan: { gestures: Gesture[] }) => {
     voice.schedule(plan.gestures, 0.03, true);
     return 1;
   },
-  release: (tag: number) => voice.release(tag),
-  stopSpeech: () => voice.stop(),
+  // a tag is one note's, on whichever voice sings it (as the worklet does)
+  release: (tag: number) => [voice, ...others].forEach((w) => w.release(tag)),
+  stopSpeech: () => [voice, ...others].forEach((w) => w.stop()),
 };
 let startAudio: () => void = () => {};
+/** what the store does after the audio was rebuilt at the lighter rate (it registers at import) */
+let rebuilt: () => void = () => {};
 const engineStub = new Proxy(
   {
     ...fakeEngine,
     start: () => new Promise<void>((r) => (startAudio = r)),
+    onRebuilt: (f: () => void) => ((rebuilt = f), () => {}),
   } as Record<string, unknown>,
   // every other engine call the store makes (volume, body, gate…) does nothing here
   { get: (t, k) => (k in t ? t[k as string] : () => {}), set: (t, k, v) => ((t[k as string] = v), true) },
 );
 mock.module("../src/audio/AudioEngine.ts", () => ({ engine: engineStub }));
-const { useSing, singNoteOn, singNoteOff, playTune, stopSinging, tickSinging } = await import("../src/ui/singing.ts");
+const { useSing, singNoteOn, singNoteOff, playTune, stopSinging, tickSinging, setVoiceCount, roll, alloc } = await import("../src/ui/singing.ts");
 const gesturesOf = () => voice.score();
 /** breath the score is giving now (strength-weighted activation of breath gestures) */
 const breathNow = () => {
@@ -341,6 +360,393 @@ describe("Sing mode, live keys", () => {
   });
 });
 
+describe("Sing mode, a chord of voices", () => {
+  /** n voices, each its own engine, rendered in step as the worklet renders them */
+  const chordOf = (n: number) => {
+    voice = new WasmVoice(FS);
+    others = Array.from({ length: n - 1 }, () => new WasmVoice(FS));
+    setVoiceCount(n);
+    useSing.getState().setVibrato(0);
+  };
+  /** Render `sec` seconds of every voice; each one's f0 and voicing over the last 40 %. */
+  const runAll = (sec: number) => {
+    const all = [voice, ...others];
+    const f0 = all.map(() => [] as number[]), voicing = all.map(() => [] as number[]);
+    for (let i = 0; i < Math.round(sec * FS); i += 128) {
+      all.forEach((w, v) => {
+        w.render(128);
+        const st = w.state();
+        f0[v].push(st.f0);
+        voicing[v].push(st.voicing);
+      });
+    }
+    const late = (xs: number[]) => xs.slice(Math.floor(xs.length * 0.6));
+    return { f0: f0.map((x) => median(late(x))), voiced: voicing.map((x) => Math.min(...late(x))) };
+  };
+  afterEach(() => {
+    stopSinging();
+    setVoiceCount(1);
+    others = [];
+  });
+
+  test("keys pressed together sing one syllable, a voice each at its own pitch", () => {
+    chordOf(3);
+    useSing.getState().setLyrics("la lo");
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    singNoteOn(52, 96, MALE);
+    singNoteOn(55, 96, MALE);
+    // one syllable for the three
+    expect(useSing.getState().cursor).toBe(1);
+    expect(roll.notes.filter((n) => n.t1 === null).map((n) => [n.midi, n.text])).toEqual([[48, "la"], [52, "la"], [55, "la"]]);
+    const a = runAll(0.5);
+    [48, 52, 55].forEach((m, v) => expect(Math.abs(cents(a.f0[v], m))).toBeLessThan(30));
+    for (const x of a.voiced) expect(x).toBeGreaterThan(0.5);
+  });
+
+  test("the chord's window is 50 ms of voice time: a key just inside it sings the same syllable, one just outside the next", () => {
+    chordOf(2);
+    useSing.getState().setLyrics("la lo li");
+    const sounding = () => roll.notes.filter((n) => n.t1 === null).map((n) => n.text);
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    runAll(0.04);
+    singNoteOn(52, 96, MALE);
+    expect([useSing.getState().cursor, sounding()]).toEqual([1, ["la", "la"]]);
+    singNoteOff(48, MALE);
+    singNoteOff(52, MALE);
+    runAll(0.3);
+    singNoteOn(48, 96, MALE);
+    runAll(0.06);
+    singNoteOn(52, 96, MALE);
+    expect([useSing.getState().cursor, sounding()]).toEqual([0, ["lo", "li"]]);
+  });
+
+  test("a key after the chord sings the next syllable on a free voice; a key lifted leaves the others singing", () => {
+    chordOf(4);
+    useSing.getState().setLyrics("la lo");
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    singNoteOn(52, 96, MALE);
+    singNoteOn(55, 96, MALE);
+    runAll(0.3);
+    // later than 50 ms: the melody moves on through the words, over the held chord
+    singNoteOn(59, 96, MALE);
+    expect(useSing.getState().cursor).toBe(0);
+    expect(roll.notes.filter((n) => n.t1 === null).map((n) => n.text)).toEqual(["la", "la", "la", "lo"]);
+    const a = runAll(0.4);
+    expect(Math.abs(cents(a.f0[3], 59))).toBeLessThan(30);
+    singNoteOff(52, MALE);
+    const b = runAll(0.8);
+    expect(b.voiced[1]).toBeLessThan(0.2);
+    for (const v of [0, 2, 3]) expect(b.voiced[v]).toBeGreaterThan(0.5);
+  });
+
+  test("with every voice busy a key takes the voice whose note is oldest, legato, and gives it back", () => {
+    chordOf(2);
+    useSing.getState().setLyrics("la lo li");
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    runAll(0.3);
+    singNoteOn(52, 96, MALE);
+    runAll(0.3);
+    // voice 0's note is the older: it sings the third key, legato
+    singNoteOn(55, 96, MALE);
+    const a = runAll(0.4);
+    expect(Math.abs(cents(a.f0[0], 55))).toBeLessThan(30);
+    expect(Math.abs(cents(a.f0[1], 52))).toBeLessThan(30);
+    expect(Math.min(...a.voiced)).toBeGreaterThan(0.5);
+    // lifted: back to its older key, still down
+    singNoteOff(55, MALE);
+    const b = runAll(0.4);
+    expect(Math.abs(cents(b.f0[0], 48))).toBeLessThan(30);
+    expect(Math.min(...b.voiced)).toBeGreaterThan(0.5);
+  });
+
+  test("a melisma to come holds back the coda of its own voice only", () => {
+    chordOf(2);
+    useSing.getState().setLyrics("cat dog -");
+    runAll(0.05);
+    singNoteOn(48, 96, MALE); // "cat" on voice 0
+    runAll(0.3);
+    singNoteOn(52, 96, MALE); // "dog" on voice 1; the melisma to come continues it
+    runAll(0.3);
+    singNoteOff(48, MALE);
+    // voice 0 ends its "cat" with its /t/ and breath-out; voice 1 keeps its vowel for the melisma
+    expect(voice.score().some((g) => g.label === "exhale")).toBe(true);
+    singNoteOff(52, MALE);
+    expect(others[0].score().some((g) => g.label === "exhale")).toBe(false);
+  });
+
+  test("a melisma moves the vowel of the note before it, on that note's voice", () => {
+    chordOf(3);
+    useSing.getState().setLyrics("la -");
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    runAll(0.3);
+    // a free voice is there, but the melisma continues voice 0's vowel
+    singNoteOn(55, 96, MALE);
+    const a = runAll(0.4);
+    expect(Math.abs(cents(a.f0[0], 55))).toBeLessThan(30);
+    expect(a.voiced[1]).toBeLessThan(0.2);
+    expect(a.voiced[2]).toBeLessThan(0.2);
+  });
+
+  test("a chord forgets its syllable when the cursor moves or the words change: the next key, though at once, sings from there", () => {
+    chordOf(4);
+    useSing.getState().setLyrics("la lo li");
+    const sounding = () => roll.notes.filter((n) => n.t1 === null).map((n) => n.text);
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    useSing.getState().setCursor(2);
+    singNoteOn(52, 96, MALE);
+    expect(sounding()).toEqual(["la", "li"]);
+    useSing.getState().setLyrics("mi fa");
+    singNoteOn(55, 96, MALE);
+    // (and this one is its chord)
+    singNoteOn(57, 96, MALE);
+    expect(sounding()).toEqual(["la", "li", "mi", "mi"]);
+  });
+
+  test("a melisma whose voice was taken away goes on the first voice", () => {
+    chordOf(3);
+    useSing.getState().setLyrics("la lo li -");
+    runAll(0.05);
+    for (const m of [48, 52, 55]) {
+      singNoteOn(m, 96, MALE);
+      runAll(0.1);
+    }
+    // "li" was voice 2's. Voice 1 is free the longest: without the rule the melisma is its own
+    for (const m of [52, 48, 55]) singNoteOff(m, MALE);
+    setVoiceCount(2);
+    singNoteOn(60, 96, MALE);
+    expect(alloc.voiceOf(60)).toBe(0);
+  });
+
+  test("the head goes back to the first voice when the singing stops: a tune is that voice's", () => {
+    chordOf(2);
+    useSing.getState().setLyrics("la lo");
+    runAll(0.05);
+    singNoteOn(48, 96, MALE);
+    runAll(0.1);
+    singNoteOn(52, 96, MALE);
+    expect(shows.at(-1)).toBe(1);
+    stopSinging();
+    expect(shows.at(-1)).toBe(0);
+  });
+
+  test("a melisma's key still down on another voice leaves that voice, as in the plugin", () => {
+    // (the computer's key held and the same key clicked, or a second keyboard) It once stayed on
+    // its own voice, which "glided" to the pitch it was on: the wrong vowel, and no melisma heard
+    chordOf(2);
+    useSing.getState().setLyrics("cat dog -");
+    runAll(0.05);
+    singNoteOn(48, 96, MALE); // "cat" on voice 0
+    runAll(0.3);
+    singNoteOn(52, 96, MALE); // "dog" on voice 1
+    runAll(0.3);
+    singNoteOn(48, 96, MALE); // the melisma: "dog" moves down to it
+    const a = runAll(0.6);
+    expect(Math.abs(cents(a.f0[1], 48))).toBeLessThan(30);
+    expect(a.voiced[1]).toBeGreaterThan(0.5);
+    expect(a.voiced[0]).toBeLessThan(0.2);
+    expect(roll.notes.filter((n) => n.t1 === null).map((n) => n.midi)).toEqual([48]);
+    // lifted: back to the key of "dog", still down
+    singNoteOff(48, MALE);
+    const b = runAll(0.4);
+    expect(Math.abs(cents(b.f0[1], 52))).toBeLessThan(30);
+  });
+});
+
+describe("Play mode, a chord of voices", () => {
+  const hz = (m: number) => midiToHz(m);
+  test("each key breathes its own voice at its pitch, from silence with no glide; the Pitch dial moves only the free voices", async () => {
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+    useStore.getState().setVoices(3);
+    voiceSources.length = gates.length = 0;
+    const st = useStore.getState;
+    st().noteOn(48);
+    st().noteOn(52);
+    expect(voiceSources).toEqual([
+      [0, hz(48), true],
+      [1, hz(52), true],
+    ]);
+    expect(st().voiceNotes).toEqual([48, 52]);
+    // the last word for each voice's breath
+    const gateOf = (v: number) => gates.filter(([w]) => w === v).at(-1)?.[1];
+    expect([gateOf(0), gateOf(1), gateOf(2)]).toEqual([1, 1, 0]);
+    // the dial: voice 2 (no key) takes it, the keys keep theirs
+    voiceSources.length = 0;
+    st().setSource({ f0: 300 });
+    expect(voiceSources).toEqual([[2, 300, false]]);
+    st().noteOff(48);
+    expect(gateOf(0)).toBe(0);
+    expect(gateOf(1)).toBe(1);
+    expect(st().voiceNotes).toEqual([52]);
+    st().noteOff(52);
+    expect(gateOf(1)).toBe(0);
+    st().setVoices(1);
+  });
+
+  test("with every voice busy a key takes the oldest note's voice, legato, and gives it back", async () => {
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+    useStore.getState().setVoices(2);
+    const st = useStore.getState;
+    st().noteOn(48);
+    st().noteOn(52);
+    voiceSources.length = 0;
+    st().noteOn(55);
+    // voice 0 is busy: no snap, it glides as one voice does to a second key
+    expect(voiceSources).toEqual([[0, hz(55), false]]);
+    st().noteOff(55);
+    expect(voiceSources.at(-1)).toEqual([0, hz(48), false]);
+    st().noteOff(48);
+    st().noteOff(52);
+    st().setVoices(1);
+  });
+
+  test("a chord pressed before the audio exists: each voice gets its own pitch once it does", async () => {
+    // the first thing a visitor does. The keys' pitches went to an engine that wasn't there, and
+    // the start sent every voice the one shared pitch (the newest key's): two voices in unison
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: false, body: MALE, hold: false, heldNotes: [] });
+    useStore.getState().setVoices(3);
+    const st = useStore.getState;
+    void st().start();
+    st().noteOn(48);
+    st().noteOn(52);
+    // (the stub records what the real engine drops until it has started)
+    voiceSources.length = gates.length = shows.length = 0;
+    startAudio();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(st().started).toBe(true);
+    // (which voice has which key is the allocator's business: two voices, a pitch each, from silence)
+    const sent = [...voiceSources].sort((a, b) => a[1] - b[1]);
+    expect(sent.map(([, f0, snap]) => [f0, snap])).toEqual([
+      [hz(48), true],
+      [hz(52), true],
+    ]);
+    const [low, high] = sent.map(([v]) => v);
+    expect(low).not.toBe(high);
+    // and the head's voice, which it was told of before it existed
+    expect(shows.at(-1)).toBe(high);
+    const gateOf = (v: number) => gates.filter(([w]) => w === v).at(-1)?.[1];
+    expect([0, 1, 2].map(gateOf)).toEqual([0, 1, 2].map((v) => (v === low || v === high ? 1 : 0)));
+    st().noteOff(48);
+    st().noteOff(52);
+    st().setVoices(1);
+  });
+
+  test("the head shows the newest note's voice, and the first voice when Hold breathes alone; the dial shows the newest note still down", async () => {
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+    const st = useStore.getState;
+    st().setVoices(2);
+    alloc.clear();
+    st().noteOn(48);
+    st().noteOn(52);
+    expect(shows.at(-1)).toBe(1);
+    // the Keys header and the dial once kept the lifted key's pitch over the one still down
+    st().noteOff(52);
+    expect(st().source.f0).toBeCloseTo(hz(48), 6);
+    st().noteOn(52);
+    st().noteOff(48);
+    st().noteOff(52);
+    // voice 1's release is on the screen; Hold's breath is voice 0's (the lungs once read zero)
+    expect(shows.at(-1)).toBe(1);
+    st().setHold(true);
+    expect(shows.at(-1)).toBe(0);
+    // and a voice that Hold keeps breathing glides to a key: it doesn't start from silence
+    voiceSources.length = 0;
+    st().noteOn(50);
+    expect(voiceSources).toEqual([[0, hz(50), false]]);
+    st().noteOff(50);
+    st().setHold(false);
+    st().setVoices(1);
+  });
+
+  test("a new count of voices ends the notes held; the other tabs have one voice, and the count comes back", async () => {
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+    const st = useStore.getState;
+    const gateOf = (v: number) => gates.filter(([w]) => w === v).at(-1)?.[1];
+    st().setVoices(2);
+    st().noteOn(48);
+    st().noteOn(52);
+    st().setVoices(3);
+    expect([st().heldNotes, st().voiceNotes, gateOf(0), gateOf(1)]).toEqual([[], [], 0, 0]);
+    st().setMode("speak");
+    expect(counts.at(-1)).toBe(1);
+    st().setMode("play");
+    expect(counts.at(-1)).toBe(3);
+    st().setVoices(1);
+  });
+
+  test("the Pitch dial, moved under a held key, is that voice's pitch once the key lifts", async () => {
+    // as in the plugin. It was dropped: with Hold on, the voice went on at the key's pitch while
+    // the dial read another
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+    useStore.getState().setVoices(2);
+    const st = useStore.getState;
+    voiceSources.length = 0;
+    st().noteOn(48);
+    const keyed = voiceSources[0][0];
+    voiceSources.length = 0;
+    st().setSource({ f0: 300 });
+    expect(voiceSources).toEqual([[1 - keyed, 300, false]]);
+    st().noteOff(48);
+    expect(voiceSources.at(-1)).toEqual([keyed, 300, false]);
+    // a key pressed since takes the voice for itself: nothing waits for its lift
+    st().noteOn(50);
+    st().setSource({ f0: 310 });
+    st().noteOn(50);
+    voiceSources.length = 0;
+    st().noteOff(50);
+    expect(voiceSources).toEqual([]);
+    st().setVoices(1);
+  });
+
+  test("a new body, and an engine rebuilt, end a chord: no key stays lit over a voice that left its pitch", async () => {
+    const { useStore } = await import("../src/ui/store.ts");
+    const gateOf = (v: number) => gates.filter(([w]) => w === v).at(-1)?.[1];
+    const st = useStore.getState;
+    for (const end of [() => st().setBody({ female: 1, child: 0 }), () => rebuilt()]) {
+      useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+      st().setVoices(2);
+      st().noteOn(48);
+      st().noteOn(52);
+      expect([...st().voiceNotes].sort()).toEqual([48, 52]);
+      voiceSources.length = gates.length = 0;
+      end();
+      expect([st().heldNotes, st().voiceNotes]).toEqual([[], []]);
+      expect([gateOf(0), gateOf(1)]).toEqual([0, 0]);
+      // and no voice is sent a key's pitch again
+      expect(voiceSources).toEqual([]);
+      st().setVoices(1);
+    }
+    st().setBody(MALE);
+  });
+
+  test("one voice plays as before: a second key moves the one voice's pitch", async () => {
+    const { useStore } = await import("../src/ui/store.ts");
+    useStore.setState({ mode: "play", started: true, body: MALE, hold: false, heldNotes: [] });
+    useStore.getState().setVoices(1);
+    voiceSources.length = 0;
+    const st = useStore.getState;
+    st().noteOn(48);
+    st().noteOn(52);
+    expect(voiceSources).toEqual([]);
+    expect(st().source.f0).toBeCloseTo(hz(52), 6);
+    st().noteOff(52);
+    expect(st().source.f0).toBeCloseTo(hz(48), 6);
+    st().noteOff(48);
+  });
+});
+
 describe("keys pressed before the audio has started", () => {
   test("only the press still down sings, once, and not after the body changed", async () => {
     const { useStore } = await import("../src/ui/store.ts");
@@ -375,6 +781,20 @@ describe("keys pressed before the audio has started", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(scheduled).toBe(0);
     expect(useSing.getState().cursor).toBe(before);
+
+    // nor does one outlive a new count of voices, which ends the notes held (it once sang, and
+    // moved the words on, with no key lit)
+    useStore.setState({ started: false, heldNotes: [] });
+    useStore.getState().noteOn(52);
+    useStore.getState().noteOn(55);
+    useStore.getState().setVoices(2);
+    startAudio();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useStore.getState().started).toBe(true);
+    expect(scheduled).toBe(0);
+    expect(useSing.getState().cursor).toBe(before);
+    useStore.getState().setVoices(1);
     engineStub.scheduleGestures = sg;
   });
 });

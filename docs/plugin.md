@@ -117,7 +117,7 @@ They share `Shared`:
   `AtomicBool` says it is dirty. If the lock is busy the changes wait a block. Everything in it
   *merges* rather than queues, so a host that stops processing can't overflow it:
   `artic: ArticPatch`, `tip_free`, `source: SourcePatch`, `hold`, `mode`, `cursor`,
-  `voice: Option<(Box<HumanVoice>, BodyMix)>`, `syllables: Option<Vec<LiveSyllable>>`. `initialize`
+  `voice: Option<(Vec<Box<HumanVoice>>, BodyMix)>` (a body for each voice), `syllables: Option<Vec<LiveSyllable>>`. `initialize`
   clears it, and records the sample rate there, so a voice built for another rate is dropped when
   the main thread tries to publish it, never on the audio side.
 - **UI notes** are the exception that must queue, in a bounded array. On overflow the array empties
@@ -216,10 +216,120 @@ the next note's start. Note timing isn't affected.
 Not handled: the same pitch held on two channels is one key (the first note-off ends it), RPN 0 and
 6 (the note bend range is fixed at 48), the upper zone, CLAP note expressions.
 
+## Voices
+
+One voice is one simulated body, so a chord needs a body for each note. The host parameter Voices
+(1 to 8, default 1) says how many play. With 1 the plugin is what it was, sample for sample: a test
+holds the hash of each mode's output from before the parameter existed.
+
+`Core` builds all 8 voices when the host activates it (under 1 ms each), because the audio thread
+can't build one. Each is an `Engine` with its own `Singer`, and each keeps the one-voice logic:
+legato, the glide back to a held key, the coda. Polyphony is which voice a note goes to:
+
+1. the voice that has this key already (a repeat);
+2. or, with MPE on, the free voice whose release still follows the note's channel. One finger's
+   notes stay on one voice, and a new finger on a reused channel can't bend another voice's release;
+3. or the voice free for the longest;
+4. or, with every voice busy, the voice whose note started longest ago. It takes the note as one
+   voice takes a second key: legato, and back to the older key if that is still down when the new
+   one lifts. A voice back on its older key is as old as that key's note again.
+
+In Sing a melisma is the exception: it goes to the voice that sang the syllable before it, whether
+that key is still down (the vowel glides) or not (the vowel again, with no onset), because it
+continues that vowel and no other. A melisma to come holds back the coda of that voice only; every
+other voice sings its coda when its key lifts. If the Voices parameter has taken that voice away,
+the first voice continues.
+
+What the voices share, and what is each one's own:
+
+- **Shared:** the body, the posture, the lyrics, every dial, the wheel (channel 1's bend).
+- **Each voice's own:** its note, and that note's channel: bend (±48), pressure (breath), slide
+  (brightness), and its key's poly pressure. With MPE off the bend is the wheel, for every voice,
+  and slide does nothing; pressure still moves only the voices whose note is on its channel (a
+  keyboard that isn't MPE sends every note on one channel, so there it moves them all).
+- **Sing.** A chord sings one syllable: a note that starts within 50 ms of the note before, on a
+  voice of its own, sings that note's syllable. Any other note sings the next one, so a melody over
+  a held note moves through the words. A note that had to take a busy voice (rule 4) also sings the
+  next syllable, as a second key does on one voice. Each voice sings its own coda when its key lifts.
+- **Play.** A voice that starts from silence starts on its pitch; it doesn't glide in from the last
+  note it sang (with one voice it still does, as before). Hold keeps the first voice breathing.
+  With several voices the Pitch dial moves only the voices with no key down: a key keeps its pitch,
+  and its voice takes the dial's when its keys lift (with one voice the dial moves the held note,
+  as before).
+- **Speak and Beatbox** use the first voice only.
+- **The level.** Each voice ends in its own limiter, at 0.75, so the plain sum of a loud chord goes
+  far over full scale (four voices at full pressure: 2.4). With more than one voice the sum goes
+  through one more limiter with the same law (`ChordLimiter`): a loud chord is turned down as a
+  whole. One voice sounding stays below its ceiling and passes unchanged, once the level of the
+  chord before it has died away (a 25 ms hold, then a release with a time constant of 200 ms:
+  about a quarter of a second after the loudest chord).
+- **The editor.** Each voice's pitch is shown: the keys light every note a voice sounds; the roll
+  (Sing) has a note and an amber pitch line for each voice; the Keys header (Play) names the chord;
+  the lines by the head list each voice's F0 or note; the spectrum marks each F0 and, for a chord,
+  draws the whole curve instead of one voice's harmonics. The head, the tube and the folds show one
+  voice: the one with the newest note still sounding, and after that its release; with Hold on and
+  no key down, the first voice, which Hold breathes. The voices share
+  one pose, so in Play the head is right for each: only pitch and breath differ. In Sing a voice
+  may be on another syllable, and the head is the mouth of the voice shown. The Pitch dial is a
+  control, so it shows the newest note. The poll sends each voice's note, syllable, press count,
+  pitch and voicing after its header (`VOICES_HEADER`); `src/ui/voices.ts` holds them for the page.
+
+Lowering Voices stops the notes of the voices taken away. They are rendered for one more second, so
+their release is heard, and then they cost nothing. Raising it sets each voice that joins to the
+first voice's clock (`Engine::set_clock`), so the editor's notes and telemetry are on one timeline.
+The clocks then differ by up to one control step (64 samples of output: 1.5 ms at 44.1 kHz),
+because a joining voice starts its control steps from its own phase.
+
+A chord's syllable is forgotten when the lyrics or the cursor change, when the transport starts
+again from the top, and when everything stops, so the first note after that sings from the cursor.
+The host's choke of one note lifts that note in Sing and Play. With one voice, in Speak and
+Beatbox, and for a choke that names no key, it stops everything, as it did. That is also what a
+choke of one channel with no key does (CLAP allows it): every note stops, not that channel's alone.
+
+Known limits. Every voice the parameter asks for is rendered all the time, sounding or not (the cost
+is in `docs/polyphony.md`). The same pitch
+on two channels is one key: the second press takes the first one's voice and channel, and the note
+ends when either finger lifts (a note-off carries no channel here; on a Push each pitch is on more
+than one pad). A choke lifts its note with its release; it doesn't cut it dead. A voice not being
+rendered takes a new pressure, brightness or dial value at once, with no glide: nothing of it is
+heard, and with one voice the glide's timing is exactly the single voice's.
+
+The page's Keys screens (Sing and Play) have a Voices chip. It shows the host's value, and each press
+moves the parameter on to the next of 1, 2, 3, 4, 6 and 8, then back to 1.
+
+### The web app's chords
+
+The web app plays chords too, with the same chip on its Keys screens (1 to 4 voices, default 1) and
+the same rules for which voice takes a key, less the MPE rule: the web app reads no MPE. The rules
+are a second copy, in TypeScript (`src/ui/voiceAlloc.ts`), because the web app plans its notes on the
+main thread and the plugin plans them in Rust. One table of cases, `tests/voice-rules.json`, is run
+by both (`tests/voice-alloc.test.ts` and the plugin's `polyphony.rs`), so the two copies give the
+same answers. Sing's chord window (50 ms of voice time), the melisma rule and each voice's
+coda are the plugin's; Play gives each key its own voice's pitch and breath, a voice that starts
+from silence starts on its pitch, and the Pitch dial moves only the voices with no key down. Speak,
+Beatbox and the creatures use the first voice only.
+
+The worklet runs one engine for each voice in its one wasm instance (`src/worklet/processor.ts`).
+The body, the pose and the dials go to every voice, and a voice made later gets them all; a note's
+gestures, pitch and breath go to its own voice; a release goes to every voice, because a tag is
+one note's. With more than one voice the sum goes through the plugin's limiter
+(`chimera::voice::chord_limiter`, through `mix_limit`); with one, the output is the first voice's
+as before. A voice taken away rings on for a second only if it had a note (the chip's way from 2
+back to 1 is by 3 and 4, which then cost nothing), and under a creature not at all: the creature is
+the first voice's, and its human voice stops at once too. A voice that joins takes the first voice's
+clock, so the telemetry of any voice is on one timeline; the head shows the voice with the newest note, and each voice's pitch comes with the
+telemetry for the pitch lines.
+
+Different from the plugin: at most 4 voices, because a voice costs about 15.5% of one core in wasm
+on an Apple M-series laptop (9.9% native), and every voice the chip asks for is rendered all the time;
+the web app also rebuilds itself at 32 kHz when a device can't keep up, which ends the notes. A
+change of Voices or of the body while keys are down ends those notes; the next press is dealt again. Not measured:
+a phone, Chrome's or Firefox's wasm speed.
+
 ## State
 
 Host parameters (automatable): output gain, vibrato depth and rate, breath, pressed, bright,
-breathy, rough, fry, glide, ring, restart lyrics, MPE. IDs are permanent once released.
+breathy, rough, fry, glide, ring, restart lyrics, MPE, voices. IDs are permanent once released.
 
 Everything else is one `#[persist]` JSON field, `Settings`: lyrics, body, mode, posture (the
 articulators changed from neutral, and `tip_free`), voiced, the Play-mode pitch, the start syllable,

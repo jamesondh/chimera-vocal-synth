@@ -1,0 +1,36 @@
+[
+  {
+    "name": "one voice takes every key, legato, and goes back to the newest key still down",
+    "voices": 1,
+    "steps": [["on", 60, [60]], ["on", 64, [64]], ["on", 67, [67]], ["off", 67, [64]], ["off", 60, [64]], ["off", 64, [0]]]
+  },
+  {
+    "name": "a key takes the voice free for the longest",
+    "voices": 3,
+    "steps": [["on", 60, [60, 0, 0]], ["on", 64, [60, 64, 0]], ["off", 60, [0, 64, 0]], ["on", 67, [0, 64, 67]], ["on", 72, [72, 64, 67]]]
+  },
+  {
+    "name": "a lifted key's voice stops, the others stay, and the next key takes the free voice",
+    "voices": 3,
+    "steps": [["on", 57, [57, 0, 0]], ["on", 61, [57, 61, 0]], ["on", 64, [57, 61, 64]], ["off", 61, [57, 0, 64]], ["on", 66, [57, 66, 64]]]
+  },
+  {
+    "name": "a key already down stays on its voice",
+    "voices": 3,
+    "steps": [["on", 60, [60, 0, 0]], ["on", 64, [60, 64, 0]], ["on", 60, [60, 64, 0]]]
+  },
+  {
+    "name": "with every voice busy a key takes the voice whose note started longest ago, which goes back to its older key",
+    "voices": 2,
+    "steps": [
+      ["on", 60, [60, 0]],
+      ["on", 64, [60, 64]],
+      ["on", 67, [67, 64]],
+      ["on", 71, [67, 71]],
+      ["off", 67, [60, 71]],
+      ["on", 74, [74, 71]],
+      ["off", 60, [74, 71]],
+      ["off", 74, [0, 71]]
+    ]
+  }
+]
