@@ -29,7 +29,15 @@ fn letters_diphthongs_and_unaspirated_stops() {
     assert_eq!(ipa(&word("langat")), "l̪ɑ̠ŋɑ̠t̪");
     assert_eq!(ipa(&word("lanka")), "l̪ɑ̠ŋkɑ̠");
     assert_eq!(ipa(&word("yöhön")), "yœhœn");
-    assert_eq!(lyrics_to_syllables("tähtien").iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["täh", "ti", "en"]);
+    // Non-intervocalic `ng` (`englanti`) stays short [ŋ], not geminate
+    let eng = word("englanti");
+    assert_eq!(eng[1].ipa, "ŋ");
+    assert_eq!(eng[1].length, None);
+    // Apostrophe forces a syllable boundary (`ha'un`, `vaa'an`) without splitting into two words
+    assert_eq!(lyrics_to_syllables("tähtien ha'un vaa'an").iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["täh", "ti", "en", "ha", "'un", "vaa", "'an"]);
+    let haun = to_phrases("ha'un");
+    assert_eq!(haun[0].words, ["ha'un"]);
+    assert_eq!(ipa(&haun[0].segments), "hɑ̠u̝n");
 }
 
 #[test]
@@ -54,9 +62,9 @@ fn long_vowels_and_geminates_keep_length_in_speech() {
 
 #[test]
 fn numbers_are_read_out_in_finnish() {
-    let p = to_phrases("Kierros 14, arvo 3,5.");
+    let p = to_phrases("Kierros 14, arvo 3,05.");
     assert_eq!(p[0].words, ["kierros", "neljätoista"]);
-    assert_eq!(p[1].words, ["arvo", "kolme", "pilkku", "viisi"]);
+    assert_eq!(p[1].words, ["arvo", "kolme", "pilkku", "nolla", "viisi"]);
 }
 
 #[test]
@@ -86,7 +94,7 @@ fn finnish_lyrics_plan_as_a_song_with_balanced_opening_diphthongs() {
     assert_eq!(syls.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["Re", "von", "tu", "let", "leis", "ku", "vat", "kier", "ros", "nel", "jä", "tois", "ta"]);
     // `let` (coda t) -> `leis` (onset l boosted to 88ms)
     assert_eq!(syls[4].onset[0].dur, Some(0.088));
-    // `kier` -> opening diphthong `ie` with 60% offglide share, geminate `r` consolidated to `ros` onset (115ms)
+    // `kier` -> opening diphthong `ie` with 60% offglide share, geminate `r` consolidated to `ros` onset (165ms)
     assert_eq!(syls[7].nucleus.ipa, "ie");
     assert_eq!(syls[7].offglide_share, Some(0.60));
     assert!(syls[7].coda.is_empty());

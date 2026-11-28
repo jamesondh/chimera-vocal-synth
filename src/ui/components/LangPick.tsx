@@ -7,7 +7,7 @@ const LANGS: { value: Lang; label: string; name: string }[] = [
   { value: "fi", label: "FI", name: "Finnish" },
 ];
 
-/** The language typed words are read in: two chips for a screen's tools. `off` lights neither (IPA input). */
+/** The language typed words are read in: language chips for a screen's tools. `off` lights none (IPA input). */
 export function LangPick(props: { value: Lang; onChange: (l: Lang) => void; off?: boolean }) {
   return (
     <div className="lang-pick" role="group" aria-label="Language">

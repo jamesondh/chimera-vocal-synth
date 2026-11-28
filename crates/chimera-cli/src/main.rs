@@ -20,15 +20,16 @@ usage: chimera <command> [args] [--float]
   render speech  <out> [\"ipa / ipa\"] [male|female|child]
   render text    <out> [\"English text.\"] [male|female|child]
   render turkish <out> [\"Türkçe metin.\"] [male|female|child]
+  render finnish <out> [\"Suomenkielinen teksti.\"] [male|female|child]
   render song    [outdir] [male|female|child]
   render notes   <in.json> <out> [male|female|child] [--artic tracks.json] [--tele voice.tele]
-                 (melody file; midi <= 0 is a rest; \"lang\": \"tr\" reads Latin-script lyrics as Turkish;
+                 (melody file; midi <= 0 is a rest; \"lang\": \"tr\" or \"fi\" reads Latin-script lyrics as Turkish or Finnish;
                  --artic also writes the articulators at 100 Hz)
   render beatbox [outdir] [preset name | pattern] [male|female|child] [bpm] [bars]
   render creature [creatureId] [outdir]
   render vowels  [male|female|child] [out]
-  syllables      \"lyrics\" [en|tr]  (what the language front ends read: one JSON syllable per sung
-                 note; tr reads Latin script as Turkish)
+  syllables      \"lyrics\" [en|tr|fi]  (what the language front ends read: one JSON syllable per sung
+                 note; tr/fi read Latin script as Turkish or Finnish)
   diagnose       [outdir]
   compare csd    [csd-dir] [outdir] [--songs a|b|all|en001a,…] [--body female] [--jobs n]
                  [--against earlier/score.json]  (score.json: distance to the singer, and the verdict)

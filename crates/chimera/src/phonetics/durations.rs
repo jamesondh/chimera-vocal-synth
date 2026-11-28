@@ -52,7 +52,7 @@ fn table(ipa: &str) -> Option<(f64, f64)> {
         "œ" => (170.0, 70.0),
         "ɯ" => (135.0, 40.0),
         // Finnish diphthongs (shared duration before `plan_timed` splits them 55/45 in speech)
-        "ie" | "ʊɔ" | "yœ" | "ɑ̠i" | "ɑi" | "ɑ̠u̝" | "ɑu̝" | "ɑu̠" | "oi" | "ou̝" | "ou̠" | "æ̞i" | "æi" | "œi" | "øi" | "u̝i" | "u̠i" | "ui" | "yi" | "æ̞y" | "æy" | "œy" | "øy" | "eu̝" | "eu̠" | "eu" | "iu̝" | "iu̠" | "iu" | "ey" | "iy" => (230.0, 120.0),
+        "ie" | "ʊɔ" | "yœ" | "ɑ̠i" | "ɑ̠u̝" | "oi" | "ou̝" | "æ̞i" | "œi" | "u̝i" | "yi" | "æ̞y" | "œy" | "eu̝" | "iu̝" | "ey" | "iy" => (230.0, 120.0),
         // consonants
         "p" => (85.0, 50.0),
         "t" | "t̪" => (75.0, 50.0),

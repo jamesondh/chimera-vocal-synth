@@ -7,17 +7,18 @@
 //!   time (`aspirated: Some(true), vot: Some(0.012)`): `/t/` uses the dental closure `t̪` (like
 //!   Finnish, Swedish, and Japanese) rather than English's alveolar `/t/`, and the tight 12 ms VOT
 //!   snaps the glottis shut right on release (no `[d]` voicing bleed and no English `[tʰ]` puff).
-//! - Doubled vowels (`aa ee ii oo uu yy ää öö`) are single long vowels (`length: Some(1.7)` in
-//!   speech); doubled consonants (`rr ll tt pp kk ss nn mm hh`) are single long geminates
-//!   (`length: Some(1.6)` in speech; consolidated into a single lengthened onset in singing so two
-//!   closures/trills don't crush the vowel before them).
-//! - `ng` between vowels is a long velar nasal `[ŋː]`, and `nk` is `[ŋk]`.
+//! - Doubled vowels (`aa ee ii oo uu yy ää öö`) are single long vowels (`LONG_VOWEL = 1.40`
+//!   stressed vs `SHORT_VOWEL_STRESSED = 0.55`, ~2.5× contrast); doubled consonants
+//!   (`rr ll tt pp kk ss nn mm hh`) are single long geminates (`GEMINATE = 2.2` in speech;
+//!   consolidated into a single lengthened onset `155–175 ms` in singing).
+//! - `ng` between vowels is a long velar nasal `[ŋː]`, `ng` in a coda cluster is short `[ŋ]`, and
+//!   `nk` is `[ŋk]`.
 //! - All 18 standard Finnish diphthongs stay in one syllable:
-//!   - `ai au ei ou oi` use Chimera's native falling diphthongs (`aɪ aʊ eɪ oʊ ɔɪ`).
-//!   - Opening diphthongs `ie uo yö` map to `ie` (`i→ɛ`), `uɔ` (`u→ɔ`), `yœ` (`y→œ`) with
-//!     `offglide_share: Some(0.60)` in singing so both halves ring out clearly.
-//!   - Front/closing diphthongs (`äi öi ui yi äy öy eu iu ey iy`) map to their true Finnish vowel
-//!     pairs with `offglide_share: Some(0.42)`.
+//!   - Closing diphthongs (`ai au ei ou oi äi öi ui yi äy öy eu iu ey iy`) use calibrated Finnish
+//!     vowel targets (`ɑ̠i ɑ̠u̝ eɪ ou̝ oi æ̞i œi u̝i yi æ̞y œy eu̝ iu̝ ey iy`).
+//!   - First-syllable opening diphthongs `ie uo yö` map to `ie` (`i→ɛ`), `ʊɔ` (`u̝→ɔ`), `yœ`
+//!     (`y→œ`) with `offglide_share: Some(0.60)` in singing; non-initial `ie uo yö` (`tähtien`)
+//!     split across syllables (`täh-ti-en`).
 
 use super::english::{Phrase, is_phrase_punct, split_keeping};
 use super::mandarin::MandarinLexicon;
@@ -97,7 +98,7 @@ fn diphthong_ipa(a: char, b: char) -> Option<(&'static str, Option<f64>)> {
         // Finnish falling diphthongs with pure Finnish endpoints (avoiding English lax ɪ/ʊ and fronted u)
         ('a', 'i') => ("ɑ̠i", Some(0.45)),
         ('a', 'u') => ("ɑ̠u̝", Some(0.52)),
-        ('e', 'i') => ("eɪ", None),
+        ('e', 'i') => ("eɪ", Some(0.42)),
         ('o', 'u') => ("ou̝", Some(0.50)),
         ('o', 'i') => ("oi", Some(0.45)),
         // Opening diphthongs: spend ~60% of the sung note on the more open second half
@@ -153,7 +154,9 @@ fn consonants_to_segments(cs: &[char]) -> Vec<Segment> {
         if i + 1 < cs.len() {
             match (cs[i], cs[i + 1]) {
                 ('n', 'g') => {
-                    out.push(Segment { ipa: "ŋ".into(), length: Some(GEMINATE), ..Default::default() });
+                    // Within a single cluster (`englanti`, `ping`) `ng` is short [ŋ]; intervocalic
+                    // `ng` (`rengas`, `langat`) becomes geminate [ŋː] in `word()`'s cross-syllable merge.
+                    out.push(seg_consonant("ŋ"));
                     i += 2;
                     continue;
                 }
@@ -218,58 +221,67 @@ struct RawSyllable {
 }
 
 /// Splits a Finnish word into orthographic syllables (preserving original casing in `text`).
+/// An apostrophe (`vaa'an`, `ha'un`, `lu'un`) forces a syllable break between identical/hiatus
+/// vowels without splitting the word.
 fn split_syllables(typed: &str) -> Vec<RawSyllable> {
-    let orig: Vec<char> = typed.chars().filter(|c| is_letter(*c)).collect();
-    let lower: Vec<char> = orig.iter().map(|c| c.to_lowercase().next().unwrap_or(*c)).collect();
-    if lower.is_empty() {
-        return Vec::new();
-    }
     let mut syls: Vec<RawSyllable> = Vec::new();
-    let mut i = 0;
-    while i < lower.len() {
-        let start = i;
-        let mut onset = Vec::new();
-        while i < lower.len() && !is_vowel_letter(lower[i]) {
-            onset.push(lower[i]);
-            i += 1;
+    for (chunk_idx, chunk) in typed.replace('’', "'").split('\'').enumerate() {
+        let orig: Vec<char> = chunk.chars().filter(|c| is_letter(*c)).collect();
+        let lower: Vec<char> = orig.iter().map(|c| c.to_lowercase().next().unwrap_or(*c)).collect();
+        if lower.is_empty() {
+            continue;
         }
-        if i >= lower.len() {
-            if let Some(last) = syls.last_mut() {
-                last.coda.extend(onset);
-                last.text.extend(&orig[start..]);
-            }
-            break;
-        }
-        let mut nucleus = vec![lower[i]];
-        i += 1;
-        if i < lower.len() && is_vowel_letter(lower[i]) {
-            let v1 = nucleus[0];
-            let v2 = lower[i];
-            // Opening diphthongs `ie / uo / yö` only stay in one syllable in the first syllable
-            // of a word (`kierros`, `Suomi`, `yöllä`); in non-initial syllables (`tähtien`,
-            // `pilvien`, `filippiinien`), they split across a syllable boundary (`täh-ti-en`).
-            let diph = is_closing_diphthong(v1, v2) || (syls.is_empty() && is_opening_diphthong(v1, v2));
-            if v2 == v1 || diph {
-                nucleus.push(v2);
+        let chunk_start = syls.len();
+        let mut i = 0;
+        while i < lower.len() {
+            let start = i;
+            let mut onset = Vec::new();
+            while i < lower.len() && !is_vowel_letter(lower[i]) {
+                onset.push(lower[i]);
                 i += 1;
             }
+            if i >= lower.len() {
+                if let Some(last) = syls.last_mut() {
+                    last.coda.extend(onset);
+                    last.text.extend(&orig[start..]);
+                }
+                break;
+            }
+            let mut nucleus = vec![lower[i]];
+            i += 1;
+            if i < lower.len() && is_vowel_letter(lower[i]) {
+                let v1 = nucleus[0];
+                let v2 = lower[i];
+                // Opening diphthongs `ie / uo / yö` only stay in one syllable in the first syllable
+                // of a word (`kierros`, `Suomi`, `yöllä`); in non-initial syllables (`tähtien`,
+                // `pilvien`, `filippiinien`), they split across a syllable boundary (`täh-ti-en`).
+                let diph = is_closing_diphthong(v1, v2) || (syls.is_empty() && is_opening_diphthong(v1, v2));
+                if v2 == v1 || diph {
+                    nucleus.push(v2);
+                    i += 1;
+                }
+            }
+            let mut c_end = i;
+            while c_end < lower.len() && !is_vowel_letter(lower[c_end]) {
+                c_end += 1;
+            }
+            let coda = if c_end == lower.len() {
+                let c = lower[i..c_end].to_vec();
+                i = c_end;
+                c
+            } else if c_end - i >= 2 {
+                let c = lower[i..c_end - 1].to_vec();
+                i = c_end - 1;
+                c
+            } else {
+                Vec::new()
+            };
+            let mut text: String = orig[start..i].iter().collect();
+            if chunk_idx > 0 && syls.len() == chunk_start {
+                text.insert(0, '\'');
+            }
+            syls.push(RawSyllable { text, onset, nucleus, coda });
         }
-        let mut c_end = i;
-        while c_end < lower.len() && !is_vowel_letter(lower[c_end]) {
-            c_end += 1;
-        }
-        let coda = if c_end == lower.len() {
-            let c = lower[i..c_end].to_vec();
-            i = c_end;
-            c
-        } else if c_end - i >= 2 {
-            let c = lower[i..c_end - 1].to_vec();
-            i = c_end - 1;
-            c
-        } else {
-            Vec::new()
-        };
-        syls.push(RawSyllable { text: orig[start..i].iter().collect(), onset, nucleus, coda });
     }
     syls
 }
@@ -277,7 +289,7 @@ fn split_syllables(typed: &str) -> Vec<RawSyllable> {
 fn syllable_stress(idx: usize, len: usize) -> u8 {
     if idx == 0 {
         1
-    } else if idx % 2 == 0 && idx + 1 < len {
+    } else if idx.is_multiple_of(2) && idx + 1 < len {
         2
     } else {
         0
@@ -326,13 +338,12 @@ pub fn word(typed: &str) -> Vec<Segment> {
         let mut coda = consonants_to_segments(&syl.coda);
         // Coda `r` before a following onset consonant (`turma`, `perhe`, `kerta`) gets enough
         // room to strike clearly before the next consonant's closure (e.g. `m`'s early lip seal).
-        if idx + 1 < len {
-            if let Some(last) = coda.last_mut()
-                && last.ipa == "r"
-                && last.length.is_none()
-            {
-                last.length = Some(1.45);
-            }
+        if idx + 1 < len
+            && let Some(last) = coda.last_mut()
+            && last.ipa == "r"
+            && last.length.is_none()
+        {
+            last.length = Some(1.45);
         }
         out.extend(coda);
     }
@@ -477,8 +488,8 @@ pub fn to_phrases(text: &str) -> Vec<Phrase> {
             flush(&part, &mut words);
         } else {
             words.extend(
-                part.split(|c: char| !(is_letter(c) || c == '-'))
-                    .map(|w| w.trim_matches('-'))
+                part.split(|c: char| !(is_letter(c) || c == '-' || c == '\''))
+                    .map(|w| w.trim_matches(|c| c == '-' || c == '\''))
                     .filter(|w| w.chars().any(is_letter))
                     .map(str::to_string),
             );
@@ -565,7 +576,20 @@ fn expand_numbers(text: &str) -> String {
                     i += 1;
                 }
                 out.push_str(" pilkku ");
-                out.push_str(&number_words(&frac));
+                let zeros = frac.chars().take_while(|&c| c == '0').count();
+                let rest = &frac[zeros..];
+                for k in 0..zeros {
+                    if k > 0 {
+                        out.push(' ');
+                    }
+                    out.push_str(ONES[0]);
+                }
+                if !rest.is_empty() {
+                    if zeros > 0 {
+                        out.push(' ');
+                    }
+                    out.push_str(&number_words(rest));
+                }
             }
             out.push(' ');
         } else {

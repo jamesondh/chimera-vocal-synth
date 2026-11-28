@@ -33,6 +33,7 @@ Korean and Mandarin need (`ɕ ʑ tɕ dʑ tʂ dʐ ɥ`, step 3), aspiration as the
 | Han | Mandarin | `public/data/mandarin.txt.gz` (208 KB, fetched when lyrics have Han characters) | `phonetics/mandarin.rs` |
 | Latin with tones | Mandarin as pinyin | nothing (checked against Mandarin's 411 syllables) | `phonetics/mandarin.rs` (`Pinyin`) |
 | Latin, when chosen | Turkish | nothing: spelling rules, stress by rule ([turkish.md](turkish.md)) | `phonetics/turkish.rs` |
+| Latin, when chosen | Finnish | nothing: phonemic spelling rules, initial stress ([finnish.md](finnish.md)) | `phonetics/finnish.rs` |
 
 The router (`read_lyrics` in `syllables.rs`) sends each word to the front end whose script it is
 in, so a line can mix them (`我爱你 hello 빵야 nǐhǎo`). It also handles what every language
