@@ -1,6 +1,6 @@
 # The screen, REAPER's windows and dialogs, and the mouse, for ../host-test/run.sh on Windows.
 #   ui.ps1 screen | shot <file.jpg> | bounds | click <x> <y> | drag <x1> <y1> <x2> <y2>
-#          | dialogs | nag | front | windows
+#          | dialogs | nag | front | windows | clear
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type @"
@@ -26,6 +26,8 @@ public static class W {
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, int x, int y, uint d, UIntPtr e);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int ht, uint f);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 
   public static List<IntPtr> Tops(uint pid) {
@@ -53,7 +55,7 @@ $command = $args[0]
 $reaper = Get-Process reaper -ErrorAction SilentlyContinue | Select-Object -First 1
 function Tops { if ($reaper) { [W]::Tops([uint32]$reaper.Id) } else { @() } }
 function Editor { foreach ($h in Tops) { if ([W]::Text($h) -like '*CHIMERA*') { return $h } }; return [IntPtr]::Zero }
-function Move($x, $y) { [W]::SetCursorPos($x, $y) | Out-Null; [W]::mouse_event(0x0001, 0, 0, 0, [UIntPtr]::Zero) }
+function MoveMouse($x, $y) { [W]::SetCursorPos($x, $y) | Out-Null; [W]::mouse_event(0x0001, 0, 0, 0, [UIntPtr]::Zero) }
 
 switch ($command) {
   'screen' {
@@ -78,30 +80,40 @@ switch ($command) {
     }
   }
   'click' {
-    Move ([int]$args[1]) ([int]$args[2])
+    MoveMouse ([int]$args[1]) ([int]$args[2])
     [W]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
     Start-Sleep -Milliseconds 50
     [W]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
   }
   'drag' {
     $x1 = [int]$args[1]; $y1 = [int]$args[2]; $x2 = [int]$args[3]; $y2 = [int]$args[4]
-    Move $x1 $y1
+    MoveMouse $x1 $y1
     Start-Sleep -Milliseconds 200
     [W]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
     for ($i = 1; $i -le 10; $i++) {
       Start-Sleep -Milliseconds 60
-      Move ([int]($x1 + ($x2 - $x1) * $i / 10)) ([int]($y1 + ($y2 - $y1) * $i / 10))
+      MoveMouse ([int]($x1 + ($x2 - $x1) * $i / 10)) ([int]($y1 + ($y2 - $y1) * $i / 10))
     }
     Start-Sleep -Milliseconds 200
     [W]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
   }
   'front' {
     $h = Editor
-    if ($h -ne [IntPtr]::Zero) { [W]::SetForegroundWindow($h) | Out-Null }
+    if ($h -eq [IntPtr]::Zero) { return }
+    [W]::SetForegroundWindow($h) | Out-Null
+    # on the runner's small screen REAPER can open the editor hanging off it, grip included: move it
+    # into the corner (SWP_NOSIZE | SWP_NOZORDER)
+    $r = New-Object W+RECT
+    [W]::GetWindowRect($h, [ref]$r) | Out-Null
+    $work = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    if ($r.R -gt $work.Right -or $r.B -gt $work.Bottom) {
+      [W]::SetWindowPos($h, [IntPtr]::Zero, $work.Left, $work.Top, 0, 0, 0x0001 -bor 0x0004) | Out-Null
+      Start-Sleep -Milliseconds 500
+    }
   }
   # REAPER's questions and its nag: answers one, and says what it asked
   'dialogs' {
-    $answers = @('No', 'Still Evaluating', 'Still evaluating', 'I agree', 'OK')
+    $answers = @('No', 'Still Evaluating', 'Still evaluating', 'I agree', 'OK', 'Close')
     foreach ($top in Tops) {
       if ([W]::Class($top) -ne '#32770') { continue }
       $buttons = @{}
@@ -124,6 +136,12 @@ switch ($command) {
   }
   'nag' {
     foreach ($h in Tops) { if ([W]::Text($h) -like 'About REAPER*') { 'open'; return } }
+  }
+  # the runner's own console window can come up over a REAPER started later, which Windows won't
+  # let take the foreground from it: minimize everything first
+  'clear' {
+    (New-Object -ComObject Shell.Application).MinimizeAll()
+    Start-Sleep -Milliseconds 500
   }
   'windows' {
     foreach ($h in Tops) { "$([W]::Class($h)) | $([W]::Text($h))" }

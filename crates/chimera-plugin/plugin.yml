@@ -1,6 +1,7 @@
 # Copy of .github/workflows/plugin.yml: the agents' GitHub App can't write that folder, so changes
 # are staged here for the owner to paste. Each job only calls scripts in crates/chimera-plugin, so
-# it should rarely change. The Windows job (windows/ci.sh) is left out until that build ships.
+# it should rarely change. The Windows job runs on every push but isn't released yet: the release
+# job doesn't wait for it.
 name: plugin
 
 on:
@@ -141,6 +142,47 @@ jobs:
           name: chimera-host-test-linux
           path: |
             target/host-test/*.wav
+            target/host-test/*.log
+          if-no-files-found: ignore
+
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # the editor's page embeds the engine built for the browser (bun run build)
+          targets: wasm32-unknown-unknown
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test, build, install, validate, and play it in REAPER
+        run: crates/chimera-plugin/windows/ci.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chimera-plugin-windows
+          path: out/CHIMERA-windows.zip
+          if-no-files-found: ignore
+
+      # what the host test rendered and saw, to listen to and look at
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chimera-host-test-windows
+          path: |
+            target/host-test/*.wav
+            target/host-test/*.jpg
             target/host-test/*.log
           if-no-files-found: ignore
 

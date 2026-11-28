@@ -60,8 +60,9 @@ struct WindowHost {
     webview: Weak<RefCell<Option<WebView>>>,
     /// the window's size and the pointer's place when the drag began (logical, y downwards)
     drag: Mutex<Option<((u32, u32), (f64, f64))>>,
-    /// the view size and the monitor's scale the page's zoom was set for
-    zoomed_for: Mutex<((u32, u32), u32)>,
+    /// the view size and the monitor's scale the page's zoom was set for; None from when the page
+    /// (re)loads until its next poll, because WebView2 puts the zoom back to 1 when a page loads
+    zoomed_for: Mutex<Option<((u32, u32), u32)>>,
     /// polls until the view's size is taken as the window's
     settling: Mutex<u32>,
 }
@@ -147,6 +148,9 @@ impl ParamHost for WindowHost {
             platform::edit(webview, action);
         }
     }
+    fn page_loaded(&self) {
+        *self.zoomed_for.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
     /// The page's zoom follows the host's view, whichever way that came to change, and once the
     /// grip has settled the view's size is the window's: a host may have refused or clamped it.
     fn tick(&self) {
@@ -159,7 +163,7 @@ impl ParamHost for WindowHost {
             }
         }
         drop(settling);
-        let key = (now, platform::monitor_dpi(self.view));
+        let key = Some((now, platform::monitor_dpi(self.view)));
         let mut zoomed_for = self.zoomed_for.lock().unwrap_or_else(|e| e.into_inner());
         if *zoomed_for != key {
             let Some(cell) = self.webview.upgrade() else { return };
@@ -241,7 +245,7 @@ impl Editor for WebEditor {
         let Some(view) = platform::view(parent) else { return Box::new(()) };
         let size = self.size();
         let webview = Rc::new(RefCell::new(None));
-        let host = WindowHost { host: GuiHost::new(self.params.clone(), context), params: self.params.clone(), view, scale: self.scale.clone(), webview: Rc::downgrade(&webview), drag: Mutex::new(None), zoomed_for: Mutex::new((size, platform::monitor_dpi(view))), settling: Mutex::new(0) };
+        let host = WindowHost { host: GuiHost::new(self.params.clone(), context), params: self.params.clone(), view, scale: self.scale.clone(), webview: Rc::downgrade(&webview), drag: Mutex::new(None), zoomed_for: Mutex::new(None), settling: Mutex::new(0) };
         let bridge = Arc::new(Bridge::new(self.params.clone(), self.shared.clone(), Box::new(host)));
         let keep = platform::open(view, size, scale_of(&self.scale), bridge.clone(), webview.clone());
         Box::new(Open { bridge, _webview: webview, _keep: keep })

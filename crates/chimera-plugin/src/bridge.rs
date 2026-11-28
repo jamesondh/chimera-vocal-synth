@@ -84,6 +84,8 @@ pub trait ParamHost: Send + Sync {
     fn edit(&self, _action: EditAction) {}
     /// Called for every poll, on the main thread.
     fn tick(&self) {}
+    /// The page asked for the whole state, as it does whenever it loads (a reload too).
+    fn page_loaded(&self) {}
 }
 
 /// [`ParamHost`] through nih-plug's connection to the host.
@@ -196,7 +198,10 @@ impl Bridge {
     pub fn request(&self, path: &str) -> Reply {
         match path {
             "/poll" => Reply { status: 200, mime: "application/octet-stream", body: Cow::Owned(self.poll()) },
-            "/state" => self.state(),
+            "/state" => {
+                self.host.page_loaded();
+                self.state()
+            }
             "/params" => Reply::json(&self.param_values()),
             "/syllables" => Reply::json(&*self.shared.syllables.lock().unwrap_or_else(|e| e.into_inner())),
             "/speech" => Reply::json(&self.speech_lines()),

@@ -52,7 +52,8 @@ are multiplied at the edges. WebView2 comes with Windows 10 and 11. It keeps its
 executable unless told otherwise, which a host in Program Files can't write to, so it's told
 `%LOCALAPPDATA%\CHIMERA\WebView2`. Unlike WKWebView it doesn't follow its parent's size, so `tick`
 sets its bounds when the window changes. It scales the page by the monitor's DPI, and a host may pick
-another scale for the editor (100 % on a 150 % monitor), so the zoom also undoes the difference. wry serves the custom protocol as `http://chimera.localhost/`
+another scale for the editor (100 % on a 150 % monitor), so the zoom also undoes the difference. WebView2 puts the zoom back to 1 when a page loads (or reloads), so
+the page's request for the whole state marks it unset, and its next poll sets it again. wry serves the custom protocol as `http://chimera.localhost/`
 there, which the navigation handler allows. The screen that the window has to fit is the pointer's,
 because the host asks the size before there's a window.
 
@@ -487,6 +488,14 @@ on Linux), checks the archive's SHA-256 and, on macOS, every bundle's signature 
 and installs into `~/Library/Audio/Plug-Ins` or `~/.clap` and `~/.vst3`, so it needs no password.
 `curl` doesn't quarantine what it downloads; the bundles are notarised for a browser's download.
 `install-test.sh` runs it on CI on both systems, against each build's own archive served as `file://`.
+
+Windows isn't in a release yet. Its CI job makes `CHIMERA-windows.zip` (`windows/build.sh --package`): a
+`CHIMERA` folder with the CLAP, the VST3 bundle, the licences, `How to install.txt`, and `Install
+CHIMERA.cmd` and `Uninstall CHIMERA.cmd`, which run `install.ps1`. It installs into Common Files\CLAP
+and Common Files\VST3, where every Windows DAW looks, after asking for an administrator once; per-user
+folders would need none, but not every DAW scans them. `windows/ci.sh` runs it from the zip, twice, and
+the host test plays what it installed. For testers, the zip goes in a pre-release, which
+`releases/latest` skips.
 
 The Linux build is made on Ubuntu 22.04, so it needs glibc 2.35 at most: built on a newer system, the
 VST3 SDK's C++ calls glibc 2.38's `__isoc23_sscanf`, which Ubuntu 22.04 and Debian 12 lack. `linux/ci.sh`

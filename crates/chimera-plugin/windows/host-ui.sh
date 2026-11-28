@@ -4,7 +4,7 @@
 WITH_EDITOR=1
 CHECK_FORMATS=CLAP,VST3
 # REAPER's toolbar above the editor, in the client area of its window (pixels)
-CHROME=30
+CHROME=27
 GRIP_INSET=16
 RATE=48000
 NAG=1
@@ -43,21 +43,35 @@ install_reaper() {
   curl -fsSL -o "$work/reaper-install.exe" "https://www.reaper.fm/files/7.x/reaper${reaper_version}_x64-install.exe"
   echo "$reaper_sha  $work/reaper-install.exe" | sha256sum -c -
   # Git Bash would turn /S into a path, and the installer would wait for someone to click through it
-  MSYS_NO_PATHCONV=1 "$work/reaper-install.exe" /S
+  # It exits 1223 (ERROR_CANCELLED; bash sees 199) even when it installed, so whether reaper.exe is
+  # there is the test.
+  local code=0
+  MSYS_NO_PATHCONV=1 "$work/reaper-install.exe" /S || code=$?
+  echo "REAPER's installer exited $code"
   for _ in $(seq 1 60); do
     [ -e "$reaper_exe" ] && break
     sleep 1
   done
-  [ -e "$reaper_exe" ] || { echo "REAPER didn't install"; return 1; }
+  [ -e "$reaper_exe" ] || { echo "REAPER didn't install"; ls -d /c/Program\ Files*/REAPER* 2>&1; return 1; }
+}
+
+# REAPER on Dummy Audio ([audioconfig] mode 4, found by starting REAPER with each mode and asking
+# GetAudioDeviceInfo("MODE")): the runner has no sound card, and without a running device the plugin
+# doesn't process until a render starts, so a mode clicked in the editor reached REAPER's latency only
+# then, and the bounce lost its first beat.
+audio_config() {
+  printf '[audioconfig]\nmode=4\ndummy_srate=%s\n' "$RATE" >"$config/REAPER.ini"
 }
 
 fresh_config() {
   rm -rf "$config"
   mkdir -p "$config/Scripts"
+  audio_config
   cp "$here/host-test/host_test.lua" "$config/Scripts/__startup.lua"
 }
 
 start_reaper() {
+  ui clear || true
   env -u GH_TOKEN "$reaper_exe" -nosplash >>"$out/reaper.log" 2>&1 &
   reaper_pid=$!
 }

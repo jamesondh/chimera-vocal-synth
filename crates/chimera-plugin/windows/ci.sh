@@ -11,7 +11,21 @@ cargo test -p chimera-plugin --release
 echo "::endgroup::"
 
 echo "::group::build"
-"$here/windows/build.sh" --install --package
+"$here/windows/build.sh" --package
+echo "::endgroup::"
+
+# The zip's installer, run as a tester would (CI is already an administrator, so no prompt), twice:
+# onto nothing, then over itself. The host test below plays what it installed.
+common=$(cygpath -u "${COMMONPROGRAMFILES:-C:\\Program Files\\Common Files}")
+installer() { # "Install CHIMERA.cmd" or "Uninstall CHIMERA.cmd"
+  powershell.exe -NoProfile -Command "& '$(cygpath -w "$tools/zip/CHIMERA/$1")' -NoPause; exit \$LASTEXITCODE" | tr -d '\r'
+}
+echo "::group::the zip's installer"
+unzip -q out/CHIMERA-windows.zip -d "$tools/zip"
+installer "Install CHIMERA.cmd"
+installer "Install CHIMERA.cmd"
+cmp "$tools/zip/CHIMERA/CHIMERA.clap" "$common/CLAP/CHIMERA.clap"
+cmp "$tools/zip/CHIMERA/CHIMERA.vst3/Contents/x86_64-win/CHIMERA.vst3" "$common/VST3/CHIMERA.vst3/Contents/x86_64-win/CHIMERA.vst3"
 echo "::endgroup::"
 
 echo "::group::clap-validator"
@@ -33,4 +47,12 @@ echo "::endgroup::"
 
 echo "::group::REAPER"
 "$here/host-test/run.sh"
+echo "::endgroup::"
+
+echo "::group::the zip's uninstaller"
+installer "Uninstall CHIMERA.cmd"
+if [ -e "$common/CLAP/CHIMERA.clap" ] || [ -e "$common/VST3/CHIMERA.vst3" ]; then
+  echo "the uninstaller left CHIMERA in $common" >&2
+  exit 1
+fi
 echo "::endgroup::"

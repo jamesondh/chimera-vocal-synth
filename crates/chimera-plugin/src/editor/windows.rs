@@ -63,6 +63,11 @@ pub fn pointer(scale: f64) -> (f64, f64) {
     (at.x as f64 / scale, at.y as f64 / scale)
 }
 
+/// The host window's borders, left and right and at the bottom, which macOS windows don't have (logical
+/// pixels, with a little to spare). Without them REAPER kept its window on a 1024-wide screen by
+/// cutting 16 px off the editor's right side, grip included.
+const FRAME: (f64, f64) = (24.0, 24.0);
+
 /// A size that fits on the screen in use, host's window included, even below the usual minimum: a
 /// window hanging off the screen would have its grip there too. The screen is the pointer's: the
 /// editor is asked its size before it has a window, just after it was opened from there.
@@ -80,7 +85,7 @@ pub fn fit_screen((width, height): (u32, u32), scale: f64) -> (u32, u32) {
         info.rcWork
     };
     let (room_w, room_h) = ((room.right - room.left) as f64 / scale, (room.bottom - room.top) as f64 / scale);
-    (width.min(room_w.max(0.0) as u32).max(1), height.min((room_h - HOST_CHROME).max(0.0) as u32).max(1))
+    (width.min((room_w - FRAME.0).max(0.0) as u32).max(1), height.min((room_h - HOST_CHROME - FRAME.1).max(0.0) as u32).max(1))
 }
 
 pub fn after_build(webview: &WebView, size: (u32, u32)) {
