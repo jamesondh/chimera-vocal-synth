@@ -8,11 +8,11 @@ import { gunzipSync } from "node:zlib";
 import { initEngine } from "./harness.ts";
 
 await initEngine();
-// the real engine's module needs the bundler for its worklet; this only needs a clock
+// Stub playback so the speech entry points can run without the worklet bundler.
 let clock = 0;
-mock.module("../src/audio/AudioEngine.ts", () => ({ engine: { onPlanned: () => () => undefined, voiceClock: () => clock } }));
+mock.module("../src/audio/AudioEngine.ts", () => ({ engine: { onPlanned: () => () => undefined, voiceClock: () => clock, schedule: () => 1 } }));
 const { EnglishG2P, planPhrases } = await import("../src/wasm/engine.ts");
-const { followSpoken, spokenWordNow, currentPlan } = await import("../src/ui/speech.ts");
+const { followSpoken, spokenWordNow, currentPlan, speakText } = await import("../src/ui/speech.ts");
 const { wordSpans } = await import("../src/ui/words.ts");
 
 const g2p = new EnglishG2P();
@@ -80,4 +80,16 @@ test("a reply that arrives after the next line started is dropped", async () => 
   await slow;
   expect(currentPlan()?.id).toBe(11);
   expect(currentPlan()?.offset).toBe(T0 + 1);
+});
+
+test("Speak keeps the weak vowel and unaspirated coda in IPA without a phrase separator", async () => {
+  const spoken = await speakText("ˈætʌˌtʰɔn", { ipa: true, body: { female: 1, child: 0 }, rate: 1, f0: 200 });
+  expect(spoken).not.toBeNull();
+  const { plan } = spoken!;
+  expect(plan.segments.map((s) => s.ipa)).toEqual(["æ", "t", "ʌ", "t", "ɔ", "n"]);
+  const [, coda, vowel] = plan.segments;
+  expect(vowel.t0).toBeCloseTo(coda.t1, 8);
+  const aspiration = plan.gestures.filter((g) => g.label === "aspiration").map((g) => g.targets.abduction);
+  expect({ vowelMs: Math.round((vowel.t1 - vowel.t0) * 1000), aspiration })
+    .toEqual({ vowelMs: 100, aspiration: [0.22, 0.36] });
 });

@@ -40,9 +40,9 @@ fn ipa_phrases(text: &str) -> Vec<Phrase> {
     text.split(['|', '.', '?', '!']).map(str::trim).filter(|p| !p.is_empty()).map(|p| Phrase { segments: tokenize_ipa(p), intonation: Intonation::Statement, pause: 0.3, words: Vec::new() }).collect()
 }
 
-fn plan(text: &str, phrases: Vec<Phrase>, body: BodyMix, rate: f64) -> SpokenLine {
+fn plan(text: &str, phrases: Vec<Phrase>, body: BodyMix, rate: f64, english_speech: bool) -> SpokenLine {
     let input: Vec<PhraseInput> = phrases.iter().map(|p| PhraseInput { segments: p.segments.clone(), intonation: Some(p.intonation), pause: Some(p.pause) }).collect();
-    let plan = plan_phrases(&input, &PlanOptions { body, t0: 0.0, rate: Some(rate), f0: Some(default_f0(body)), ..Default::default() });
+    let plan = plan_phrases(&input, &PlanOptions { body, t0: 0.0, rate: Some(rate), f0: Some(default_f0(body)), english_speech, ..Default::default() });
     SpokenLine { text: text.to_string(), phrases, plan }
 }
 
@@ -52,7 +52,7 @@ pub fn plan_lines(s: &SpeechSettings, body: BodyMix, g2p: &EnglishG2P) -> Vec<Sp
     for line in s.text.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let phrases = if s.ipa { ipa_phrases(line) } else { g2p.to_phrases(line) };
         if !phrases.is_empty() {
-            lines.push(plan(line, phrases, body, s.rate));
+            lines.push(plan(line, phrases, body, s.rate, true));
         }
     }
     lines
@@ -60,5 +60,5 @@ pub fn plan_lines(s: &SpeechSettings, body: BodyMix, g2p: &EnglishG2P) -> Vec<Sp
 
 /// One sound from the consonant chart, in flat intonation, as on the website.
 pub fn plan_pad(ipa: &str, body: BodyMix, rate: f64) -> SpokenLine {
-    plan(ipa, vec![Phrase { segments: tokenize_ipa(ipa), intonation: Intonation::Flat, pause: 0.25, words: Vec::new() }], body, rate)
+    plan(ipa, vec![Phrase { segments: tokenize_ipa(ipa), intonation: Intonation::Flat, pause: 0.25, words: Vec::new() }], body, rate, false)
 }

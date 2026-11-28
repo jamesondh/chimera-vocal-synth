@@ -155,6 +155,7 @@ pub fn speech(ctx: &Ctx, a: &[String]) -> Result<(), String> {
                 body: body_name.into(),
                 t0,
                 f0: Some(f0),
+                english_speech: true,
                 ..Default::default()
             },
         );
@@ -198,11 +199,11 @@ pub fn text_f0(body_name: &str) -> f64 {
 /// Say `text` the way `render text` does: CMUdict G2P, the phrase planner from t0 = 50 ms, the
 /// body's speaking f0, 300 ms of tail. `chimera compare tsp` measures exactly these renders.
 pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String> {
-    say_phrases(&g.to_phrases(text), body_name)
+    say_phrases(&g.to_phrases(text), body_name, true)
 }
 
 /// Say phrases from any G2P the way `render text` does (see [`say`]).
-pub fn say_phrases(phrases: &[Phrase], body_name: &str) -> Result<Spoken, String> {
+fn say_phrases(phrases: &[Phrase], body_name: &str, english_speech: bool) -> Result<Spoken, String> {
     let b = body(body_name)?;
     let f0 = text_f0(body_name);
     let shown: Vec<String> = phrases
@@ -236,6 +237,7 @@ pub fn say_phrases(phrases: &[Phrase], body_name: &str) -> Result<Spoken, String
             body: body_name.into(),
             t0: 0.05,
             f0: Some(f0),
+            english_speech,
             ..Default::default()
         },
     );
@@ -272,7 +274,7 @@ pub fn turkish(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let name = arg(a, 0, "out/turkish");
     let text = arg(a, 1, "Merhaba, nasılsın?");
     let body_name = arg(a, 2, "male");
-    let s = say_phrases(&turkish::to_phrases(text), body_name)?;
+    let s = say_phrases(&turkish::to_phrases(text), body_name, false)?;
     println!("{}", s.shown);
     let file = wav_name(name);
     ctx.write_wav(&file, &s.out)?;
