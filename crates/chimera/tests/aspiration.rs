@@ -1,5 +1,5 @@
 //! Aspiration is the front end's call: a segment may say whether a voiceless stop or affricate is
-//! aspirated (IPA ʰ / ˭); unsaid, the planner keeps English's rule. The sing planner keeps the flag.
+//! aspirated (IPA ʰ / ˭). English speech opts into contextual defaults. Singing keeps the flag.
 use chimera::anatomy::human::BodyMix;
 use chimera::control::score::{ControlKey, Gesture};
 use chimera::phonetics::ipa::tokenize_ipa;
@@ -14,7 +14,7 @@ fn aspiration(gs: &[Gesture]) -> f64 {
 }
 
 fn say(segs: Vec<Segment>) -> f64 {
-    aspiration(&plan_utterance(&segs, &PlanOptions { body: BodyMix::MALE, ..Default::default() }).gestures)
+    aspiration(&plan_utterance(&segs, &PlanOptions { body: BodyMix::MALE, english_speech: true, ..Default::default() }).gestures)
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn sung_onsets_keep_the_flag() {
 }
 
 fn aspir_abd_on(ipa: &str, stop_index: usize) -> f64 {
-    let plan = plan_utterance(&tokenize_ipa(ipa), &PlanOptions { body: BodyMix::MALE, ..Default::default() });
+    let plan = plan_utterance(&tokenize_ipa(ipa), &PlanOptions { body: BodyMix::MALE, english_speech: true, ..Default::default() });
     let stop = plan.gestures.iter().filter(|g| g.label_str() == "aspiration").nth(stop_index).unwrap();
     stop.targets.get(ControlKey::ABDUCTION).unwrap()
 }
@@ -53,11 +53,10 @@ fn english_skips_aspiration_before_unstressed_medial_vowel() {
     assert_eq!(aspir_abd_on("pa", 0), 0.36);
     assert_eq!(aspir_abd_on("aɪ pa", 0), 0.36);
     // coda / medial stop before unstressed ʌ: unaspirated (abd 0.22)
-    assert_eq!(aspir_abd_on("ˈæt.ʌˌtʰɔn", 0), 0.22);
     assert_eq!(aspir_abd_on("ˈætʌˌtʰɔn", 0), 0.22);
     // explicit ʰ on the stressed onset still aspirates
-    assert_eq!(aspir_abd_on("ˈæt.ʌˌtʰɔn", 1), 0.36);
-    assert_eq!(aspir_abd_on("ˈætʰ.ʌˌtɔn", 0), 0.36);
+    assert_eq!(aspir_abd_on("ˈætʌˌtʰɔn", 1), 0.36);
+    assert_eq!(aspir_abd_on("ˈætʰʌˌtɔn", 0), 0.36);
     // before a stressed vowel, English aspirates
     assert_eq!(aspir_abd_on("ˈætˈʌ", 0), 0.36);
     // A marked VOT keeps the front end on the original aspiration path.
@@ -70,7 +69,7 @@ fn english_skips_aspiration_before_unstressed_medial_vowel() {
 /// next stop starts to close.
 #[test]
 fn unstressed_vowel_between_stops_keeps_a_nucleus() {
-    let plan = plan_utterance(&tokenize_ipa("ˈæt.ʌˌtʰɔn"), &PlanOptions { body: BodyMix::FEMALE, ..Default::default() });
+    let plan = plan_utterance(&tokenize_ipa("ˈætʌˌtʰɔn"), &PlanOptions { body: BodyMix::FEMALE, english_speech: true, ..Default::default() });
     let v = plan.segments.iter().find(|s| s.ipa == "ʌ").expect("ʌ");
     let dur = v.t1 - v.t0;
     assert!((dur - 0.1).abs() < 1e-9, "ʌ duration {:.2} ms", 1000.0 * dur);
@@ -82,4 +81,41 @@ fn unstressed_vowel_between_stops_keeps_a_nucleus() {
         .min_by(f64::total_cmp)
         .expect("the second stop closes into the vowel");
     assert!(next_closure - release >= 0.04, "less than 40 ms between aspiration and closure");
+}
+
+#[test]
+fn english_onsets_respect_s_clusters_and_boundaries() {
+    assert_eq!(aspir_abd_on("aˈskɹæ", 0), 0.22);
+    assert_eq!(aspir_abd_on("qa", 0), 0.36); // a single IPA stop needs no cluster lookup
+    assert_eq!(aspir_abd_on("s pɹa", 0), 0.36);
+    assert_eq!(aspir_abd_on("ˈæt ˈʌ", 0), 0.22);
+    assert_eq!(aspir_abd_on("ˈæt,ˈʌ", 0), 0.22);
+    assert_eq!(aspir_abd_on("ˈætɫˈʌ", 0), 0.22); // /tl/ is not an English onset
+}
+
+#[test]
+fn english_speech_timing_is_opt_in_and_excludes_sung_and_open_ended_plans() {
+    let segs = tokenize_ipa("ˈætʌˌtʰɔn");
+    let base = PlanOptions { body: BodyMix::FEMALE, ..Default::default() };
+    for options in [
+        base.clone(),
+        PlanOptions { english_speech: true, sung: Some(true), ..base.clone() },
+        PlanOptions { english_speech: true, open_end: Some(true), ..base.clone() },
+    ] {
+        let plan = plan_utterance(&segs, &options);
+        let v = &plan.segments[2];
+        let dur = v.t1 - v.t0;
+        assert!((dur - 0.058_588_56).abs() < 1e-9, "ʌ duration {:.4} ms", 1000.0 * dur);
+        assert_eq!(aspiration(&plan.gestures), 0.36);
+    }
+}
+
+#[test]
+fn weak_vowel_floor_includes_affricates() {
+    let segs = tokenize_ipa("ˈætʃʌˌdʒɔn");
+    let options = PlanOptions { body: BodyMix::FEMALE, english_speech: true, ..Default::default() };
+    let plan = plan_utterance(&segs, &options);
+    let v = &plan.segments[2];
+    assert_eq!(v.ipa, "ʌ");
+    assert!((v.t1 - v.t0 - 0.1).abs() < 1e-9);
 }

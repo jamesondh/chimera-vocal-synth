@@ -6,8 +6,9 @@
 //! [`oral_gestures_into`] (the beat sequencer) build into a caller's `Vec` and allocate nothing
 //! once it has capacity, for up to [`INLINE_SEGMENTS`] segments.
 
-use super::durations::{SegInfo, klatt_durations};
+use super::durations::{SegInfo, speech_durations};
 use super::inventory::{Glottal, Manner, PhonemeDef, Voicing, dental_closure, phoneme};
+use super::syllables::is_english_onset;
 use super::{Intonation, Plan, PlannedSegment, Segment};
 use crate::anatomy::human::{ArticKey, ArticPatch, BodyMix, BodyName};
 use crate::control::score::{ControlKey, Gesture, Targets};
@@ -234,6 +235,9 @@ pub struct PlanOptions {
     /// fit short notes. Speech and live notes leave it unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sung: Option<bool>,
+    /// English speech or plain IPA Speak input: contextual aspiration and weak-vowel timing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub english_speech: bool,
 }
 
 /// JS truthiness of an optional number (`if (s.f0)`: 0 and NaN are false).
@@ -349,27 +353,48 @@ struct Span {
     t1: f64,
 }
 
+/// Whether this stop starts a word/component onset or a stressed syllable's onset.
+fn english_stop_aspirates(input: &[Segment], i: usize, body: BodyMix) -> bool {
+    let word_initial = i == 0 || input[i].component_start
+        || input[i - 1].word_end == Some(true) || input[i - 1].ipa == "_";
+    for j in i + 1..input.len() {
+        let next = &input[j];
+        if input[j - 1].word_end == Some(true) || next.component_start || next.ipa == "_" {
+            break;
+        }
+        if is_vowel(&next.ipa, body) {
+            let after_onset_s = !word_initial && input[i - 1].ipa == "s"
+                && is_english_onset(&input[i - 1..j]);
+            return (word_initial || next.stress.unwrap_or(0) > 0) && !after_onset_s;
+        }
+        // Longer English onsets extend legal shorter clusters.
+        if !is_english_onset(&input[i..=j]) {
+            break;
+        }
+    }
+    false
+}
+
 pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
     let body = o.body;
+    let english_speech = o.english_speech && o.sung != Some(true) && o.open_end != Some(true);
     // durations by the Klatt rules, on whole segments (diphthongs before they are split)
-    let durs = klatt_durations(input, |s| {
+    let durs = speech_durations(input, |s| {
         if is_vowel(&s.ipa, body) {
             return SegInfo { vowel: true, ..Default::default() };
         }
         let d = phoneme(&s.ipa, body);
         SegInfo { vowel: false, manner: d.map(|d| d.manner), voiced: Some(d.is_some_and(|d| d.voicing == Voicing::Voiced)), dur: d.map(|d| d.dur) }
-    });
+    }, english_speech);
     let timed = input.iter().zip(&durs).enumerate().map(|(i, (s, d))| {
         // Resolve English's contextual default before expanding diphthongs. Timed singing
         // and live notes keep their existing release rule, as do front ends with their own timing.
         let aspirated = s.aspirated.or_else(|| {
-            if o.sung == Some(true) || o.open_end == Some(true) || s.non_english || s.vot.is_some() {
+            if !english_speech || s.vot.is_some() {
                 return None;
             }
             let stop = phoneme(&s.ipa, body).is_some_and(|p| p.manner == Manner::Stop && p.voicing == Voicing::Voiceless);
-            let word_initial = i == 0 || input[i - 1].word_end == Some(true) || input[i - 1].ipa == "_";
-            let next_stressed = input.get(i + 1).is_some_and(|n| n.stress.unwrap_or(0) > 0);
-            (stop && (s.word_end == Some(true) || !(word_initial || next_stressed))).then_some(false)
+            stop.then(|| english_stop_aspirates(input, i, body))
         });
         TimedSegment {
             ipa: &s.ipa,

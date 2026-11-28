@@ -200,7 +200,15 @@ impl EnglishG2P {
         }
         // hyphenated compounds
         if clean.contains('-') {
-            return clean.split('-').flat_map(|p| self.word(p, reduce)).collect();
+            let mut segments = Vec::new();
+            for part in clean.split('-') {
+                let mut component = self.word(part, reduce);
+                if reduce && !segments.is_empty() && let Some(first) = component.first_mut() {
+                    first.component_start = true;
+                }
+                segments.append(&mut component);
+            }
+            return segments;
         }
         letter_to_sound(clean)
     }
@@ -275,7 +283,7 @@ fn apply_allophones(segs: &mut [Segment]) {
         let s = &mut segs[i];
         // /t d/ between a vowel and an unstressed vowel → tap ("water", "ladder", "got it"), but not
         // at the start of a word ("were disputing" keeps its /d/)
-        if (s.ipa == "t" || s.ipa == "d") && pv && nv && !next_stressed && !prev_word_end {
+        if (s.ipa == "t" || s.ipa == "d") && pv && nv && !next_stressed && !prev_word_end && !s.component_start {
             s.ipa = "ɾ".into();
         }
     }

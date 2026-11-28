@@ -109,6 +109,10 @@ pub struct SegInfo {
 
 /// Durations (s) for one phrase of segments (explicit `dur` values are kept).
 pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> Vec<f64> {
+    speech_durations(segs, info, false)
+}
+
+pub(super) fn speech_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo, english_speech: bool) -> Vec<f64> {
     let n = segs.len();
     let inf: Vec<SegInfo> = segs.iter().map(info).collect();
     // words: index ranges split after wordEnd
@@ -198,9 +202,10 @@ pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> 
                 }
                 // Leave a short English nucleus room to voice between the preceding release
                 // and the early closure of the next stop.
-                let after_voiceless_stop = pv.is_some_and(|pv| matches!(pv.manner, Some(Manner::Stop | Manner::Affricate)) && pv.voiced != Some(true));
-                let before_stop = i + 1 < n && matches!(inf[i + 1].manner, Some(Manner::Stop | Manner::Affricate));
-                if !s.non_english && stress == 0 && after_voiceless_stop && before_stop {
+                if english_speech && stress == 0
+                    && pv.is_some_and(|pv| matches!(pv.manner, Some(Manner::Stop | Manner::Affricate)) && pv.voiced != Some(true))
+                    && inf.get(i + 1).is_some_and(|nx| matches!(nx.manner, Some(Manner::Stop | Manner::Affricate)))
+                {
                     d = d.max(BETWEEN_STOPS_MIN_MS);
                 }
                 return d / 1000.0;

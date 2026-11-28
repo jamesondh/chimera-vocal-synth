@@ -385,7 +385,7 @@ fn parse(typed: &str, phrase_initial: bool) -> Parsed {
 /// name.
 pub fn word(typed: &str, phrase_initial: bool) -> Vec<Segment> {
     let p = parse(typed, phrase_initial);
-    p.phones.iter().map(|ph| Segment { non_english: true, ..p.segment(ph) }).collect()
+    p.phones.iter().map(|ph| p.segment(ph)).collect()
 }
 
 /// One word's sung syllables, split where Turkish spelling splits them: a consonant before a vowel

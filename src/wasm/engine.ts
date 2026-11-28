@@ -187,6 +187,8 @@ export interface PlanOptions {
   /** a sung phrase (planSong sets it): consonants given a pitch hold it, and pitch ramps shrink
    *  to fit short notes */
   sung?: boolean;
+  /** contextual aspiration and weak-vowel timing for English speech or plain IPA Speak input */
+  englishSpeech?: boolean;
 }
 
 export function planUtterance(segments: Segment[], options: PlanOptions): Plan {

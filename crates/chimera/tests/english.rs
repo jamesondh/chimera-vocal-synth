@@ -67,3 +67,36 @@ fn words_that_are_also_object_property_names_do_not_break_the_front_end() {
     assert!(!EnglishG2P::new().is_loaded());
     assert!(EnglishG2P::new().to_phrases("constructor")[0].segments.len() > 3); // no dictionary
 }
+
+#[test]
+fn speech_aspiration_follows_english_word_and_syllable_onsets() {
+    use chimera::control::score::ControlKey;
+    use chimera::phonetics::planner::{PlanOptions, plan_utterance};
+
+    for (text, expected) in [
+        ("apply", &[0.36][..]),
+        ("betray", &[0.36][..]),
+        ("play", &[0.36][..]),
+        ("up-to-go", &[0.22, 0.36][..]),
+        ("up to go", &[0.22, 0.36][..]),
+        ("actor", &[0.22, 0.22][..]),
+        ("doctor", &[0.22, 0.22][..]),
+        ("after", &[0.22][..]),
+        ("happy", &[0.22][..]),
+        ("upon", &[0.36][..]),
+        ("attack", &[0.36, 0.22][..]),
+    ] {
+        let phrases = g2p().to_phrases(text);
+        let p = &phrases[0];
+        assert_eq!(p.segments.iter().filter(|s| s.word_end == Some(true)).count(), text.split_whitespace().count(), "{text}");
+        let plan = plan_utterance(&p.segments, &PlanOptions { english_speech: true, ..Default::default() });
+        let aspiration: Vec<_> = plan.gestures.iter().filter(|g| g.label_str() == "aspiration")
+            .map(|g| g.targets.get(ControlKey::ABDUCTION).unwrap())
+            .collect();
+        assert_eq!(aspiration, expected, "{text}");
+    }
+
+    for text in ["city", "better"] {
+        assert!(g2p().to_phrases(text)[0].segments.iter().any(|s| s.ipa == "ɾ"), "{text}");
+    }
+}
